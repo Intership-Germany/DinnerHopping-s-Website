@@ -3,6 +3,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from .middleware.security import SecurityHeadersMiddleware
 from .middleware.rate_limit import SimpleRateLimitMiddleware
 import os
+
+# Compatibility shim: some bcrypt distributions expose `__version__` but not
+# `__about__.__version__`. passlib sometimes attempts to read
+# `bcrypt.__about__.__version__` and this can trigger noisy tracebacks.
+# Detect and populate a minimal `__about__` object from `__version__` if needed.
+try:
+    import bcrypt as _bcrypt
+    if not hasattr(_bcrypt, '__about__') and hasattr(_bcrypt, '__version__'):
+        class _About:
+            pass
+        _about = _About()
+        setattr(_about, '__version__', getattr(_bcrypt, '__version__'))
+        setattr(_bcrypt, '__about__', _about)
+except Exception:
+    # best-effort only; don't fail startup for environments without bcrypt
+    pass
 from .routers import users, events, admin, invitations
 from .routers import payments
 from .db import connect_to_mongo, close_mongo

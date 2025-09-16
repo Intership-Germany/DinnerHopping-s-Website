@@ -36,7 +36,7 @@
             <h1 class="text-3xl font-bold">My Account</h1>
             <div class="flex items-center gap-3">
                 <a href="#" class="text-sm font-semibold text-[#f46f47]">Edit</a>
-                <button class="p-2 rounded-full bg-[#f46f47] hover:bg-[#ff8c42] transition-colors" title="Logout">
+                <button id="logout-btn" class="p-2 rounded-full bg-[#f46f47] hover:bg-[#ff8c42] transition-colors" title="Logout">
                     <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1">
@@ -114,6 +114,44 @@
             </div>
         </div>
     </div>
+    <script>
+        (async function(){
+            const BACKEND_BASE = window.BACKEND_BASE_URL || 'http://localhost:8000';
+
+            const token = localStorage.getItem('dh_token');
+            if (!token) {
+                // not logged in — redirect to login
+                window.location.href = 'login.html';
+                return;
+            }
+            try {
+                // debug helper
+                if (!window.dbg) window.dbg = { logReq: (...a)=>console.log(...a) };
+                const res = await fetch(`${BACKEND_BASE}/me`, { headers: { 'Authorization': `Bearer ${token}` } });
+                const data = await res.json();
+                dbg.logReq('GET /me', { status: res.status, body: data });
+                if (!res.ok) {
+                    localStorage.removeItem('dh_token');
+                    window.location.href = 'login.html';
+                    return;
+                }
+                // populate fields
+                document.querySelector('input[disabled][type="text"]').value = data.name || '';
+                document.querySelector('input[disabled][type="email"]').value = data.email || '';
+                const addr = document.querySelectorAll('input[disabled][type="text"]')[1];
+                if (addr) addr.value = data.address || '';
+            } catch (err) {
+                console.error(err);
+                localStorage.removeItem('dh_token');
+                window.location.href = 'login.html';
+            }
+
+            document.getElementById('logout-btn').addEventListener('click', () => {
+                localStorage.removeItem('dh_token');
+                window.location.href = 'login.html';
+            });
+        })();
+    </script>
 </body>
 
 </html>

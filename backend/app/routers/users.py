@@ -26,7 +26,7 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
-@router.post('/register', response_model=UserOut)
+@router.post('/register', status_code=status.HTTP_201_CREATED)
 async def register(u: UserCreate):
     existing = await db_mod.db.users.find_one({"email": u.email})
     if existing:
@@ -47,7 +47,8 @@ async def register(u: UserCreate):
         await generate_and_send_verification(u.email)
     except Exception:
         pass
-    return UserOut(id=user_doc['id'], name=user_doc['name'], email=user_doc['email'], address=user_doc.get('address'), preferences=user_doc.get('preferences'))
+    # Respond to client that the user was created successfully
+    return {"message": "Utilisateur créé avec succès", "id": user_doc['id']}
 
 class LoginIn(BaseModel):
     username: EmailStr

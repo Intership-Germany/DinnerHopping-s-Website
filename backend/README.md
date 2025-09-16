@@ -31,6 +31,12 @@ Key environment variables (can be placed in a `.env` file or injected by Docker 
 - `ALLOWED_ORIGINS` — comma-separated CORS origins (default: `*`).
 - `STRIPE_API_KEY` — optional; when set the payments flow will create Stripe Checkout Sessions.
 - `STRIPE_WEBHOOK_SECRET` — optional; when set webhook requests will be verified.
+- `SMTP_HOST` — optional; hostname of SMTP server (e.g. `ssl0.ovh.net` for OVH mail).
+- `SMTP_PORT` — optional; SMTP port (587 for STARTTLS, 465 for SSL). Default: 587 when `SMTP_HOST` set.
+- `SMTP_USER` — SMTP username (usually the full email address).
+- `SMTP_PASS` — SMTP password.
+- `SMTP_FROM_ADDRESS` — from address used when sending verification emails (default: `info@acrevon.fr`).
+- `SMTP_USE_TLS` — `true`/`false` whether to use STARTTLS (default: `true`).
 
 ## High level API overview
 
@@ -150,6 +156,24 @@ curl -X GET http://localhost:8000/payments/<paymentId>/pay
 
 - The current implementation uses an in-memory rate limiter and prints emails to logs — both
 	should be replaced for production (use Redis or a proper rate limiter and a real email provider).
+
+SMTP / OVH example
+- To send real verification emails via OVH, configure the SMTP variables (do not commit credentials):
+
+```
+# .env (example - keep secrets out of source control)
+SMTP_HOST=ssl0.ovh.net
+SMTP_PORT=587
+SMTP_USER=info@acrevon.fr
+SMTP_PASS=YOUR_OVH_SMTP_PASSWORD
+SMTP_FROM_ADDRESS=info@acrevon.fr
+SMTP_USE_TLS=true
+BACKEND_BASE_URL=http://localhost:8000
+```
+
+With these set, registering a user will attempt to send the verification email via OVH SMTP. If
+sending fails (network, bad credentials), the service falls back to printing the verification URL
+to logs so you can still verify accounts in development.
 - For Stripe webhooks and strong idempotency you should run MongoDB as a replica set and/or
 	use provider metadata and transactions where appropriate.
 
