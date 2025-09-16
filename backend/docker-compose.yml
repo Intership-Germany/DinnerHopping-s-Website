@@ -1,0 +1,28 @@
+services:
+  mongo:
+    image: mongo:6.0
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/dinnerhopping
+      - JWT_SECRET=change-me
+      - ADMIN_TOKEN=admin-token-change-me
+    depends_on:
+      - mongo
+  mongo-init:
+    build: .
+    command: ["/bin/sh", "-c", "python3 scripts/import_csv_to_mongo.py --apply --mongo-uri=mongodb://mongo:27017/dinnerhopping"]
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/dinnerhopping
+    depends_on:
+      - mongo
+    restart: "no"
+volumes:
+  mongo-data:
