@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dinnerhopping - Your Student Dinner Event</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background-color: #f0f4f7;
+        }
+        .hero-gradient {
+            background-image: linear-gradient(135deg, #172a3a, #f46f47);
+        }
+    </style>
+</head>
+<body class="text-[#172a3a]">
+
+    <!-- Hero Section -->
+    <section class="hero-gradient min-h-screen flex flex-col items-center justify-center p-6 text-white text-center rounded-b-3xl shadow-xl">
+        <div class="absolute top-6 left-6">
+            <h1 class="text-2xl font-bold tracking-tight">Dinnerhopping</h1>
+        </div>
+        <div class="mt-16">
+            <h2 class="text-4xl font-bold mb-4 tracking-tight leading-tight">Hop your way to new friendships.</h2>
+            <p class="text-lg font-light mb-8 opacity-90">The ultimate student dinner party event.</p>
+            <div class="relative w-full max-w-sm mx-auto my-10">
+            </div>
+            <a href="login.html" class="inline-block px-8 py-4 font-bold text-[#172a3a] bg-white rounded-full transition-all duration-300 transform hover:scale-105 shadow-xl">Get Started</a>
+        </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section class="bg-white p-8 -mt-16 relative z-10 rounded-t-3xl shadow-lg">
+        <h3 class="text-3xl font-bold mb-8 text-center">How it works</h3>
+        <div class="space-y-6">
+            <!-- Step 1 -->
+            <div class="bg-gray-100 p-6 rounded-2xl shadow-sm text-center">
+                <div class="flex items-center justify-center mb-4">
+                    <div class="bg-[#f46f47] p-3 rounded-full">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                    </div>
+                </div>
+                <h4 class="text-xl font-semibold mb-2">Sign up</h4>
+                <p class="text-sm text-gray-600">Create your unique profile in a few simple steps.</p>
+            </div>
+            <!-- Step 2 -->
+            <div class="bg-gray-100 p-6 rounded-2xl shadow-sm text-center">
+                <div class="flex items-center justify-center mb-4">
+                    <div class="bg-[#008080] p-3 rounded-full">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    </div>
+                </div>
+                <h4 class="text-xl font-semibold mb-2">Get matched</h4>
+                <p class="text-sm text-gray-600">Our algorithm finds your perfect dinner group for the night.</p>
+            </div>
+            <!-- Step 3 -->
+            <div class="bg-gray-100 p-6 rounded-2xl shadow-sm text-center">
+                <div class="flex items-center justify-center mb-4">
+                    <div class="bg-[#ffc241] p-3 rounded-full">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m-1 4h1m8-16v16m-14 2h14"></path></svg>
+                    </div>
+                </div>
+                <h4 class="text-xl font-semibold mb-2">Dine & Hop</h4>
+                <p class="text-sm text-gray-600">Enjoy three courses at three different locations.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials Section -->
+    <section class="bg-[#f0f4f7] py-12 px-8">
+        <h3 class="text-3xl font-bold mb-8 text-center">What our students say</h3>
+        <div class="flex overflow-x-auto snap-x snap-mandatory space-x-4 pb-4">
+            <!-- Testimonial 1 -->
+            <div class="flex-shrink-0 w-full max-w-xs bg-white p-6 rounded-xl shadow-lg snap-center">
+                <p class="italic text-gray-600 mb-4">"I met so many incredible people! The concept is amazing and so well organized."</p>
+                <div class="flex items-center">
+                    <img class="w-10 h-10 rounded-full mr-4" src="https://placehold.co/40x40/008080/ffffff?text=A" alt="Avatar">
+                    <div>
+                        <p class="font-bold text-sm">Anna S.</p>
+                        <p class="text-xs text-gray-500">Göttingen</p>
+                    </div>
+                </div>
+            </div>
+            <!-- Testimonial 2 -->
+            <div class="flex-shrink-0 w-full max-w-xs bg-white p-6 rounded-xl shadow-lg snap-center">
+                <p class="italic text-gray-600 mb-4">"The perfect way to discover the city and its hidden gems. A truly unique experience!"</p>
+                <div class="flex items-center">
+                    <img class="w-10 h-10 rounded-full mr-4" src="https://placehold.co/40x40/f46f47/ffffff?text=B" alt="Avatar">
+                    <div>
+                        <p class="font-bold text-sm">Ben W.</p>
+                        <p class="text-xs text-gray-500">Berlin</p>
+                    </div>
+                </div>
+            </div>
+            <!-- Testimonial 3 -->
+            <div class="flex-shrink-0 w-full max-w-xs bg-white p-6 rounded-xl shadow-lg snap-center">
+                <p class="italic text-gray-600 mb-4">"I was a bit shy, but the atmosphere was so friendly. I felt right at home."</p>
+                <div class="flex items-center">
+                    <img class="w-10 h-10 rounded-full mr-4" src="https://placehold.co/40x40/172a3a/ffffff?text=C" alt="Avatar">
+                    <div>
+                        <p class="font-bold text-sm">Clara F.</p>
+                        <p class="text-xs text-gray-500">Munich</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-[#172a3a] text-white p-8 rounded-t-3xl shadow-xl">
+        <div class="text-center mb-6">
+            <h4 class="text-xl font-bold">Dinnerhopping</h4>
+            <p class="text-sm font-light opacity-80">Student Events</p>
+        </div>
+        <div class="flex justify-center space-x-6 mb-6">
+            <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">About</a>
+            <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">Contact</a>
+            <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">FAQ</a>
+        </div>
+    </footer>
+</body>
+</html>

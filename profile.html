@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dinnerhopping - My Account</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background-color: #f0f4f7;
+        }
+
+        .hero-gradient {
+            background-image: linear-gradient(135deg, #172a3a, #f46f47);
+        }
+    </style>
+</head>
+
+<body class="text-[#172a3a]">
+    <div id="app" class="min-h-screen">
+        <!-- Account Page Header -->
+        <div class="flex items-center justify-between mb-8 sticky top-0 bg-white z-15"
+            style="padding-top: 1rem; padding-bottom: 1rem; padding-left: 1.5rem; padding-right: 1.5rem; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+            <a href="#" onclick="history.back()" class="text-[#4c4c4c] flex items-center">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                </svg>
+                <span class="font-semibold">Back</span>
+            </a>
+            <h1 class="text-3xl font-bold">My Account</h1>
+            <div class="flex items-center gap-3">
+                <a href="#" class="text-sm font-semibold text-[#f46f47]">Edit</a>
+                <button class="p-2 rounded-full bg-[#f46f47] hover:bg-[#ff8c42] transition-colors" title="Logout">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Alert Banner for Incomplete Profile -->
+        <div class="w-full bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 flex items-center hidden"
+            role="alert">
+            <svg class="w-5 h-5 mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01">
+                </path>
+            </svg>
+            <span class="font-semibold">Your profile is incomplete.</span>
+            <span class="ml-2 text-sm">Please fill in all information to fully enjoy the service.</span>
+        </div>
+
+        <!-- Account Information Section -->
+        <div class="bg-white p-6 rounded-2xl shadow-lg mb-6">
+            <h2 class="text-xl font-bold mb-4">Personal Information</h2>
+            <div class="space-y-4">
+                <div class="flex flex-col">
+                    <label class="text-sm font-semibold text-gray-500">Full Name</label>
+                    <input type="text" value="Anna Meier"
+                        class="p-2 border-b border-gray-200 focus:outline-none focus:border-[#f46f47] transition-colors duration-300"
+                        disabled>
+                </div>
+                <div class="flex flex-col">
+                    <label class="text-sm font-semibold text-gray-500">Email</label>
+                    <input type="email" value="anna.meier@student.uni.goettingen.de"
+                        class="p-2 border-b border-gray-200 focus:outline-none focus:border-[#f46f47] transition-colors duration-300"
+                        disabled>
+                </div>
+                <div class="flex flex-col">
+                    <label class="text-sm font-semibold text-gray-500">Address</label>
+                    <input type="text" value="Bahnhofstraße, Göttingen"
+                        class="p-2 border-b border-gray-200 focus:outline-none focus:border-[#f46f47] transition-colors duration-300"
+                        disabled>
+                </div>
+            </div>
+        </div>
+
+        <!-- Food Preferences Section -->
+        <div class="bg-white p-6 rounded-2xl shadow-lg mb-6">
+            <h2 class="text-xl font-bold mb-4">Food Preferences</h2>
+            <p class="text-sm text-gray-600 mb-4">These are your default preferences for all events. You can adjust them
+                for each event you sign up for.</p>
+            <textarea class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none" rows="3"
+                disabled>Vegetarian, Lactose intolerant</textarea>
+        </div>
+
+        <!-- Event History Section -->
+        <div class="bg-white p-6 rounded-2xl shadow-lg mb-6">
+            <h2 class="text-xl font-bold mb-4">Event History</h2>
+            <div class="space-y-4">
+                <!-- Upcoming Event Card -->
+                <div class="flex items-center justify-between p-4 bg-gray-100 rounded-xl">
+                    <div>
+                        <p class="font-semibold">Winter Dinnerhopping Göttingen 2025</p>
+                        <p class="text-xs text-gray-500">Participated solo</p>
+                    </div>
+                    <span class="text-sm text-[#f46f47] font-semibold">Registered</span>
+                </div>
+                <!-- Past Event Card -->
+                <div class="flex items-center justify-between p-4 bg-gray-100 rounded-xl">
+                    <div>
+                        <p class="font-semibold">Summer Dinnerhopping Berlin 2024</p>
+                        <p class="text-xs text-gray-500">Participated as a team</p>
+                    </div>
+                    <span class="text-sm text-[#008080] font-semibold">Completed</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
