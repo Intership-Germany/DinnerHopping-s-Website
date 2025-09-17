@@ -8,3 +8,5 @@ python-jose[cryptography]
 python-dotenv
 pymongo
 stripe
+cryptography
+python-multipart

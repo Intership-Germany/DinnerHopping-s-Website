@@ -1,15 +1,17 @@
-import os
+"""Authentication utilities for FastAPI application."""
 import datetime
-from fastapi import HTTPException
+import os
 import re
-from jose import jwt, JWTError
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from passlib.context import CryptContext
+
 from . import db as db_mod
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
 JWT_SECRET = os.getenv('JWT_SECRET', 'change-me')
 JWT_ALGO = 'HS256'

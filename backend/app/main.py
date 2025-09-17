@@ -1,8 +1,14 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from .middleware.security import SecurityHeadersMiddleware
-from .middleware.rate_limit import RateLimit
+"""
+FastAPI application for the DinnerHopping backend.
+"""
 import os
+from fastapi import FastAPI, APIRouter, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from .auth import get_current_user
+from .middleware.rate_limit import RateLimit
+from .middleware.security import SecurityHeadersMiddleware
+from .db import close as close_mongo, connect as connect_to_mongo
+from .routers import admin, events, invitations, payments, users
 
 # Compatibility shim: some bcrypt distributions expose `__version__` but not
 # `__about__.__version__`. passlib sometimes attempts to read
@@ -16,12 +22,10 @@ try:
         _about = _About()
         setattr(_about, '__version__', getattr(_bcrypt, '__version__'))
         setattr(_bcrypt, '__about__', _about)
-except Exception:
+except (ImportError, AttributeError):
     # best-effort only; don't fail startup for environments without bcrypt
     pass
-from .routers import users, events, admin, invitations
-from .routers import payments
-from .db import connect_to_mongo, close_mongo
+
 
 app = FastAPI(title="DinnerHopping Backend")
 
@@ -46,28 +50,26 @@ app.add_middleware(RateLimit, max_requests=300, window_sec=60)
 
 @app.on_event("startup")
 async def startup():
+    """Connect to MongoDB on startup."""
     await connect_to_mongo()
 
 @app.on_event("shutdown")
 async def shutdown():
+    """Disconnect from MongoDB on shutdown."""
     await close_mongo()
 
-app.include_router(users.router, prefix="/users", tags=["users"])
-# Also expose the same users router at the root so endpoints like /register, /login, /profile exist
+# Expose the users router at the root so endpoints like /register, /login, /profile exist
 app.include_router(users.router, prefix="", tags=["auth"])
 app.include_router(events.router, prefix="/events", tags=["events"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(invitations.router, prefix="/invitations", tags=["invitations"])
 app.include_router(payments.router, prefix="/payments", tags=["payments"])
 
-# compatibility endpoint for personal plan
-from fastapi import APIRouter, Depends
-from .auth import get_current_user
-
 api_router = APIRouter()
 
-@api_router.get('/api/my-plan', tags=["plan"])  
+@api_router.get('/api/my-plan', tags=["plan"]) 
 async def my_plan(current_user=Depends(get_current_user)):
+    """Get the current user's plan."""
     # proxy to events module
     return await events.get_my_plan(current_user)
 

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from ..auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
-from ..utils import generate_and_send_verification
+from ..utils import generate_and_send_verification, encrypt_address, anonymize_public_address
 from .. import db as db_mod
 
 router = APIRouter()
@@ -26,7 +27,7 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
-@router.post('/register', status_code=status.HTTP_201_CREATED)
+@router.post('/register', status_code=status.HTTP_201_CREATED, responses={400: {"description": "Bad Request - e.g. Email already registered or password validation failed"}})
 async def register(u: UserCreate):
     existing = await db_mod.db.users.find_one({"email": u.email})
     if existing:
@@ -40,6 +41,13 @@ async def register(u: UserCreate):
     user_doc['lockout_until'] = None
     # newly created users are not verified until they confirm their email
     user_doc['is_verified'] = False
+    # store encrypted address and public anonymised address
+    if user_doc.get('address'):
+        user_doc['address_encrypted'] = encrypt_address(user_doc['address'])
+        user_doc['address_public'] = anonymize_public_address(user_doc['address'])
+        # keep lat/lon as-is for proximity features (but only used internally)
+    # remove plain address to avoid accidental storage
+    user_doc.pop('address', None)
     res = await db_mod.db.users.insert_one(user_doc)
     user_doc['id'] = str(res.inserted_id)
     # send verification email (prints link in dev)
@@ -54,16 +62,19 @@ class LoginIn(BaseModel):
     username: EmailStr
     password: str
 
-@router.post('/login', response_model=TokenOut)
-async def login(credentials: LoginIn):
+@router.post('/login', response_model=TokenOut, responses={401: {"description": "Unauthorized - invalid credentials or email not verified"}})
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    # OAuth2PasswordRequestForm provides `username` and `password` fields which
+    # enables the Swagger UI /docs to use the Token URL to obtain a token via
+    # the interactive "Authorize" / "try it" flow.
     # require verified email
-    user_obj = await get_user_by_email(credentials.username)
+    user_obj = await get_user_by_email(form_data.username)
     if not user_obj:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user_obj.get('is_verified', False):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email not verified")
 
-    user = await authenticate_user(credentials.username, credentials.password)
+    user = await authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     token = create_access_token({"sub": user['email']})
@@ -83,7 +94,7 @@ async def get_my_profile(current_user=Depends(get_current_user)):
     u = await db_mod.db.users.find_one({"email": current_user['email']})
     if not u:
         raise HTTPException(status_code=404, detail='User not found')
-    return UserOut(id=str(u.get('_id', '')), name=u.get('name'), email=u.get('email'), address=u.get('address'), preferences=u.get('preferences', {}))
+    return UserOut(id=str(u.get('_id', '')), name=u.get('name'), email=u.get('email'), address=u.get('address_public'), preferences=u.get('preferences', {}))
 
 
 @router.put('/me', response_model=UserOut)
@@ -91,9 +102,14 @@ async def update_my_profile(payload: ProfileUpdate, current_user=Depends(get_cur
     update_data = {k: v for k, v in payload.dict().items() if v is not None}
     if 'password' in update_data:
         update_data['password'] = hash_password(update_data['password'])
+    # handle address encryption/publicization when address provided
+    if 'address' in update_data:
+        update_data['address_encrypted'] = encrypt_address(update_data.get('address'))
+        update_data['address_public'] = anonymize_public_address(update_data.get('address'))
+        update_data.pop('address', None)
     await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": update_data})
     u = await db_mod.db.users.find_one({"email": current_user['email']})
-    return UserOut(id=str(u.get('_id', '')), name=u.get('name'), email=u.get('email'), address=u.get('address'), preferences=u.get('preferences', {}))
+    return UserOut(id=str(u.get('_id', '')), name=u.get('name'), email=u.get('email'), address=u.get('address_public'), preferences=u.get('preferences', {}))
 
 
 @router.get('/profile', response_model=UserOut)

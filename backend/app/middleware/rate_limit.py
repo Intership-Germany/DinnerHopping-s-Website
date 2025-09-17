@@ -1,9 +1,14 @@
+"""Rate limiting middleware for FastAPI application."""
 import time
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 class RateLimit(BaseHTTPMiddleware):
+    """
+    Simple in-memory rate limiting middleware.
+    
+    """
     def __init__(self, app, max_requests: int = 200, window_sec: int = 60):
         super().__init__(app)
         self.max_requests = max_requests

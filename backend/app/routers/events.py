@@ -2,9 +2,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse, Response
 from bson import json_util
 from pydantic import BaseModel, Field
-from .. import db as db_mod
-from ..auth import get_current_user
-from ..utils import anonymize_address
+from app import db as db_mod
+from app.auth import get_current_user
+from app.utils import anonymize_address, encrypt_address, anonymize_public_address
 from bson.objectid import ObjectId
 from fastapi import Header
 import os
@@ -78,6 +78,11 @@ async def create_event(payload: EventCreate, x_admin_token: str | None = Header(
     # ensure event_id exists to satisfy possible unique index created by imports
     # always set a unique event_id for newly created events
     doc['event_id'] = str(ObjectId())
+    # handle address encryption and public anonymised address
+    if doc.get('address'):
+        doc['address_encrypted'] = encrypt_address(doc.get('address'))
+        doc['address_public'] = anonymize_public_address(doc.get('address'))
+        doc.pop('address', None)
     res = await db_mod.db.events.insert_one(doc)
     return EventOut(id=str(res.inserted_id), name=doc.get('name'), date=doc.get('date'), fee_cents=doc.get('fee_cents', 0))
 
@@ -93,14 +98,22 @@ async def get_event(event_id: str, anonymise: bool = True):
     serialized['id'] = str(e.get('_id'))
     # anonymise location by default
     if anonymise:
-        lat = e.get('lat')
-        lon = e.get('lon')
-        if lat is not None and lon is not None:
-            serialized['location'] = anonymize_address(lat, lon)
-            # remove precise coords if present
+        # Prefer a stored public address or anonymise from precise coords
+        if e.get('address_public'):
+            serialized['location'] = {'address_public': e.get('address_public')}
+            # remove any precise fields
             serialized.pop('lat', None)
             serialized.pop('lon', None)
-            serialized.pop('address', None)
+            serialized.pop('address_encrypted', None)
+        else:
+            lat = e.get('lat')
+            lon = e.get('lon')
+            if lat is not None and lon is not None:
+                serialized['location'] = anonymize_address(lat, lon)
+                # remove precise coords if present
+                serialized.pop('lat', None)
+                serialized.pop('lon', None)
+                serialized.pop('address', None)
     return serialized
 
 
