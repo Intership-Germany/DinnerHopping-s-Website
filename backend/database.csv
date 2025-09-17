@@ -1,0 +1,101 @@
+event_register_id,person1_name,person2_name,person1_geschlecht,person1_email,person2_geschlecht,person2_email,adresse,studiengang,person2_studiengang,essenspraeferenz,unvertraeglichkeiten,gang_wunsch,kueche_vorhanden,hauptspeise_moeglich
+1,Anna Schmidt,,w,anna.s@email.de,,,,,"Bahnhofstraße 5, 37073 Göttingen",Informatik,,Vegetarisch,Laktoseintoleranz,Hauptspeise,Ja,Ja
+2,Ben Weber,Clara Fischer,m,ben.weber@email.de,w,clara.fischer@email.de,"Goßlerstraße 19, 37073 Göttingen",Jura,Medizin,Alles,,Egal,Ja,Ja
+3,David Meier,,m,david.m@email.de,,,,,"Weender Landstraße 80, 37075 Göttingen",BWL,,Vegan,Nussallergie,Vorspeise,Ja,Ja
+4,Eva Klein,Felix Lang,w,eva.klein@email.de,m,felix.lang@email.de,"Grätzelstraße 12, 37079 Göttingen",Medizin,Physik,Alles,,Dessert,Ja,Ja
+5,Greta Hoffmann,,w,greta.h@email.de,,,,,"Danziger Straße 2, 37083 Göttingen",Soziologie,,Vegetarisch,,Egal,Ja,Ja
+6,Hans Zimmer,Ida Schulz,m,hans.zimmer@email.de,w,ida.schulz@email.de,"Am Papenberg 1, 37075 Göttingen",Physik,Chemie,Alles,Glutenfrei,Hauptspeise,Ja,Ja
+7,Jonas Wolf,,m,jonas.w@email.de,,,,,"Robert-Koch-Straße 40, 37075 Göttingen",Chemie,,Alles,,Vorspeise,Nein,Nein
+8,Kira Brand,Leo Roth,w,kira.brand@email.de,m,leo.roth@email.de,"Tulpenweg 9, 37085 Göttingen",Anglistik,Geschichte,Vegetarisch,,Dessert,Ja,Ja
+9,Max Neumann,,d,max.n@email.de,,,,,"Königsallee 23, 37083 Göttingen",Wirtschaftsinformatik,,Alles,,Egal,Ja,Ja
+10,Nora Beck,Otto Hahn,w,nora.beck@email.de,m,otto.hahn@email.de,"Humboldtallee 11, 37073 Göttingen",Geschichte,Physik,Vegan,,Vorspeise,Ja,Nein
+11,Paula Sommer,,w,paula.s@email.de,,,,,"Bühlstraße 22, 37073 Göttingen",Psychologie,,Alles,,Hauptspeise,Ja,Ja
+12,Quintus Voss,Rosa Berg,m,quintus.voss@email.de,w,rosa.berg@email.de,"Geismar Landstraße 55, 37083 Göttingen",Kunstgeschichte,Philosophie,Vegetarisch,Sellerie,Dessert,Ja,Ja
+13,Sofia Wagner,,w,sofia.w@email.de,,,,,"Bürgerstraße 50, 37073 Göttingen",Politikwissenschaft,,Alles,,Egal,Ja,Ja
+14,Tom Richter,Lina Koch,m,tom.richter@email.de,w,lina.koch@email.de,"Nikolausberger Weg 7, 37073 Göttingen",Forstwissenschaft,Biologie,Alles,,Hauptspeise,Ja,Ja
+15,Ursula Meyer,,w,ursula.m@email.de,,,,,"Schillerstraße 44, 37083 Göttingen",Germanistik,,Vegetarisch,,Vorspeise,Ja,Ja
+16,Viktor Bauer,Zoe Schröder,m,viktor.b@email.de,w,zoe.schroeder@email.de,"Reinhäuser Landstraße 91, 37083 Göttingen",Agrarwissenschaften,Geographie,Alles,,Egal,Ja,Ja
+17,Walter Schwarz,,m,walter.s@email.de,,,,,"Theodor-Heuss-Straße 21, 37075 Göttingen",Sportwissenschaft,,Alles,Fischallergie,Dessert,Nein,Nein
+18,Xenia Zimmermann,,d,xenia.z@email.de,,,,,"Düstere-Eichen-Weg 60, 37073 Göttingen",Philosophie,,Vegan,,Vorspeise,Ja,Ja
+19,Yannick Becker,Amelie Schäfer,m,yannick.b@email.de,w,amelie.schaefer@email.de,"Kiesseestraße 33, 37083 Göttingen",Geographie,Soziologie,Alles,,Egal,Ja,Ja
+20,Lena Keller,,w,lena.k@email.de,,,,,"Goethe-Allee 13, 37073 Göttingen",Jura,,Vegetarisch,,Hauptspeise,Ja,Ja
+21,Moritz Horn,Charlotte Graf,m,moritz.horn@email.de,w,charlotte.graf@email.de,"Zindelstraße 3, 37073 Göttingen",Medizin,Pharmazie,Alles,Laktoseintoleranz,Dessert,Ja,Ja
+22,Elias Voigt,,m,elias.v@email.de,,,,,"Petrikirchstraße 9, 37077 Göttingen",Physik,,Alles,,Egal,Ja,Ja
+23,Hannah Kraus,Julian Lorenz,w,hannah.k@email.de,m,julian.lorenz@email.de,"Groner-Tor-Straße 31, 37073 Göttingen",Psychologie,Sportwissenschaft,Vegetarisch,,Vorspeise,Ja,Ja
+24,Noah Stein,,m,noah.s@email.de,,,,,"Papendiek 16, 37073 Göttingen",Informatik,,Alles,,Hauptspeise,Ja,Ja
+25,Lara Huber,Finn Pohl,w,lara.huber@email.de,m,finn.pohl@email.de,"Kurze-Geismar-Straße 20, 37073 Göttingen",BWL,Wirtschaftsinformatik,Alles,,Egal,Ja,Ja
+26,Emil Seidel,,m,emil.s@email.de,,,,,"Obere Karspüle 22, 37073 Göttingen",Geschichte,,Vegan,Glutenfrei,Vorspeise,Ja,Ja
+27,Marie Pohl,Lukas Engel,w,marie.pohl@email.de,m,lukas.engel@email.de,"Rosdorfer Weg 1, 37073 Göttingen",Anglistik,Germanistik,Alles,,Dessert,Ja,Ja
+28,Paul Werner,,m,paul.w@email.de,,,,,"Theaterplatz 7, 37073 Göttingen",Soziologie,,Vegetarisch,,Vorspeise,Nein,Nein
+29,Mia Brandt,Leon Herrmann,w,mia.brandt@email.de,m,leon.herrmann@email.de,"Untere-Masch-Straße 10, 37073 Göttingen",Chemie,Biologie,Alles,,Egal,Ja,Ja
+30,Felix Wunderlich,,d,felix.w@email.de,,,,,"Am Weißen Steine 8, 37085 Göttingen",Biologie,,Alles,,Vorspeise,Ja,Ja
+31,Julia Peters,Tim Kramer,w,julia.peters@email.de,m,tim.kramer@email.de,"Auf dem Greite 15, 37083 Göttingen",Medizin,Zahnmedizin,Vegetarisch,,Dessert,Ja,Ja
+32,Niklas Franke,,m,niklas.f@email.de,,,,,"Im Hassel 2, 37077 Göttingen",Sportwissenschaft,,Alles,,Egal,Ja,Ja
+33,Sarah Berger,David Roth,w,sarah.berger@email.de,m,david.roth@email.de,"An der Lutter 22, 37075 Göttingen",Jura,Jura,Alles,Nussallergie,Vorspeise,Ja,Nein
+34,Laura Haas,,w,laura.h@email.de,,,,,"Nonnenstieg 1, 37075 Göttingen",Philosophie,,Vegan,,Vorspeise,Ja,Ja
+35,Anton Schubert,Ida Simon,m,anton.schubert@email.de,w,ida.simon@email.de,"Greifswalder Straße 5, 37085 Göttingen",Informatik,Mathematik,Alles,,Egal,Ja,Ja
+36,Klara Ludwig,,w,klara.l@email.de,,,,,"Herzberger Landstraße 100, 37085 Göttingen",Psychologie,,Vegetarisch,Fruktoseintoleranz,Dessert,Ja,Ja
+37,Maximilian Böhm,Lea Otto,m,max.boehm@email.de,w,lea.otto@email.de,"Göttinger Straße 4, 37073 Göttingen",BWL,VWL,Alles,,Hauptspeise,Ja,Ja
+38,Lisa Langhans,,w,lisa.l@email.de,,,,,"Am Gartetalbahnhof 1, 37073 Göttingen",Germanistik,,Alles,,Egal,Ja,Ja
+39,Oskar Friedrich,Mathilda Vogel,m,oskar.f@email.de,w,mathilda.vogel@email.de,"Stettiner Straße 12, 37083 Göttingen",Physik,Physik,Vegetarisch,,Vorspeise,Ja,Ja
+40,Johanna Keller,,w,johanna.k@email.de,,,,,"Von-Bar-Straße 2, 37075 Göttingen",Medizin,,Alles,,Dessert,Ja,Ja
+41,Timon Gärtner,Luisa Ernst,m,timon.g@email.de,w,luisa.ernst@email.de,"Christophorusweg 7, 37075 Göttingen",Chemie,Biochemie,Alles,,Egal,Ja,Ja
+42,Amelie Fuchs,,w,amelie.f@email.de,,,,,"Mittelberg 19, 37085 Göttingen",Soziologie,,Vegan,,Hauptspeise,Ja,Ja
+43,Jan Winter,Sophie Sommer,m,jan.winter@email.de,w,sophie.sommer@email.de,"Am Feuerschanzengraben 14, 37073 Göttingen",Geschichte,Archäologie,Alles,,Vorspeise,Ja,Ja
+44,Carla Jung,,w,carla.j@email.de,,,,,"Lohberg 7, 37073 Göttingen",Kunstgeschichte,,Vegetarisch,,Egal,Ja,Ja
+45,Florian Grimm,Nele Schreiber,m,florian.g@email.de,w,nele.schreiber@email.de,"Asternweg 5, 37085 Göttingen",Jura,Rechtswissenschaften,Alles,,Dessert,Ja,Ja
+46,Pia Linke,,w,pia.l@email.de,,,,,"Stegemühlenweg 55, 37083 Göttingen",Biologie,,Alles,Glutenfrei,Hauptspeise,Ja,Ja
+47,Simon Jäger,Elisa Kurz,m,simon.j@email.de,w,elisa.kurz@email.de,"Wilhelm-Weber-Straße 20, 37073 Göttingen",Informatik,Informatik,Vegetarisch,,Egal,Ja,Ja
+48,Theresa May,,w,theresa.m@email.de,,,,,"Platz der Göttinger Sieben 5, 37073 Göttingen",Politikwissenschaft,,Alles,,Vorspeise,Ja,Ja
+49,Adrian Muth,Isabell Hahn,m,adrian.m@email.de,w,isabell.hahn@email.de,"Windausweg 2, 37073 Göttingen",Physik,Mathematik,Alles,Laktoseintoleranz,Dessert,Ja,Ja
+50,Melina Busch,,w,melina.b@email.de,,,,,"Hermann-Rein-Straße 3, 37075 Göttingen",Medizin,,Vegan,,Dessert,Ja,Nein
+51,Erik Lange,Marie John,m,erik.l@email.de,w,marie.john@email.de,"Tammannstraße 4, 37077 Göttingen",Chemie,Chemie,Alles,,Egal,Ja,Ja
+52,Vanessa König,,d,vanessa.k@email.de,,,,,"Geiststraße 10, 37073 Göttingen",Psychologie,,Vegetarisch,,Vorspeise,Ja,Ja
+53,Justus Ritter,Hannah Thiel,m,justus.r@email.de,w,hannah.thiel@email.de,"Friedländer Weg 2, 37085 Göttingen",Jura,Jura,Alles,,Dessert,Ja,Ja
+54,Chiara Adam,,w,chiara.a@email.de,,,,,"Berliner Straße 28, 37073 Göttingen",BWL,,Alles,,Hauptspeise,Ja,Ja
+55,Fabian Neumann,Lina Beck,m,fabian.n@email.de,w,lina.beck@email.de,"Rote Straße 15, 37073 Göttingen",Informatik,Wirtschaftsinformatik,Alles,,Egal,Ja,Ja
+56,Alina Wagner,,w,alina.w@email.de,,,,,"Jüdenstraße 33, 37073 Göttingen",Germanistik,,Vegetarisch,,Vorspeise,Ja,Ja
+57,Jannik Schulz,Lara Simon,m,jannik.s@email.de,w,lara.simon@email.de,"Dahlmannstraße 1, 37073 Göttingen",Physik,Astronomie,Alles,,Dessert,Ja,Ja
+58,Ronja Wolf,,w,ronja.w@email.de,,,,,"Gartenstraße 25, 37073 Göttingen",Biologie,,Vegan,Glutenfrei,Hauptspeise,Ja,Ja
+59,Sebastian Horn,,m,sebastian.h@email.de,,,,,"Lotzestraße 16, 37083 Göttingen",Sportwissenschaft,,Alles,,Egal,Nein,Nein
+60,Emilia Graf,Leo Keller,w,emilia.g@email.de,m,leo.keller@email.de,"Planckstraße 1, 37073 Göttingen",Medizin,Medizin,Alles,,Vorspeise,Ja,Ja
+61,Henry Vogel,,m,henry.v@email.de,,,,,"Calsowstraße 5, 37085 Göttingen",Geschichte,,Vegetarisch,,Dessert,Ja,Ja
+62,Mila Roth,Ben Kruse,w,mila.r@email.de,m,ben.kruse@email.de,"Baurat-Gerber-Straße 2, 37073 Göttingen",Architektur,Bauingenieurwesen,Alles,,Egal,Ja,Ja
+63,Jakob Ernst,,d,jakob.e@email.de,,,,,"Walkemühlenweg 11, 37083 Göttingen",Philosophie,,Alles,,Vorspeise,Ja,Nein
+64,Ida Klein,Noah Schreiber,w,ida.k@email.de,m,noah.schreiber@email.de,"Wagnerstraße 3, 37085 Göttingen",Musikwissenschaft,Kunstgeschichte,Vegetarisch,Nussallergie,Vorspeise,Ja,Ja
+65,Matthias Koch,,m,matthias.k@email.de,,,,,"Albaniplatz 8, 37073 Göttingen",Theologie,,Alles,,Egal,Ja,Ja
+66,Leni Bauer,Moritz Seidel,w,leni.b@email.de,m,moritz.seidel@email.de,"Tilsiter Straße 19, 37083 Göttingen",Jura,Jura,Alles,,Dessert,Ja,Ja
+67,Timo Lorenz,,m,timo.l@email.de,,,,,"Friedrich-Hund-Platz 1, 37077 Göttingen",Physik,,Vegetarisch,,Hauptspeise,Ja,Ja
+68,Ella Winter,Finn Brandt,w,ella.w@email.de,m,finn.brandt@email.de,"Maschmühlenweg 4, 37073 Göttingen",BWL,BWL,Alles,,Egal,Ja,Ja
+69,Hannes Bergmann,,m,hannes.b@email.de,,,,,"Godehardstraße 11, 37081 Göttingen",Soziologie,,Vegan,,Vorspeise,Ja,Ja
+70,Frida Peters,Leon Pohl,w,frida.p@email.de,m,leon.pohl@email.de,"Königsstieg 90, 37085 Göttingen",Pädagogik,Soziale Arbeit,Alles,Laktoseintoleranz,Dessert,Ja,Ja
+71,Theo Grimm,,m,theo.g@email.de,,,,,"Grüner Weg 7, 37075 Göttingen",Forstwissenschaft,,Alles,,Hauptspeise,Ja,Ja
+72,Lilly Hahn,David Engel,w,lilly.h@email.de,m,david.engel@email.de,"Heinrich-Düker-Weg 12, 37073 Göttingen",Psychologie,Psychologie,Vegetarisch,,Egal,Ja,Ja
+73,Aaron Franke,,m,aaron.f@email.de,,,,,"Kreuzbergring 2, 37075 Göttingen",Informatik,,Alles,,Vorspeise,Ja,Ja
+74,Maja Neumann,Julia Sommer,w,maja.n@email.de,w,julia.sommer@email.de,"Am Menzelberg 8, 37081 Göttingen",Medizin,Medizin,Alles,,Dessert,Ja,Ja
+75,Bruno Schubert,,d,bruno.s@email.de,,,,,"Leinestraße 21, 37073 Göttingen",Geographie,,Vegetarisch,,Hauptspeise,Ja,Ja
+76,Zoe Friedrich,Tom Berger,w,zoe.f@email.de,m,tom.berger@email.de,"Am Klausberge 10, 37077 Göttingen",Chemie,Chemie,Alles,,Egal,Ja,Ja
+77,Oskar Keller,,m,oskar.k@email.de,,,,,"Hospitalstraße 7, 37073 Göttingen",Geschichte,,Vegan,Fruktoseintoleranz,Vorspeise,Ja,Nein
+78,Hannah Jäger,Elias May,w,hannah.j@email.de,m,elias.may@email.de,"Carl-Zeiss-Straße 3, 37081 Göttingen",Physik,Physik,Alles,,Dessert,Ja,Ja
+79,Vincent Kurz,,m,vincent.k@email.de,,,,,"Eisenacher Straße 14, 37085 Göttingen",Sportwissenschaft,,Alles,,Hauptspeise,Ja,Ja
+80,Sophia Herrmann,Janis Kramer,w,sophia.h@email.de,m,janis.kramer@email.de,"Ritterplan 4, 37073 Göttingen",Kunstgeschichte,Archäologie,Vegetarisch,,Egal,Ja,Ja
+81,Leo Otto,,m,leo.o@email.de,,,,,"Im Moore 19, 37085 Göttingen",Agrarwissenschaften,,Alles,Glutenfrei,Vorspeise,Ja,Ja
+82,Lina Busch,Anton Linke,w,lina.b@email.de,m,anton.linke@email.de,"Gothaer Platz 2, 37083 Göttingen",Jura,Jura,Alles,,Dessert,Ja,Ja
+83,Paulina König,,w,paulina.k@email.de,,,,,"Am Feuerschanzengraben 30, 37073 Göttingen",Germanistik,,Vegetarisch,,Hauptspeise,Ja,Ja
+84,Jonathan Thiel,Pia Adam,m,jonathan.t@email.de,w,pia.adam@email.de,"Sollingstraße 5, 37081 Göttingen",BWL,VWL,Alles,,Egal,Ja,Ja
+85,Frieda Richter,,w,frieda.r@email.de,,,,,"Obere-Masch-Straße 20, 37073 Göttingen",Philosophie,,Vegan,,Vorspeise,Nein,Nein
+86,Karl Simon,Nele Gärtner,m,karl.s@email.de,w,nele.gaertner@email.de,"Ascherberg 1, 37085 Göttingen",Informatik,Informatik,Alles,,Dessert,Ja,Ja
+87,Luisa Fuchs,,w,luisa.f@email.de,,,,,"Baurat-Gerber-Straße 17, 37073 Göttingen",Medizin,,Vegetarisch,,Hauptspeise,Ja,Ja
+88,Ferdinand Winter,Clara Jung,m,ferdinand.w@email.de,w,clara.jung@email.de,"Auf der Lieth 9, 37077 Göttingen",Geschichte,Geschichte,Alles,,Egal,Ja,Ja
+89,Helene Sommer,,w,helene.s@email.de,,,,,"Stumpfebiel 2, 37073 Göttingen",Psychologie,,Alles,Nussallergie,Vorspeise,Ja,Ja
+90,Arthur Grimm,Leni Ritter,m,arthur.g@email.de,w,leni.ritter@email.de,"Wiesenstraße 22, 37073 Göttingen",Physik,Physik,Vegetarisch,,Dessert,Ja,Ja
+91,Charlotte Jäger,,w,charlotte.j@email.de,,,,,"Am Kirschberge 11, 37085 Göttingen",Biologie,,Alles,,Egal,Ja,Nein
+92,Richard Kurz,Amelie Muth,m,richard.k@email.de,w,amelie.muth@email.de,"Glockenweg 6, 37081 Göttingen",Jura,Rechtswissenschaften,Alles,,Egal,Ja,Ja
+93,Martha May,,w,martha.m@email.de,,,,,"Turmstraße 7, 37073 Göttingen",Soziologie,,Vegan,,Vorspeise,Ja,Ja
+94,Valentin Hahn,Zoe Busch,m,valentin.h@email.de,w,zoe.busch@email.de,"Springstraße 1, 37077 Göttingen",Chemie,Biochemie,Alles,,Dessert,Ja,Ja
+95,Greta Lange,,w,greta.l@email.de,,,,,"Untere Karspüle 15, 37073 Göttingen",Germanistik,,Vegetarisch,,Hauptspeise,Ja,Ja
+96,Konrad John,Lina König,m,konrad.j@email.de,w,lina.koenig@email.de,"Sandweg 5, 37083 Göttingen",Informatik,Informatik,Alles,,Egal,Ja,Ja
+97,Victoria Thiel,,w,victoria.t@email.de,,,,,"Böttingerstraße 12, 37073 Göttingen",Medizin,,Alles,Laktoseintoleranz,Vorspeise,Ja,Ja
+98,Johannes Adam,Frida Ritter,m,johannes.a@email.de,w,frida.ritter@email.de,"Keplerstraße 24, 37085 Göttingen",Physik,Astronomie,Vegetarisch,,Dessert,Ja,Ja
+99,Elisabeth Schmidt,,w,elisabeth.s@email.de,,,,,"Rosmarinstraße 3, 37081 Göttingen",Geschichte,,Alles,,Hauptspeise,Ja,Ja
+100,Maximilian Weber,Sophie Fischer,m,max.w@email.de,w,sophie.fischer@email.de,"Düstere Straße 20, 37073 Göttingen",BWL,VWL,Alles,,Egal,Ja,Ja

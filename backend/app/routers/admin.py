@@ -1,0 +1,60 @@
+from fastapi import APIRouter, Header, HTTPException
+from .. import db as db_mod
+import os
+
+router = APIRouter()
+
+ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
+
+
+@router.post('/match')
+async def run_match(x_admin_token: str | None = Header(None)):
+    """Idempotent admin matching: create per-user plans for each event's registrations.
+
+    - Groups registrations in chunks of 6 and assigns three sections per user.
+    - Removes existing plan documents for (event_id, user_email) before inserting.
+    - Enriches host entries with lat/lon from `users` when available.
+    """
+    if x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail='Forbidden')
+
+    async for event in db_mod.db.events.find({}):
+        regs = []
+        async for r in db_mod.db.registrations.find({"event_id": event['_id']}):
+            regs.append(r)
+
+        # group into chunks of 6
+        chunks = [regs[i:i + 6] for i in range(0, len(regs), 6)]
+
+        for chunk in chunks:
+            users = [r['user_email'] for r in chunk]
+            if not users:
+                continue
+
+            for idx, user_email in enumerate(users):
+                # make matching idempotent by removing old plans for this user/event
+                await db_mod.db.plans.delete_many({"event_id": event['_id'], "user_email": user_email})
+
+                plan = {"event_id": event['_id'], "user_email": user_email, "sections": []}
+
+                for meal_idx in range(3):
+                    host_idx = (idx + meal_idx) % len(users)
+                    host_email = users[host_idx]
+                    guests = [u for u in users if u != host_email][:4]
+
+                    host_profile = await db_mod.db.users.find_one({"email": host_email})
+                    host_lat = host_profile.get('lat') if host_profile else None
+                    host_lon = host_profile.get('lon') if host_profile else None
+
+                    section = {
+                        'meal': ['Entr\u00e9e', 'Plat Principal', 'Dessert'][meal_idx],
+                        'time': '20:00' if meal_idx == 1 else ('18:00' if meal_idx == 0 else '22:00'),
+                        'host': {'email': host_email, 'lat': host_lat, 'lon': host_lon},
+                        'guests': guests,
+                    }
+
+                    plan['sections'].append(section)
+
+                await db_mod.db.plans.insert_one(plan)
+
+    return {"status": "matching_completed"}

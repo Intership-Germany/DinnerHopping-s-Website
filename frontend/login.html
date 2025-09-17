@@ -51,6 +51,7 @@
                              <input id="login-password" type="password" placeholder="Enter your password" autocomplete="current-password" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
                          </div>
                          <button type="submit" class="w-full py-4 bg-[#f46f47] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-[#f46f47]/40">Login</button>
+                         <button type="button" id="resend-verif-btn" class="hidden w-full py-3 border border-[#f46f47] text-[#f46f47] font-semibold rounded-xl transition-colors duration-300 hover:bg-[#f46f47] hover:text-white">Resend verification email</button>
                          <p class="text-xs text-center text-gray-500">By logging in you agree to our <a href="#" class="text-[#f46f47] font-semibold hover:underline">Terms</a>.</p>
                      </form>
 
@@ -96,7 +97,7 @@
          </footer>
      </div>
 
-        <script>
+    <script>
         document.addEventListener('DOMContentLoaded', () => {
             const loginPage = document.getElementById('login-page');
             
