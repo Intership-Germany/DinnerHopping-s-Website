@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard | DinnerHopping</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body class="text-[#172a3a] min-h-screen flex flex-col" style="background-color: #f0f4f7;">
+  <!-- Navigation Bar -->
+  <nav class="w-full z-20 bg-white/80 backdrop-blur border-b border-[#f0f4f7] shadow-sm sticky top-0">
+    <div class="max-w-5xl mx-auto flex items-center justify-between px-6 py-3">
+      <a href="index.html" class="flex items-center gap-2 font-extrabold text-xl tracking-tight">
+        DinnerHopping
+      </a>
+      <div class="flex gap-6 text-sm font-semibold">
+        <a href="home.html" class="text-[#172a3a] hover:text-[#f46f47] transition">Home</a>
+        <a href="#" class="text-[#f46f47] underline underline-offset-4">Admin</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="flex-grow max-w-5xl mx-auto w-full px-4 py-10">
+    <!-- Create Event Section -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 mb-8 border border-[#f0f4f7]">
+      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Create New Event</h2>
+      <form class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <input type="text" placeholder="Event Name" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
+        <input type="date" placeholder="Date" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
+        <input type="time" placeholder="Start Time" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
+        <input type="time" placeholder="End Time" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
+        <input type="text" placeholder="Location" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
+        <input type="number" placeholder="Max Participants" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
+        <textarea placeholder="Description" class="border border-[#f0f4f7] rounded-xl p-3 md:col-span-2 focus:ring-2 focus:ring-[#f46f47] outline-none" rows="2"></textarea>
+        <button type="submit" class="bg-[#f46f47] text-white rounded-xl px-4 py-3 mt-2 md:col-span-2 font-bold shadow-lg hover:bg-[#ff8c42] transition">Create Event</button>
+      </form>
+    </section>
+
+    <!-- Events List Section -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 mb-8 border border-[#f0f4f7]">
+      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Events Management</h2>
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="bg-[#f0f4f7]">
+            <th class="p-2 text-left">Name</th>
+            <th class="p-2 text-left">Date</th>
+            <th class="p-2 text-left">Location</th>
+            <th class="p-2 text-left">Matching</th>
+            <th class="p-2 text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Example row -->
+          <tr>
+            <td class="p-2">Spring Dinner</td>
+            <td class="p-2">2025-10-10</td>
+            <td class="p-2">Paris</td>
+            <td class="p-2">
+              <button class="bg-[#008080] text-white px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#00b3b3] transition">Activate</button>
+            </td>
+            <td class="p-2 space-x-2">
+              <button class="bg-[#f46f47] text-white px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#ff8c42] transition">View Matches</button>
+              <button class="bg-[#ffc241] text-[#172a3a] px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#ffe5d0] transition">Edit</button>
+            </td>
+          </tr>
+          <!-- More rows as needed -->
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Matches Management Section -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 mb-8 border border-[#f0f4f7]">
+      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Matches Management</h2>
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="bg-[#f0f4f7]">
+            <th class="p-2 text-left">Event</th>
+            <th class="p-2 text-left">User 1</th>
+            <th class="p-2 text-left">User 2</th>
+            <th class="p-2 text-left">Status</th>
+            <th class="p-2 text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Example row -->
+          <tr>
+            <td class="p-2">Spring Dinner</td>
+            <td class="p-2">Alice</td>
+            <td class="p-2">Bob</td>
+            <td class="p-2">Pending</td>
+            <td class="p-2 space-x-2">
+              <button class="bg-[#008080] text-white px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#00b3b3] transition">Validate</button>
+              <button class="bg-[#ffc241] text-[#172a3a] px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#ffe5d0] transition">Edit</button>
+              <button class="bg-[#f46f47] text-white px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#ff8c42] transition">Cancel</button>
+            </td>
+          </tr>
+          <!-- More rows as needed -->
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Cancellations Section -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
+      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">User Cancellations</h2>
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="bg-[#f0f4f7]">
+            <th class="p-2 text-left">Event</th>
+            <th class="p-2 text-left">User</th>
+            <th class="p-2 text-left">Date Cancelled</th>
+            <th class="p-2 text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Example row -->
+          <tr>
+            <td class="p-2">Spring Dinner</td>
+            <td class="p-2">Charlie</td>
+            <td class="p-2">2025-09-15</td>
+            <td class="p-2">
+              <button class="bg-[#008080] text-white px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#00b3b3] transition">View Details</button>
+            </td>
+          </tr>
+          <!-- More rows as needed -->
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-[#172a3a] text-white p-8 rounded-t-3xl shadow-xl mt-auto">
+    <div class="text-center mb-6">
+      <h4 class="text-xl font-bold">Dinnerhopping</h4>
+      <p class="text-sm font-light opacity-80">Student Events</p>
+    </div>
+    <div class="flex justify-center space-x-6 mb-6">
+      <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">About</a>
+      <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">Contact</a>
+      <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">FAQ</a>
+    </div>
+  </footer>
+</body>
+</html>

@@ -17,11 +17,26 @@
             background-image: linear-gradient(135deg, #172a3a, #f46f47);
         }
     </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const heroSection = document.querySelector('.hero-gradient');
+            const howItWorksSection = document.querySelector('section.bg-white');
+            let scrolled = false;
+            heroSection.addEventListener('wheel', function (e) {
+                if (!scrolled && e.deltaY > 0) {
+                    scrolled = true;
+                    howItWorksSection.scrollIntoView({ behavior: 'smooth' });
+                    setTimeout(() => { scrolled = false; }, 1000);
+                    e.preventDefault();
+                }
+            }, { passive: false });
+        });
+    </script>
 </head>
-<body class="text-[#172a3a]">
+<body class="text-[#172a3a]" style="scroll-behavior: smooth;">
 
     <!-- Hero Section -->
-    <section class="hero-gradient min-h-screen flex flex-col items-center justify-center p-6 text-white text-center rounded-b-3xl shadow-xl">
+    <section class="hero-gradient flex flex-col items-center justify-center p-6 text-white text-center rounded-b-3xl shadow-xl" style="min-height: calc(100vh + 10px);">
         <div class="absolute top-6 left-6">
             <h1 class="text-2xl font-bold tracking-tight">Dinnerhopping</h1>
         </div>
@@ -35,7 +50,7 @@
     </section>
 
     <!-- How It Works Section -->
-    <section class="bg-white p-8 -mt-16 relative z-10 rounded-t-3xl shadow-lg">
+    <section class="bg-white p-8 -mt-16 relative z-10 rounded-t-3xl shadow-lg" style="margin-top: 0px;">
         <h3 class="text-3xl font-bold mb-8 text-center">How it works</h3>
         <div class="space-y-6">
             <!-- Step 1 -->

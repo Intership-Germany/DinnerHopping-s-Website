@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dinnerhopping - My Account</title>
+    <title>Dinnerhopping - Edit Profile</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
@@ -52,24 +52,22 @@
             <h1 class="text-3xl font-extrabold text-white drop-shadow mb-0.5">Anna Meier</h1>
             <p class="text-base text-[#ffe5d0] font-medium mb-1">anna.meier@student.uni.goettingen.de</p>
             <div class="flex gap-3 justify-center">
-                <a href="#"
-                    class="px-3 py-1.5 rounded-xl bg-white text-[#f46f47] font-semibold shadow hover:bg-[#ffe5d0] transition text-sm">Edit
-                    Profile</a>
+                <a href="profile.html"
+                    class="px-3 py-1.5 rounded-xl bg-white text-[#f46f47] font-semibold shadow hover:bg-[#ffe5d0] transition text-sm">Cancel</a>
                 <button
                     class="px-3 py-1.5 rounded-xl bg-[#f46f47] text-white font-semibold shadow hover:bg-[#ff8c42] transition flex items-center gap-2 text-sm"
-                    title="Logout">
+                    title="Save Changes">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1">
-                        </path>
+                            d="M5 13l4 4L19 7" />
                     </svg>
-                    Logout
+                    Save
                 </button>
             </div>
         </header>
 
-        <!-- Alert Banner for Incomplete Profile (hidden by default) -->
-        <div class="w-full max-w-2xl mx-auto bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 flex items-center hidden rounded-xl shadow"
+        <!-- Alert Banner for Incomplete Profile -->
+        <div class="w-full max-w-2xl mx-auto bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 flex items-center rounded-xl shadow"
             role="alert">
             <svg class="w-5 h-5 mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01">
@@ -78,45 +76,53 @@
             <span class="font-semibold">Your profile is incomplete.</span>
             <span class="ml-2 text-sm">Please fill in all information to fully enjoy the service.</span>
         </div>
+        
+        <!-- Alert banner to remind the user to save changes if they attempt to navigate away with unsaved edits -->
+        <div class="w-full max-w-2xl mx-auto bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-6 flex items-center rounded-xl shadow"
+            role="alert" id="unsaved-alert">
+            <svg class="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01">
+                </path>
+            </svg>
+            <span class="font-semibold">You have unsaved changes.</span>
+            <span class="ml-2 text-sm">Please save your changes before leaving the page.</span>
+        </div>
 
-        <!-- Main Content (more compact) -->
+        <!-- Main Content (edit mode) -->
         <main class="relative z-10 max-w-2xl mx-auto px-2">
             <!-- Personal Information -->
-            <section class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]">
+            <form class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]">
                 <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Personal Information</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="flex flex-col">
-                        <label class="text-xs font-semibold text-gray-500 mb-0.5">Full Name</label>
-                        <input type="text" value="Anna Meier"
-                            class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm"
-                            disabled>
+                        <label class="text-xs font-semibold text-gray-500 mb-0.5" for="fullname">Full Name</label>
+                        <input id="fullname" name="fullname" type="text" value="Anna Meier"
+                            class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm">
                     </div>
                     <div class="flex flex-col">
-                        <label class="text-xs font-semibold text-gray-500 mb-0.5">Email</label>
-                        <input type="email" value="anna.meier@student.uni.goettingen.de"
-                            class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm"
-                            disabled>
+                        <label class="text-xs font-semibold text-gray-500 mb-0.5" for="email">Email</label>
+                        <input id="email" name="email" type="email" value="anna.meier@student.uni.goettingen.de"
+                            class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm">
                     </div>
                     <div class="flex flex-col md:col-span-2">
-                        <label class="text-xs font-semibold text-gray-500 mb-0.5">Address</label>
-                        <input type="text" value="Bahnhofstraße, Göttingen"
-                            class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm"
-                            disabled>
+                        <label class="text-xs font-semibold text-gray-500 mb-0.5" for="address">Address</label>
+                        <input id="address" name="address" type="text" value="Bahnhofstraße, Göttingen"
+                            class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm">
                     </div>
                 </div>
-            </section>
+            </form>
 
             <!-- Food Preferences -->
-            <section class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]">
+            <form class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]">
                 <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Food Preferences</h2>
                 <p class="text-xs text-gray-600 mb-2">These are your default preferences for all events. You can adjust
                     them for each event you sign up for.</p>
-                <textarea
+                <textarea name="foodprefs"
                     class="w-full p-2 border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-[#f46f47] outline-none text-sm"
-                    rows="2" disabled>Vegetarian, Lactose intolerant</textarea>
-            </section>
+                    rows="2">Vegetarian, Lactose intolerant</textarea>
+            </form>
 
-            <!-- Event History -->
+            <!-- Event History (read-only) -->
             <section class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]">
                 <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Event History</h2>
                 <div class="space-y-2">
