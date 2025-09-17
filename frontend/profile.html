@@ -156,6 +156,46 @@
             </div>
         </footer>
     </div>
+
+    <script>
+        (async function(){
+            const BACKEND_BASE = window.BACKEND_BASE_URL || 'http://localhost:8000';
+
+            const token = localStorage.getItem('dh_token');
+            if (!token) {
+                // not logged in — redirect to login
+                window.location.href = 'login.html';
+                return;
+            }
+            try {
+                // debug helper
+                if (!window.dbg) window.dbg = { logReq: (...a)=>console.log(...a) };
+                const res = await fetch(`${BACKEND_BASE}/me`, { headers: { 'Authorization': `Bearer ${token}` } });
+                const data = await res.json();
+                dbg.logReq('GET /me', { status: res.status, body: data });
+                if (!res.ok) {
+                    localStorage.removeItem('dh_token');
+                    window.location.href = 'login.html';
+                    return;
+                }
+                // populate fields
+                document.querySelector('input[disabled][type="text"]').value = data.name || '';
+                document.querySelector('input[disabled][type="email"]').value = data.email || '';
+                const addr = document.querySelectorAll('input[disabled][type="text"]')[1];
+                if (addr) addr.value = data.address || '';
+            } catch (err) {
+                console.error(err);
+                localStorage.removeItem('dh_token');
+                window.location.href = 'login.html';
+            }
+
+            document.getElementById('logout-btn').addEventListener('click', () => {
+                localStorage.removeItem('dh_token');
+                window.location.href = 'login.html';
+            });
+        })();
+    </script>
+    
 </body>
 
 </html>
