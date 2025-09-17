@@ -22,7 +22,8 @@ The backend listens on port 8000 by default. In development many interactive hel
 
 ## Environment variables
 
-Key environment variables (can be placed in a `.env` file or injected by Docker Compose):
+Key environment variables (can be placed in a `.env` file or injected by Docker Compose).
+An example file `backend/.env.example` is provided; copy it to `.env` and fill in secrets (never commit the filled `.env`).
 
 - `MONGO_URI` — MongoDB connection string (default: `mongodb://localhost:27017/dinnerhopping`).
 - `JWT_SECRET` — secret key for JWT signing (default: `change-me`).
@@ -37,6 +38,18 @@ Key environment variables (can be placed in a `.env` file or injected by Docker 
 - `SMTP_PASS` — SMTP password.
 - `SMTP_FROM_ADDRESS` — from address used when sending verification emails (default: `info@acrevon.fr`).
 - `SMTP_USE_TLS` — `true`/`false` whether to use STARTTLS (default: `true`).
+ - `SMTP_TIMEOUT_SECONDS` — SMTP network timeout in seconds (default: `10`).
+ - `SMTP_MAX_RETRIES` — retry attempts for transient send failures (default: `2`).
+
+### Email sending abstraction
+
+Email related utilities live in `app/utils.py`:
+
+* `send_email(to, subject, body, ...)` – core async helper performing SMTP delivery with retries.
+* `generate_and_send_verification(email)` – creates + stores a verification token then sends an email (prints link in dev).
+* `send_notification(email, title, lines)` – convenience wrapper for future generic notifications.
+
+If no SMTP config is present the backend prints emails to stdout so flows remain testable locally. When adding new notification types prefer calling `send_notification` or building a custom body and calling `send_email` with an appropriate `category`.
 
 ## High level API overview
 
@@ -168,6 +181,8 @@ SMTP_USER=info@acrevon.fr
 SMTP_PASS=YOUR_OVH_SMTP_PASSWORD
 SMTP_FROM_ADDRESS=info@acrevon.fr
 SMTP_USE_TLS=true
+SMTP_TIMEOUT_SECONDS=10
+SMTP_MAX_RETRIES=2
 BACKEND_BASE_URL=http://localhost:8000
 ```
 

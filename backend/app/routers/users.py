@@ -118,26 +118,25 @@ async def verify_email(token: str | None = None):
     # delete the token for one-time use
     await db_mod.db.email_verifications.delete_one({"_id": rec['_id']})
     return {"status": "verified"}
-    class ResendVerificationIn(BaseModel):
-        email: EmailStr
 
-    @router.post('/resend-verification')
-    async def resend_verification(payload: ResendVerificationIn):
-        """Allow an unverified user to request a new verification email.
-        Security considerations: always return a generic message to avoid disclosing
-        whether an email exists in the database.
-        """
-        user = await db_mod.db.users.find_one({"email": payload.email})
-        # Always respond with success (idempotent / privacy), but only send if user exists & not verified
-        if user and not user.get('is_verified', False):
-            # Optionally purge old tokens for that email to avoid accumulation
-            try:
-                await db_mod.db.email_verifications.delete_many({"email": payload.email})
-            except Exception:
-                pass
-            try:
-                await generate_and_send_verification(payload.email)
-            except Exception:
-                # Swallow exceptions to avoid leaking infrastructure info to client
-                pass
-        return {"message": "If the account exists and is not verified, a new verification email has been sent."}
+
+class ResendVerificationIn(BaseModel):
+    email: EmailStr
+
+
+@router.post('/resend-verification')
+async def resend_verification(payload: ResendVerificationIn):
+    """Allow an unverified user to request a new verification email.
+    Response is always generic to avoid disclosing account existence.
+    """
+    user = await db_mod.db.users.find_one({"email": payload.email})
+    if user and not user.get('is_verified', False):
+        try:
+            await db_mod.db.email_verifications.delete_many({"email": payload.email})
+        except Exception:
+            pass
+        try:
+            await generate_and_send_verification(payload.email)
+        except Exception:
+            pass
+    return {"message": "If the account exists and is not verified, a new verification email has been sent."}
