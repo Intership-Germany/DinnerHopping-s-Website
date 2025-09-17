@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .middleware.security import SecurityHeadersMiddleware
-from .middleware.rate_limit import SimpleRateLimitMiddleware
+from .middleware.rate_limit import RateLimit
 import os
 
 # Compatibility shim: some bcrypt distributions expose `__version__` but not
@@ -42,7 +42,7 @@ app.add_middleware(
 # security middlewares
 app.add_middleware(SecurityHeadersMiddleware)
 # simple in-memory rate limiter (dev)
-app.add_middleware(SimpleRateLimitMiddleware, max_requests=300, window_sec=60)
+app.add_middleware(RateLimit, max_requests=300, window_sec=60)
 
 @app.on_event("startup")
 async def startup():

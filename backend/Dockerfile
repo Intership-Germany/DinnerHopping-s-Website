@@ -5,6 +5,11 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# Install runtime dependencies for TLS (ca-certificates) and diagnostics (openssl, netcat)
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates openssl netcat-openbsd \
+	&& rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 

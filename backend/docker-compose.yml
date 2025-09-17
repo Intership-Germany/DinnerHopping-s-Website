@@ -10,12 +10,11 @@ services:
     build: .
     ports:
       - "8000:8000"
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/dinnerhopping
-      - JWT_SECRET=change-me
-      - ADMIN_TOKEN=admin-token-change-me
+    env_file:
+      - ./app/.env
     depends_on:
       - mongo
+
   mongo-init:
     build: .
     command: ["/bin/sh", "-c", "python3 scripts/import_csv_to_mongo.py --apply --mongo-uri=mongodb://mongo:27017/dinnerhopping"]
