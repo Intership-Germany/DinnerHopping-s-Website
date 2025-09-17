@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dinnerhopping - My Event Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: linear-gradient(120deg, #f0f4f7 60%, #ffe5d0 100%);
+        }
+
+        /* Remove old map placeholder styles, Leaflet will handle map display */
+    </style>
+</head>
+
+<body class="text-[#172a3a]">
+    <div class="min-h-screen flex flex-col relative overflow-x-hidden">
+        <!-- Header -->
+        <nav class="w-full z-20 bg-white/80 backdrop-blur border-b border-[#f0f4f7] shadow-sm sticky top-0">
+            <div class="max-w-5xl mx-auto flex items-center justify-between px-6 py-3">
+                <a href="index.html" class="flex items-center gap-2 font-extrabold text-xl tracking-tight">
+                    DinnerHopping
+                </a>
+                <div class="flex gap-6 text-sm font-semibold">
+                    <a href="home.html" class="text-[#f46f47] underline underline-offset-4">Home</a>
+                    <a href="profile.html" class="text-[#172a3a] hover:text-[#f46f47] transition">My Account</a>
+                </div>
+            </div>
+        </nav>
+        <main class="flex-grow max-w-3xl mx-auto w-full px-4 py-10">
+            <h1 class="text-3xl font-bold mb-8 text-center">Your Dinnerhopping Night</h1>
+            <div class="space-y-8">
+                <!-- Starter Section -->
+                <section class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#008080]">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
+                        <div>
+                            <h2 class="text-xl font-bold text-[#008080] mb-1">Starter (You are Invited)</h2>
+                            <p class="text-sm text-gray-600">Time: <span class="font-semibold">18:00</span></p>
+                        </div>
+                        <button
+                            class="mt-4 md:mt-0 px-5 py-2 bg-[#008080] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-[#008080]/40">Open
+                            Starter Group Chat</button>
+                    </div>
+                    <div class="mb-2">
+                        <p class="text-sm">You are invited to dinner at <span class="font-semibold">David Meier</span>'s
+                            place.</p>
+                        <p class="text-sm">Your co-guests: <span class="font-semibold">Hans Zimmer</span> & <span
+                                class="font-semibold">Ida Schulz</span>.</p>
+                    </div>
+                    <div class="flex flex-col md:flex-row md:items-center gap-4">
+                        <div class="w-full max-w-xs h-40 rounded-xl overflow-hidden border border-[#008080]/30">
+                            <div id="map-entree" class="w-full h-40 rounded-xl"></div>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-xs text-gray-500 mb-1">Location: <span class="font-semibold">Weender
+                                    Landstraße (approximate)</span></p>
+                            <div
+                                class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-2 rounded mb-1 text-xs flex items-center">
+                                <svg class="w-4 h-4 mr-1 text-yellow-500" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M13 16h-1v-4h-1m1-4h.01" />
+                                </svg>
+                                The exact address will be revealed 2 hours before the start.
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <!-- Main Course Section -->
+                <section class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#f46f47]">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
+                        <div>
+                            <h2 class="text-xl font-bold text-[#f46f47] mb-1">Main Course (You are the Host)</h2>
+                            <p class="text-sm text-gray-600">Time: <span class="font-semibold">20:00</span></p>
+                        </div>
+                        <button
+                            class="mt-4 md:mt-0 px-5 py-2 bg-[#f46f47] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-[#f46f47]/40">Open
+                            Main Course Group Chat</button>
+                    </div>
+                    <div class="mb-2">
+                        <p class="text-sm">You are hosting dinner for:</p>
+                        <ul class="list-disc list-inside text-sm ml-2">
+                            <li><span class="font-semibold">Ben Weber & Clara Fischer</span> (Omnivores)</li>
+                            <li><span class="font-semibold">Jonas Wolf</span> (Omnivore)</li>
+                            <li><span class="font-semibold">Max Neumann</span> (Omnivore)</li>
+                        </ul>
+                    </div>
+                    <div
+                        class="bg-[#ffe5d0] border-l-4 border-[#f46f47] text-[#f46f47] p-3 rounded mb-2 text-xs flex items-center">
+                        <svg class="w-4 h-4 mr-1 text-[#f46f47]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 16h-1v-4h-1m1-4h.01" />
+                        </svg>
+                        Attention! Your guests know your meal will be <span class="font-bold ml-1">vegetarian and
+                            lactose-free</span>.
+                    </div>
+                </section>
+                <!-- Dessert Section -->
+                <section class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#ffc241]">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
+                        <div>
+                            <h2 class="text-xl font-bold text-[#ffc241] mb-1">Dessert (You are Invited)</h2>
+                            <p class="text-sm text-gray-600">Time: <span class="font-semibold">22:00</span></p>
+                        </div>
+                        <button
+                            class="mt-4 md:mt-0 px-5 py-2 bg-[#ffc241] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-[#ffc241]/40">Open
+                            Dessert Group Chat</button>
+                    </div>
+                    <div class="mb-2">
+                        <p class="text-sm">You are invited for dessert at <span class="font-semibold">Ben Weber & Clara
+                                Fischer</span>'s place.</p>
+                        <p class="text-sm">Your co-guests: <span class="font-semibold">David Meier</span> and <span
+                                class="font-semibold">Quintus Voss & Rosa Berg</span>.</p>
+                    </div>
+                    <div class="flex flex-col md:flex-row md:items-center gap-4">
+                        <div class="w-full max-w-xs h-40 rounded-xl overflow-hidden border border-[#ffc241]/30">
+                            <div id="map-dessert" class="w-full h-40 rounded-xl"></div>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-xs text-gray-500 mb-1">Location: <span class="font-semibold">Goßlerstraße
+                                    (approximate)</span></p>
+                        </div>
+                    </div>
+                </section>
+                <!-- Closing Party Section -->
+                <section class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#172a3a]">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
+                        <div>
+                            <h2 class="text-xl font-bold text-[#172a3a] mb-1">Closing Party</h2>
+                            <p class="text-sm text-gray-600">Time: <span class="font-semibold">from 23:30</span></p>
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <p class="text-sm">Where: <span class="font-semibold">Apex Kultur e.V., Burgstraße 46</span></p>
+                        <p class="text-xs text-gray-500">The exact address is shown here directly.</p>
+                    </div>
+                </section>
+            </div>
+        </main>
+        <!-- Footer -->
+        <footer class="bg-[#172a3a] text-white p-8 rounded-t-3xl shadow-xl mt-auto">
+            <div class="text-center mb-6">
+                <h4 class="text-xl font-bold">Dinnerhopping</h4>
+                <p class="text-sm font-light opacity-80">Student Events</p>
+            </div>
+            <div class="flex justify-center space-x-6 mb-6">
+                <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">About</a>
+                <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">Contact</a>
+                <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">FAQ</a>
+            </div>
+        </footer>
+</div>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // Entrée: Weender Landstraße (Göttingen) - approx. coords
+        var entreeMap = L.map('map-entree', { zoomControl: true, attributionControl: false });
+        entreeMap.setView([51.5413, 9.9345], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            minZoom: 13, maxZoom: 18
+        }).addTo(entreeMap);
+        L.circle([51.5413, 9.9345], { radius: 500, color: '#008080', fillColor: '#008080', fillOpacity: 0.08, weight: 2, dashArray: '6 6' }).addTo(entreeMap);
+        L.marker([51.5413, 9.9345], { icon: L.icon({ iconUrl: 'https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-red.png', iconSize: [25, 41], iconAnchor: [12, 41] }) }).addTo(entreeMap);
+
+        // Dessert: Goßlerstraße (Göttingen) - approx. coords
+        var dessertMap = L.map('map-dessert', { zoomControl: true, attributionControl: false });
+        dessertMap.setView([51.5432, 9.9367], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            minZoom: 13, maxZoom: 18
+        }).addTo(dessertMap);
+        L.circle([51.5432, 9.9367], { radius: 500, color: '#ffc241', fillColor: '#ffc241', fillOpacity: 0.08, weight: 2, dashArray: '6 6' }).addTo(dessertMap);
+        L.marker([51.5432, 9.9367], { icon: L.icon({ iconUrl: 'https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-yellow.png', iconSize: [25, 41], iconAnchor: [12, 41] }) }).addTo(dessertMap);
+    });
+</script>
+    </div>
+</body>
+
+</html>
