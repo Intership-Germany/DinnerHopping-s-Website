@@ -59,7 +59,7 @@ async def shutdown():
     await close_mongo()
 
 # Expose the users router at the root so endpoints like /register, /login, /profile exist
-app.include_router(users.router, prefix="", tags=["auth"])
+app.include_router(users.router, prefix="", tags=["users"])
 app.include_router(events.router, prefix="/events", tags=["events"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(invitations.router, prefix="/invitations", tags=["invitations"])

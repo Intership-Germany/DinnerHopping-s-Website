@@ -58,6 +58,7 @@ async def create_payment(payload: CreatePaymentIn):
             "status": "pending",
             "provider": "stripe",
             "idempotency_key": payload.idempotency_key,
+            "meta": {},
             "created_at": datetime.datetime.utcnow(),
         }
         doc = await db_mod.db.payments.find_one_and_update(
@@ -95,6 +96,10 @@ async def create_payment(payload: CreatePaymentIn):
 
         # update payment with provider details
         await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"provider_payment_id": session.id, "payment_link": session.url}})
+        try:
+            await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
+        except Exception:
+            pass
         return {"payment_id": str(payment_id), "payment_link": session.url, "status": "pending"}
 
     # dev fallback: use atomic upsert to avoid duplicates
@@ -110,6 +115,7 @@ async def create_payment(payload: CreatePaymentIn):
         "status": "pending",
         "provider": "dev-local",
         "idempotency_key": payload.idempotency_key,
+        "meta": {},
         "created_at": datetime.datetime.utcnow(),
     }
     doc = await db_mod.db.payments.find_one_and_update(
@@ -125,6 +131,10 @@ async def create_payment(payload: CreatePaymentIn):
 
     pay_link = f"/payments/{str(payment_id)}/pay"
     await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"payment_link": pay_link}})
+    try:
+        await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
+    except Exception:
+        pass
     return {"payment_id": str(payment_id), "payment_link": pay_link, "status": "pending"}
 
 

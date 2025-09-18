@@ -37,11 +37,16 @@ def create_access_token(data: dict, expires_minutes: int = 60*24):
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGO)
 
 async def get_user_by_email(email: str):
-    return await db_mod.db.users.find_one({"email": email})
+    if not email:
+        return None
+    return await db_mod.db.users.find_one({"email": email.lower()})
 
 async def authenticate_user(email: str, password: str):
     user = await get_user_by_email(email)
     if not user:
+        return None
+    # deny soft-deleted accounts
+    if user.get('deleted_at') is not None:
         return None
     # check lockout
     lock_until = user.get('lockout_until')

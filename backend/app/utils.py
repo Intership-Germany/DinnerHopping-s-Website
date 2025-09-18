@@ -267,15 +267,21 @@ async def send_email(
     return False
 
 
-async def generate_and_send_verification(recipient: str) -> str:
-    """Create a verification token & send verification email using send_email()."""
+async def generate_and_send_verification(recipient: str) -> tuple[str, bool]:
+    """Create a verification token & send verification email.
+
+    Returns:
+        tuple[str, bool]: (token, email_sent) where email_sent indicates whether
+        the email was actually sent (or printed in dev fallback). False means all
+        SMTP attempts failed when SMTP was configured.
+    """
     token = secrets.token_urlsafe(32)
     created_at = datetime.datetime.now(datetime.timezone.utc)
     doc = {"email": recipient, "token": token, "created_at": created_at}
     try:
         await db_mod.db.email_verifications.insert_one(doc)
         logger.info("Stored verification token for %s", recipient)
-    except db_mod.db.errors.PyMongoError as e:
+    except Exception as e:  # broad except to avoid dependency on db.errors in tests
         logger.warning("Could not persist verification token for %s: %s", recipient, e)
 
     base = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
@@ -294,7 +300,7 @@ async def generate_and_send_verification(recipient: str) -> str:
     if not ok:
         # fallback print of link if send failed *despite* having SMTP configured
         print(f"[email fallback] Verification link for {recipient}: {verification_url}")
-    return token
+    return token, ok
 
 
 async def send_notification(recipient: str, title: str, message_lines: Sequence[str]) -> bool:
