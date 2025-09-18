@@ -7,6 +7,7 @@
     <title>Dinnerhopping - My Account</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="config.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -49,37 +50,32 @@
             </div>
         </nav>
         <div class="profile-blob"></div>
-        <!-- Profile Header -->
-        <header
-            class="relative z-10 flex flex-col items-center justify-center text-center py-6 mb-6 bg-gradient-to-r from-[#172a3a] to-[#f46f47] rounded-b-3xl shadow-lg mx-auto w-full max-w-4xl px-8">
-            <img src="https://randomuser.me/api/portraits/women/45.jpg" alt="Profile"
+        <!-- Skeleton Header -->
+        <header id="skeleton-header" class="relative z-10 flex flex-col items-center justify-center text-center py-6 mb-6 bg-gradient-to-r from-[#172a3a] to-[#f46f47] rounded-b-3xl shadow-lg mx-auto w-full max-w-4xl px-8 animate-pulse">
+            <div class="w-20 h-20 rounded-full bg-white/30 border-4 border-white mb-2"></div>
+            <div class="h-6 w-48 bg-white/40 rounded mb-2"></div>
+            <div class="h-4 w-64 bg-white/30 rounded mb-3"></div>
+            <div class="flex gap-3 justify-center">
+                <div class="h-8 w-24 bg-white/40 rounded-xl"></div>
+                <div class="h-8 w-24 bg-white/30 rounded-xl"></div>
+            </div>
+        </header>
+
+        <!-- Profile Header (real content) -->
+        <header id="profile-header"
+            class="hidden relative z-10 flex flex-col items-center justify-center text-center py-6 mb-6 bg-gradient-to-r from-[#172a3a] to-[#f46f47] rounded-b-3xl shadow-lg mx-auto w-full max-w-4xl px-8">
+            <img src="https://static.vecteezy.com/system/resources/previews/019/879/186/non_2x/user-icon-on-transparent-background-free-png.png" alt="Profile"
                 class="w-20 h-20 rounded-full border-4 border-white shadow-lg mb-2 object-cover">
-            <h1 class="text-3xl font-extrabold text-white drop-shadow mb-0.5">Anna Meier</h1>
-            <p class="text-base text-[#ffe5d0] font-medium mb-1">anna.meier@student.uni.goettingen.de</p>
+            <h1 id="header-name" class="text-3xl font-extrabold text-white drop-shadow mb-0.5"></h1>
+            <p id="header-email" class="text-base text-[#ffe5d0] font-medium mb-1"></p>
             <div class="flex gap-3 justify-center">
                 <a href="#"
                     class="px-3 py-1.5 rounded-xl bg-white text-[#f46f47] font-semibold shadow hover:bg-[#ffe5d0] transition text-sm">Edit
                     Profile</a>
                 <button
                     class="px-3 py-1.5 rounded-xl bg-[#f46f47] text-white font-semibold shadow hover:bg-[#ff8c42] transition flex items-center gap-2 text-sm"
-                    title="Logout">
+                    title="Logout" id="logout-btn">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <div id="app" class="min-h-screen">
-        <!-- Account Page Header -->
-        <div class="flex items-center justify-between mb-8 sticky top-0 bg-white z-15"
-            style="padding-top: 1rem; padding-bottom: 1rem; padding-left: 1.5rem; padding-right: 1.5rem; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-            <a href="#" onclick="history.back()" class="text-[#4c4c4c] flex items-center">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                    xmlns="http://www.w3.org/2000/svg">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-                </svg>
-                <span class="font-semibold">Back</span>
-            </a>
-            <h1 class="text-3xl font-bold">My Account</h1>
-            <div class="flex items-center gap-3">
-                <a href="#" class="text-sm font-semibold text-[#f46f47]">Edit</a>
-                <button id="logout-btn" class="p-2 rounded-full bg-[#f46f47] hover:bg-[#ff8c42] transition-colors" title="Logout">
-                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1">
                         </path>
@@ -89,38 +85,62 @@
             </div>
         </header>
 
+
         <!-- Alert Banner for Incomplete Profile -->
-        <div class="w-full bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 flex items-center hidden" role="alert">
+        <div id="incomplete-banner" class="w-full max-w-2xl mx-auto px-2 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 flex items-center hidden" role="alert">
             <svg class="w-5 h-5 mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01">
                 </path>
             </svg>
             <span class="font-semibold">Your profile is incomplete.</span>
-            <span class="ml-2 text-sm">Please fill in all information to fully enjoy the service.</span>
+            <span id="incomplete-details" class="ml-2 text-sm">Please fill in all information to fully enjoy the service.</span>
         </div>
 
 
+        <!-- Skeleton Main Content -->
+        <div id="skeleton-main" class="relative z-10 max-w-2xl mx-auto px-2 space-y-4 animate-pulse">
+            <section class="bg-white/90 p-4 rounded-2xl shadow-xl border border-[#f0f4f7]">
+                <div class="h-5 w-40 bg-gray-200 rounded mb-3"></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="h-9 bg-gray-200 rounded"></div>
+                    <div class="h-9 bg-gray-200 rounded"></div>
+                    <div class="h-9 bg-gray-200 rounded md:col-span-2"></div>
+                </div>
+            </section>
+            <section class="bg-white/90 p-4 rounded-2xl shadow-xl border border-[#f0f4f7]">
+                <div class="h-5 w-40 bg-gray-200 rounded mb-3"></div>
+                <div class="h-16 bg-gray-200 rounded"></div>
+            </section>
+            <section class="bg-white/90 p-4 rounded-2xl shadow-xl border border-[#f0f4f7]">
+                <div class="h-5 w-40 bg-gray-200 rounded mb-3"></div>
+                <div class="space-y-2">
+                    <div class="h-12 bg-gray-200 rounded"></div>
+                    <div class="h-12 bg-gray-200 rounded"></div>
+                </div>
+            </section>
+        </div>
+
         <!-- Main Content (more compact) -->
-        <main class="relative z-10 max-w-2xl mx-auto px-2">
+        <main id="profile-main" class="hidden relative z-10 max-w-2xl mx-auto px-2">
             <!-- Personal Information -->
             <section class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]">
                 <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Personal Information</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="flex flex-col">
                         <label class="text-xs font-semibold text-gray-500 mb-0.5">Full Name</label>
-                        <input type="text" value="Anna Meier"
+                        <input id="profile-name" type="text" value=""
                             class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm"
                             disabled>
                     </div>
                     <div class="flex flex-col">
                         <label class="text-xs font-semibold text-gray-500 mb-0.5">Email</label>
-                        <input type="email" value="anna.meier@student.uni.goettingen.de"
+                        <input id="profile-email" type="email" value=""
                             class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm"
                             disabled>
                     </div>
                     <div class="flex flex-col md:col-span-2">
                         <label class="text-xs font-semibold text-gray-500 mb-0.5">Address</label>
-                        <input type="text" value="Bahnhofstraße, Göttingen"
+                        <input id="profile-address" type="text" value=""
                             class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm"
                             disabled>
                     </div>
@@ -132,9 +152,9 @@
                 <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Food Preferences</h2>
                 <p class="text-xs text-gray-600 mb-2">These are your default preferences for all events. You can adjust
                     them for each event you sign up for.</p>
-                <textarea
+                <textarea id="profile-preferences"
                     class="w-full p-2 border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-[#f46f47] outline-none text-sm"
-                    rows="2" disabled>Vegetarian, Lactose intolerant</textarea>
+                    rows="2" disabled></textarea>
             </section>
 
             <!-- Event History -->
@@ -178,63 +198,6 @@
         </footer>
     </div>
 
-        <!-- Account Information Section -->
-        <div class="bg-white p-6 rounded-2xl shadow-lg mb-6">
-            <h2 class="text-xl font-bold mb-4">Personal Information</h2>
-            <div class="space-y-4">
-                <div class="flex flex-col">
-                    <label class="text-sm font-semibold text-gray-500">Full Name</label>
-                    <input type="text" value="Anna Meier"
-                        class="p-2 border-b border-gray-200 focus:outline-none focus:border-[#f46f47] transition-colors duration-300"
-                        disabled>
-                </div>
-                <div class="flex flex-col">
-                    <label class="text-sm font-semibold text-gray-500">Email</label>
-                    <input type="email" value="anna.meier@student.uni.goettingen.de"
-                        class="p-2 border-b border-gray-200 focus:outline-none focus:border-[#f46f47] transition-colors duration-300"
-                        disabled>
-                </div>
-                <div class="flex flex-col">
-                    <label class="text-sm font-semibold text-gray-500">Address</label>
-                    <input type="text" value="Bahnhofstraße, Göttingen"
-                        class="p-2 border-b border-gray-200 focus:outline-none focus:border-[#f46f47] transition-colors duration-300"
-                        disabled>
-                </div>
-            </div>
-        </div>
-
-        <!-- Food Preferences Section -->
-        <div class="bg-white p-6 rounded-2xl shadow-lg mb-6">
-            <h2 class="text-xl font-bold mb-4">Food Preferences</h2>
-            <p class="text-sm text-gray-600 mb-4">These are your default preferences for all events. You can adjust them
-                for each event you sign up for.</p>
-            <textarea class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none" rows="3"
-                disabled>Vegetarian, Lactose intolerant</textarea>
-        </div>
-
-        <!-- Event History Section -->
-        <div class="bg-white p-6 rounded-2xl shadow-lg mb-6">
-            <h2 class="text-xl font-bold mb-4">Event History</h2>
-            <div class="space-y-4">
-                <!-- Upcoming Event Card -->
-                <div class="flex items-center justify-between p-4 bg-gray-100 rounded-xl">
-                    <div>
-                        <p class="font-semibold">Winter Dinnerhopping Göttingen 2025</p>
-                        <p class="text-xs text-gray-500">Participated solo</p>
-                    </div>
-                    <span class="text-sm text-[#f46f47] font-semibold">Registered</span>
-                </div>
-                <!-- Past Event Card -->
-                <div class="flex items-center justify-between p-4 bg-gray-100 rounded-xl">
-                    <div>
-                        <p class="font-semibold">Summer Dinnerhopping Berlin 2024</p>
-                        <p class="text-xs text-gray-500">Participated as a team</p>
-                    </div>
-                    <span class="text-sm text-[#008080] font-semibold">Completed</span>
-                </div>
-            </div>
-        </div>
-    </div>
                   
     <script>
         (async function(){
@@ -246,22 +209,94 @@
                 window.location.href = 'login.html';
                 return;
             }
+
+            const el = {
+                headerName: document.getElementById('header-name'),
+                headerEmail: document.getElementById('header-email'),
+                name: document.getElementById('profile-name'),
+                email: document.getElementById('profile-email'),
+                address: document.getElementById('profile-address'),
+                preferences: document.getElementById('profile-preferences'),
+                incompleteBanner: document.getElementById('incomplete-banner'),
+                incompleteDetails: document.getElementById('incomplete-details'),
+                skeletonHeader: document.getElementById('skeleton-header'),
+                skeletonMain: document.getElementById('skeleton-main'),
+                profileHeader: document.getElementById('profile-header'),
+                profileMain: document.getElementById('profile-main'),
+            };
+
+            function formatPreferences(pref){
+                try {
+                    if (!pref) return '';
+                    if (Array.isArray(pref)) return pref.join(', ');
+                    if (typeof pref === 'string') return pref;
+                    if (typeof pref === 'object') {
+                        const parts = [];
+                        for (const [k,v] of Object.entries(pref)){
+                            if (v === true) parts.push(k);
+                            else if (Array.isArray(v) && v.length) parts.push(`${k}: ${v.join(', ')}`);
+                            else if (typeof v === 'string' && v.trim()) parts.push(`${k}: ${v}`);
+                            else if (typeof v === 'number') parts.push(`${k}: ${v}`);
+                        }
+                        return parts.join(', ');
+                    }
+                    return String(pref);
+                } catch(e){
+                    return '';
+                }
+            }
+
+            function isEmptyPreferences(pref){
+                if (!pref) return true;
+                if (Array.isArray(pref)) return pref.length === 0;
+                if (typeof pref === 'string') return pref.trim().length === 0;
+                if (typeof pref === 'object') return Object.keys(pref).length === 0;
+                return true;
+            }
+
             try {
                 // debug helper
                 if (!window.dbg) window.dbg = { logReq: (...a)=>console.log(...a) };
-                const res = await fetch(`${BACKEND_BASE}/me`, { headers: { 'Authorization': `Bearer ${token}` } });
+                const res = await fetch(`${BACKEND_BASE}/profile`, { headers: { 'Authorization': `Bearer ${token}` } });
                 const data = await res.json();
-                dbg.logReq('GET /me', { status: res.status, body: data });
+                dbg.logReq('GET /profile', { status: res.status, body: data });
                 if (!res.ok) {
                     localStorage.removeItem('dh_token');
                     window.location.href = 'login.html';
                     return;
                 }
-                // populate fields
-                document.querySelector('input[disabled][type="text"]').value = data.name || '';
-                document.querySelector('input[disabled][type="email"]').value = data.email || '';
-                const addr = document.querySelectorAll('input[disabled][type="text"]')[1];
-                if (addr) addr.value = data.address || '';
+
+                // Populate header
+                if (el.headerName) el.headerName.textContent = data.name || '';
+                if (el.headerEmail) el.headerEmail.textContent = data.email || '';
+
+                // Populate inputs
+                if (el.name) el.name.value = data.name || '';
+                if (el.email) el.email.value = data.email || '';
+                if (el.address) el.address.value = data.address || '';
+
+                // Populate preferences textarea
+                const prefText = formatPreferences(data.preferences);
+                if (el.preferences) el.preferences.value = prefText || '';
+
+                // Reveal real content and hide skeletons
+                el.skeletonHeader?.classList.add('hidden');
+                el.skeletonMain?.classList.add('hidden');
+                el.profileHeader?.classList.remove('hidden');
+                el.profileMain?.classList.remove('hidden');
+
+                // Incomplete profile banner
+                const missing = [];
+                if (!data.name) missing.push('name');
+                if (!data.email) missing.push('email');
+                if (!data.address) missing.push('address');
+                if (isEmptyPreferences(data.preferences)) missing.push('preferences');
+                if (missing.length && el.incompleteBanner){
+                    el.incompleteBanner.classList.remove('hidden');
+                    if (el.incompleteDetails) {
+                        el.incompleteDetails.textContent = `Missing: ${missing.join(', ')}`;
+                    }
+                }
             } catch (err) {
                 console.error(err);
                 localStorage.removeItem('dh_token');

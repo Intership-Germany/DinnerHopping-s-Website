@@ -1,0 +1,22 @@
+# Apache configuration for DinnerHopping frontend
+# Place this file as .htaccess in the public/ directory for simple static hosting
+
+# Enable URL rewriting
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # Redirect all requests to index.html except for existing files/folders
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Serve static files with proper cache headers
+<FilesMatch "\.(html|css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$">
+  Header set Cache-Control "max-age=31536000, public"
+</FilesMatch>
+
+# Allow cross-origin requests (optional, if needed)
+# Header set Access-Control-Allow-Origin "*"
+
+# Fallback for 404
+ErrorDocument 404 /index.html

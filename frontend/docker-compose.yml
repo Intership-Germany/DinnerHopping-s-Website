@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  frontend:
+    image: httpd:alpine
+    container_name: dinnerhopping-frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./public:/usr/local/apache2/htdocs
+    working_dir: /usr/local/apache2/htdocs
+    # Optionally, copy custom config if needed
+    # - ./my-httpd.conf:/usr/local/apache2/conf/httpd.conf
+
+# Ajoute d'autres services ici si besoin
