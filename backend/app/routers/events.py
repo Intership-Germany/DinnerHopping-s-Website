@@ -22,20 +22,22 @@ def _serialize(obj):
 router = APIRouter()
 
 class EventCreate(BaseModel):
-    name: str
-    date: str
-    fee_cents: int = 0
+    title: str
+    description: str | None = None
+    date: str  # ISO date string
+    capacity: int | None = None
     address: str | None = None
     lat: float | None = None
     lon: float | None = None
-    organizer: str | None = None
-    published: bool = False
+    organizer_id: str | None = None  # user id (ObjectId as str)
+    status: str | None = None  # draft|published|closed|cancelled
 
 class EventOut(BaseModel):
     id: str
-    name: str
+    title: str
     date: str
-    fee_cents: int
+    status: str | None = None
+    capacity: int | None = None
 
 @router.get("/", response_model=list[EventOut])
 async def list_events(date: str | None = None, status: str | None = None, lat: float | None = None, lon: float | None = None, radius_m: int | None = None):
@@ -59,14 +61,16 @@ async def list_events(date: str | None = None, status: str | None = None, lat: f
         query['lat'] = {"$gte": lat - delta_deg, "$lte": lat + delta_deg}
         query['lon'] = {"$gte": lon - delta_deg, "$lte": lon + delta_deg}
 
-    events = []
+    events_resp = []
     async for e in db_mod.db.events.find(query):
-        # be defensive: imported or partial documents may miss fields
-        ev_name = e.get('name') or 'Unnamed event'
-        ev_date = e.get('date') or ''
-        ev_fee = e.get('fee_cents', 0)
-        events.append(EventOut(id=str(e.get('_id')), name=ev_name, date=ev_date, fee_cents=ev_fee))
-    return events
+        events_resp.append(EventOut(
+            id=str(e.get('_id')),
+            title=e.get('title') or e.get('name') or 'Untitled',
+            date=e.get('date') or '',
+            status=e.get('status'),
+            capacity=e.get('capacity')
+        ))
+    return events_resp
 
 
 @router.post('/', response_model=EventOut)
@@ -74,17 +78,36 @@ async def create_event(payload: EventCreate, x_admin_token: str | None = Header(
     ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
     if x_admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail='Forbidden')
+    now = __import__('datetime').datetime.utcnow()
     doc = payload.dict()
-    # ensure event_id exists to satisfy possible unique index created by imports
-    # always set a unique event_id for newly created events
-    doc['event_id'] = str(ObjectId())
-    # handle address encryption and public anonymised address
+    location = None
     if doc.get('address'):
-        doc['address_encrypted'] = encrypt_address(doc.get('address'))
-        doc['address_public'] = anonymize_public_address(doc.get('address'))
-        doc.pop('address', None)
+        location = {
+            'address_encrypted': encrypt_address(doc['address']),
+            'address_public': anonymize_public_address(doc['address']),
+            'point': {'type': 'Point', 'coordinates': [doc.get('lon'), doc.get('lat')]} if doc.get('lat') is not None and doc.get('lon') is not None else None
+        }
+    elif doc.get('lat') is not None and doc.get('lon') is not None:
+        # coordinates only
+        location = {
+            'address_encrypted': None,
+            'address_public': None,
+            'point': {'type': 'Point', 'coordinates': [doc.get('lon'), doc.get('lat')]}
+        }
+    # cleanup top-level address/lat/lon
+    doc.pop('address', None)
+    doc.pop('lat', None)
+    doc.pop('lon', None)
+    if location:
+        doc['location'] = location
+    # default fields per schema
+    doc['attendee_count'] = 0
+    doc['created_at'] = now
+    doc['updated_at'] = now
+    if not doc.get('status'):
+        doc['status'] = 'draft'
     res = await db_mod.db.events.insert_one(doc)
-    return EventOut(id=str(res.inserted_id), name=doc.get('name'), date=doc.get('date'), fee_cents=doc.get('fee_cents', 0))
+    return EventOut(id=str(res.inserted_id), title=doc.get('title'), date=doc.get('date'), status=doc.get('status'), capacity=doc.get('capacity'))
 
 
 @router.get('/{event_id}')
@@ -96,24 +119,22 @@ async def get_event(event_id: str, anonymise: bool = True):
     serialized = _serialize(e)
     # ensure id is present as string
     serialized['id'] = str(e.get('_id'))
-    # anonymise location by default
-    if anonymise:
-        # Prefer a stored public address or anonymise from precise coords
-        if e.get('address_public'):
-            serialized['location'] = {'address_public': e.get('address_public')}
-            # remove any precise fields
-            serialized.pop('lat', None)
-            serialized.pop('lon', None)
-            serialized.pop('address_encrypted', None)
+    # anonymise location info
+    loc = e.get('location') if isinstance(e.get('location'), dict) else None
+    if anonymise and loc:
+        # if address_public present keep only that
+        pub = loc.get('address_public')
+        if pub:
+            serialized['location'] = {'address_public': pub}
         else:
-            lat = e.get('lat')
-            lon = e.get('lon')
-            if lat is not None and lon is not None:
-                serialized['location'] = anonymize_address(lat, lon)
-                # remove precise coords if present
-                serialized.pop('lat', None)
-                serialized.pop('lon', None)
-                serialized.pop('address', None)
+            # derive anonymised from point coordinates if present
+            pt = loc.get('point') if isinstance(loc.get('point'), dict) else None
+            if pt and isinstance(pt.get('coordinates'), list) and len(pt['coordinates']) == 2:
+                lon, lat = pt['coordinates']
+                if lat is not None and lon is not None:
+                    serialized['location'] = anonymize_address(lat, lon)
+    else:
+        serialized['location'] = loc
     return serialized
 
 
@@ -122,10 +143,30 @@ async def update_event(event_id: str, payload: EventCreate, x_admin_token: str |
     ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
     if x_admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail='Forbidden')
-    doc = payload.dict()
-    await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": doc})
+    update = payload.dict()
+    location = None
+    if update.get('address') or (update.get('lat') is not None and update.get('lon') is not None):
+        if update.get('address'):
+            location = {
+                'address_encrypted': encrypt_address(update['address']),
+                'address_public': anonymize_public_address(update['address']),
+                'point': {'type': 'Point', 'coordinates': [update.get('lon'), update.get('lat')]} if update.get('lat') is not None and update.get('lon') is not None else None
+            }
+        else:
+            location = {
+                'address_encrypted': None,
+                'address_public': None,
+                'point': {'type': 'Point', 'coordinates': [update.get('lon'), update.get('lat')]}
+            }
+    update.pop('address', None)
+    update.pop('lat', None)
+    update.pop('lon', None)
+    if location is not None:
+        update['location'] = location
+    update['updated_at'] = __import__('datetime').datetime.utcnow()
+    await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": update})
     e = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
-    return EventOut(id=str(e['_id']), name=e.get('name'), date=e.get('date'), fee_cents=e.get('fee_cents', 0))
+    return EventOut(id=str(e['_id']), title=e.get('title') or e.get('name'), date=e.get('date'), status=e.get('status'), capacity=e.get('capacity'))
 
 
 @router.post('/{event_id}/publish')
@@ -133,7 +174,7 @@ async def publish_event(event_id: str, x_admin_token: str | None = Header(None))
     ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
     if x_admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail='Forbidden')
-    await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": {"published": True}})
+    await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": {"status": "published", "updated_at": __import__('datetime').datetime.utcnow()}})
     return {"status": "published"}
 
 @router.post("/{event_id}/register")
@@ -152,12 +193,16 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
     team_size = int(payload.get('team_size', 1))
     preferences = payload.get('preferences', current_user.get('preferences', {}))
 
+    now = __import__('datetime').datetime.utcnow()
     reg = {
         "event_id": ObjectId(event_id),
-        "user_email": current_user['email'],
+        "user_id": current_user.get('_id'),
+        "user_email_snapshot": current_user['email'],
+        "status": "pending",  # pending -> invited -> confirmed -> paid
         "team_size": team_size,
         "preferences": preferences,
-        "created_at": __import__('datetime').datetime.utcnow(),
+        "created_at": now,
+        "updated_at": now,
     }
 
     res = await db_mod.db.registrations.insert_one(reg)
@@ -171,21 +216,19 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
     for em in invited:
         token = secrets.token_urlsafe(24)
         inv = {
+            "registration_id": res.inserted_id,
             "token": token,
             "invited_email": em,
-            "event_id": ObjectId(event_id),
-            "inviter_email": current_user['email'],
             "status": "pending",
-            "created_at": __import__('datetime').datetime.utcnow(),
+            "created_at": now,
+            "expires_at": now + __import__('datetime').timedelta(days=30)
         }
         try:
             await db_mod.db.invitations.insert_one(inv)
-            # In dev: print invitation link
             base = __import__('os').getenv('BACKEND_BASE_URL', 'http://localhost:8000')
             print(f"[invitation] To {em}: {base}/invitations/{token}")
             sent_invitations.append(em)
         except Exception:
-            # ignore duplicates or insertion errors for now
             pass
 
     # Optionally create a payment link if event has a fee

@@ -25,28 +25,49 @@ class MongoDB:
 
         # create some useful indexes to enforce uniqueness and speed lookups
         try:
-            # users: unique email
+            # USERS
             await self.db.users.create_index('email', unique=True)
-            # registrations: lookups by event and by user
-            await self.db.registrations.create_index('event_id')
-            await self.db.registrations.create_index('user_email')
-            # plans: lookup by user
-            await self.db.plans.create_index('user_email')
-            # events: date queries and unique event id to avoid duplicate imports
-            await self.db.events.create_index('date')
-            await self.db.events.create_index('event_id', unique=True)
+            await self.db.users.create_index('email_verified')  # boolean lookup
+            await self.db.users.create_index('deleted_at')       # soft delete filter
 
-            # invitations, payments, matches indexes
+            # EVENTS
+            # event organizer lookups & status/date filters
+            await self.db.events.create_index('organizer_id')
+            await self.db.events.create_index('status')
+            await self.db.events.create_index('date')
+            # geospatial location index (GeoJSON Point)
+            try:
+                await self.db.events.create_index([('location.point', '2dsphere')])
+            except Exception:
+                pass  # ignore if invalid existing docs
+
+            # REGISTRATIONS
+            await self.db.registrations.create_index('event_id')
+            await self.db.registrations.create_index('user_id')
+            await self.db.registrations.create_index('status')
+            await self.db.registrations.create_index('user_email_snapshot')
+
+            # INVITATIONS
             await self.db.invitations.create_index('token', unique=True)
+            await self.db.invitations.create_index('registration_id')
             await self.db.invitations.create_index('invited_email')
+            await self.db.invitations.create_index('expires_at')
+
+            # PAYMENTS
             await self.db.payments.create_index('registration_id', unique=True)
-            # provider_payment_id is the id returned by an external provider (stripe session id)
             await self.db.payments.create_index('provider_payment_id', unique=True, sparse=True)
-            # idempotency key to deduplicate payment creation attempts
             await self.db.payments.create_index('idempotency_key')
+            await self.db.payments.create_index('status')
+
+            # MATCHES
             await self.db.matches.create_index('event_id')
+            await self.db.matches.create_index('status')
+            await self.db.matches.create_index('version')
+
+            # PLANS (existing feature - per user per event)
+            await self.db.plans.create_index('user_email')
+            await self.db.plans.create_index('event_id')
         except PyMongoError as e:
-            # index creation shouldn't crash startup; log and continue
             logging.warning("MongoDB index creation failed; continuing startup: %s", e)
 
     print('Connected to MongoDB')

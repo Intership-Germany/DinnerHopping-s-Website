@@ -35,7 +35,9 @@ async def register(u: UserCreate):
     # validate password under policy
     validate_password(u.password)
     user_doc = u.dict()
-    user_doc['password'] = hash_password(u.password)
+    # store hashed password under password_hash (new schema) and remove legacy key
+    user_doc['password_hash'] = hash_password(u.password)
+    user_doc.pop('password', None)
     # initialize failed login counters/lockout
     user_doc['failed_login_attempts'] = 0
     user_doc['lockout_until'] = None
@@ -48,6 +50,9 @@ async def register(u: UserCreate):
         # keep lat/lon as-is for proximity features (but only used internally)
     # remove plain address to avoid accidental storage
     user_doc.pop('address', None)
+    now = __import__('datetime').datetime.utcnow()
+    user_doc['created_at'] = now
+    user_doc['updated_at'] = now
     res = await db_mod.db.users.insert_one(user_doc)
     user_doc['id'] = str(res.inserted_id)
     # send verification email (prints link in dev)
@@ -101,12 +106,15 @@ async def get_my_profile(current_user=Depends(get_current_user)):
 async def update_my_profile(payload: ProfileUpdate, current_user=Depends(get_current_user)):
     update_data = {k: v for k, v in payload.dict().items() if v is not None}
     if 'password' in update_data:
-        update_data['password'] = hash_password(update_data['password'])
+        # migrating update: accept 'password' input, store as password_hash
+        update_data['password_hash'] = hash_password(update_data['password'])
+        update_data.pop('password', None)
     # handle address encryption/publicization when address provided
     if 'address' in update_data:
         update_data['address_encrypted'] = encrypt_address(update_data.get('address'))
         update_data['address_public'] = anonymize_public_address(update_data.get('address'))
         update_data.pop('address', None)
+    update_data['updated_at'] = __import__('datetime').datetime.utcnow()
     await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": update_data})
     u = await db_mod.db.users.find_one({"email": current_user['email']})
     return UserOut(id=str(u.get('_id', '')), name=u.get('name'), email=u.get('email'), address=u.get('address_public'), preferences=u.get('preferences', {}))

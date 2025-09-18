@@ -49,10 +49,25 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
 
     # create registration for the invited user
     event_id = inv.get('event_id')
-    reg = {"event_id": event_id, "user_email": user_email, "team_size": 1, "preferences": {}, "created_at": __import__('datetime').datetime.utcnow()}
-    await db_mod.db.registrations.insert_one(reg)
+    now = __import__('datetime').datetime.utcnow()
+    reg = {
+        "event_id": event_id,
+        "user_email_snapshot": user_email,
+        "status": "invited",
+        "team_size": 1,
+        "preferences": {},
+        "created_at": now,
+        "updated_at": now
+    }
+    reg_res = await db_mod.db.registrations.insert_one(reg)
+    # retro-link invitation with registration if missing
+    if not inv.get('registration_id'):
+        try:
+            await db_mod.db.invitations.update_one({"_id": inv['_id']}, {"$set": {"registration_id": reg_res.inserted_id}})
+        except Exception:
+            pass
 
     # mark invitation accepted
-    await db_mod.db.invitations.update_one({"_id": inv['_id']}, {"$set": {"status": "accepted", "accepted_by": user_email, "accepted_at": __import__('datetime').datetime.utcnow()}})
+    await db_mod.db.invitations.update_one({"_id": inv['_id']}, {"$set": {"status": "accepted", "accepted_by": user_email, "accepted_at": now}})
 
     return {"status": "accepted", "user_email": user_email}

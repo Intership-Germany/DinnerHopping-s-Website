@@ -53,7 +53,9 @@ async def authenticate_user(email: str, password: str):
             # if lock_until isn't a datetime (older records), ignore
             pass
 
-    if not verify_password(password, user.get('password')):
+    # Support legacy 'password' field and new 'password_hash'
+    stored_hash = user.get('password_hash') or user.get('password')
+    if not verify_password(password, stored_hash):
         # increment failed attempts
         await db_mod.db.users.update_one({"email": email}, {"$inc": {"failed_login_attempts": 1}})
         user = await get_user_by_email(email)
@@ -63,7 +65,7 @@ async def authenticate_user(email: str, password: str):
         return None
 
     # successful login: reset failed attempts and remove lockout
-    await db_mod.db.users.update_one({"email": email}, {"$set": {"failed_login_attempts": 0}, "$unset": {"lockout_until": ""}})
+    await db_mod.db.users.update_one({"email": email}, {"$set": {"failed_login_attempts": 0}, "$unset": {"lockout_until": "", "password": ""}})
     return user
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
