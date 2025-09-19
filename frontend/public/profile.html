@@ -69,9 +69,25 @@
             <h1 id="header-name" class="text-3xl font-extrabold text-white drop-shadow mb-0.5"></h1>
             <p id="header-email" class="text-base text-[#ffe5d0] font-medium mb-1"></p>
             <div class="flex gap-3 justify-center">
-                <a href="#"
-                    class="px-3 py-1.5 rounded-xl bg-white text-[#f46f47] font-semibold shadow hover:bg-[#ffe5d0] transition text-sm">Edit
-                    Profile</a>
+                <button id="edit-btn"
+                    class="px-3 py-1.5 rounded-xl bg-white text-[#f46f47] font-semibold shadow hover:bg-[#ffe5d0] transition text-sm">
+                    Edit Profile
+                </button>
+                <div id="edit-actions" class="hidden items-center gap-2">
+                    <button id="cancel-btn"
+                        class="px-3 py-1.5 rounded-xl bg-white text-[#f46f47] font-semibold shadow hover:bg-[#ffe5d0] transition text-sm">
+                        Cancel
+                    </button>
+                    <button id="save-btn"
+                        class="px-3 py-1.5 rounded-xl bg-[#f46f47] text-white font-semibold shadow hover:bg-[#ff8c42] transition flex items-center gap-2 text-sm"
+                        title="Save Changes">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M5 13l4 4L19 7" />
+                        </svg>
+                        Save
+                    </button>
+                </div>
                 <button
                     class="px-3 py-1.5 rounded-xl bg-[#f46f47] text-white font-semibold shadow hover:bg-[#ff8c42] transition flex items-center gap-2 text-sm"
                     title="Logout" id="logout-btn">
@@ -96,6 +112,15 @@
             <span id="incomplete-details" class="ml-2 text-sm">Please fill in all information to fully enjoy the service.</span>
         </div>
 
+
+        <!-- Unsaved changes banner -->
+        <div id="unsaved-banner" class="w-full max-w-2xl mx-auto px-2 bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-4 flex items-center hidden rounded-xl" role="alert">
+            <svg class="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01"></path>
+            </svg>
+            <span class="font-semibold">You have unsaved changes.</span>
+            <span class="ml-2 text-sm">Please save or cancel before leaving.</span>
+        </div>
 
         <!-- Skeleton Main Content -->
         <div id="skeleton-main" class="relative z-10 max-w-2xl mx-auto px-2 space-y-4 animate-pulse">
@@ -158,7 +183,7 @@
             </section>
 
             <!-- Event History -->
-            <section class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]">
+            <section class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]" hidden>
                 <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Event History</h2>
                 <div class="space-y-2">
                     <!-- Upcoming Event Card -->
@@ -217,13 +242,22 @@
                 email: document.getElementById('profile-email'),
                 address: document.getElementById('profile-address'),
                 preferences: document.getElementById('profile-preferences'),
+                editBtn: document.getElementById('edit-btn'),
+                saveBtn: document.getElementById('save-btn'),
+                cancelBtn: document.getElementById('cancel-btn'),
+                editActions: document.getElementById('edit-actions'),
                 incompleteBanner: document.getElementById('incomplete-banner'),
                 incompleteDetails: document.getElementById('incomplete-details'),
+                unsavedBanner: document.getElementById('unsaved-banner'),
                 skeletonHeader: document.getElementById('skeleton-header'),
                 skeletonMain: document.getElementById('skeleton-main'),
                 profileHeader: document.getElementById('profile-header'),
                 profileMain: document.getElementById('profile-main'),
             };
+
+            let initialData = null;
+            let isEditing = false;
+            let hasUnsaved = false;
 
             function formatPreferences(pref){
                 try {
@@ -279,6 +313,14 @@
                 const prefText = formatPreferences(data.preferences);
                 if (el.preferences) el.preferences.value = prefText || '';
 
+                // Keep a copy to detect changes and allow cancel
+                initialData = {
+                    name: data.name || '',
+                    email: data.email || '',
+                    address: data.address || '',
+                    preferences: data.preferences ?? {}
+                };
+
                 // Reveal real content and hide skeletons
                 el.skeletonHeader?.classList.add('hidden');
                 el.skeletonMain?.classList.add('hidden');
@@ -303,9 +345,201 @@
                 window.location.href = 'login.html';
             }
 
+            function setEditMode(on){
+                isEditing = !!on;
+                const toggle = (inp) => {
+                    if (!inp) return;
+                    if (isEditing) {
+                        inp.removeAttribute('disabled');
+                        inp.classList.remove('bg-gray-50');
+                        inp.classList.add('bg-white');
+                    } else {
+                        inp.setAttribute('disabled', '');
+                        inp.classList.add('bg-gray-50');
+                        inp.classList.remove('bg-white');
+                    }
+                };
+                toggle(el.name);
+                // Email stays read-only for now
+                if (el.email) el.email.setAttribute('disabled', '');
+                toggle(el.address);
+                toggle(el.preferences);
+
+                // Header actions
+                if (el.editBtn) el.editBtn.classList.toggle('hidden', isEditing);
+                if (el.editActions) el.editActions.classList.toggle('hidden', !isEditing);
+
+                // Unsaved banner resets when turning off
+                if (!isEditing && el.unsavedBanner) el.unsavedBanner.classList.add('hidden');
+                hasUnsaved = false;
+            }
+
+            function showUnsaved(on){
+                if (!el.unsavedBanner) return;
+                el.unsavedBanner.classList.toggle('hidden', !on);
+            }
+
+            function parsePreferencesInput(text){
+                // Accept JSON or comma-separated text; always return an object for backend
+                if (!text || !text.trim()) return {};
+                try {
+                    const parsed = JSON.parse(text);
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                        return parsed; // already a dict
+                    }
+                    if (Array.isArray(parsed)) {
+                        return { tags: parsed };
+                    }
+                } catch(e){ /* non-JSON */ }
+                // fallback: split by comma into tags array inside a dict
+                const tags = text.split(',').map(s=>s.trim()).filter(Boolean);
+                return tags.length ? { tags } : {};
+            }
+
+            function canonicalizePreferences(p){
+                try{
+                    if (p == null) return '';
+                    if (typeof p === 'string'){
+                        const t = p.trim();
+                        if (!t) return '';
+                        return t.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean).sort().join('|');
+                    }
+                    if (Array.isArray(p)){
+                        return p.map(x=>String(x).trim().toLowerCase()).filter(Boolean).sort().join('|');
+                    }
+                    if (typeof p === 'object'){
+                        const parts = [];
+                        for (const [k,v] of Object.entries(p)){
+                            if (v === true) parts.push(k);
+                            else if (Array.isArray(v) && v.length) parts.push(`${k}:${v.map(x=>String(x).trim().toLowerCase()).join(',')}`);
+                            else if (typeof v === 'string' && v.trim()) parts.push(`${k}:${v.trim().toLowerCase()}`);
+                            else if (typeof v === 'number') parts.push(`${k}:${v}`);
+                        }
+                        return parts.map(s=>s.toLowerCase()).sort().join('|');
+                    }
+                    return String(p);
+                }catch{ return ''; }
+            }
+
+            function computeHasUnsaved(){
+                if (!initialData) return false;
+                const current = {
+                    name: el.name?.value ?? '',
+                    email: el.email?.value ?? '',
+                    address: el.address?.value ?? '',
+                    preferences: parsePreferencesInput(el.preferences?.value ?? '')
+                };
+                const normalize = (v) => typeof v === 'string' ? v.trim() : v;
+                const prefEqual = canonicalizePreferences(current.preferences) === canonicalizePreferences(initialData.preferences);
+                return (
+                    normalize(current.name) !== normalize(initialData.name) ||
+                    normalize(current.email) !== normalize(initialData.email) ||
+                    normalize(current.address) !== normalize(initialData.address) ||
+                    !prefEqual
+                );
+            }
+
+            // Wire buttons and change tracking
+            el.editBtn?.addEventListener('click', (e)=>{ e.preventDefault(); setEditMode(true); });
+            el.cancelBtn?.addEventListener('click', (e)=>{
+                e.preventDefault();
+                if (!initialData) return setEditMode(false);
+                if (el.name) el.name.value = initialData.name;
+                if (el.email) el.email.value = initialData.email;
+                if (el.address) el.address.value = initialData.address;
+                if (el.preferences) el.preferences.value = formatPreferences(initialData.preferences);
+                setEditMode(false);
+            });
+
+            async function saveProfile(){
+                if (!isEditing) return;
+                const parsedPrefs = parsePreferencesInput(el.preferences?.value || '');
+                const payload = {
+                    name: el.name?.value?.trim() || undefined,
+                    address: el.address?.value?.trim() || undefined,
+                    preferences: (Object.keys(parsedPrefs).length ? parsedPrefs : undefined)
+                };
+                try{
+                    const res = await fetch(`${BACKEND_BASE}/profile`, {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    const body = await res.json().catch(()=>({}));
+                    dbg.logReq('PUT /profile', { status: res.status, body });
+                    if (!res.ok) {
+                        let msg = 'Failed to save';
+                        if (typeof body?.detail === 'string') msg = body.detail;
+                        else if (Array.isArray(body?.detail) && body.detail.length){
+                            // pick first error message or join
+                            msg = body.detail.map(d => d.msg || JSON.stringify(d)).join('\n');
+                        }
+                        throw new Error(msg);
+                    }
+
+                    // Update header + initialData + fields from server response
+                    const d = body;
+                    if (el.headerName) el.headerName.textContent = d.name || '';
+                    if (el.headerEmail) el.headerEmail.textContent = d.email || '';
+                    initialData = {
+                        name: d.name || '',
+                        email: d.email || '',
+                        address: d.address || '',
+                        preferences: d.preferences ?? {}
+                    };
+                    // Normalize UI values
+                    if (el.name) el.name.value = initialData.name;
+                    if (el.email) el.email.value = initialData.email;
+                    if (el.address) el.address.value = initialData.address;
+                    if (el.preferences) el.preferences.value = formatPreferences(initialData.preferences);
+
+                    setEditMode(false);
+
+                    // Re-check incomplete banner
+                    const missing = [];
+                    if (!d.name) missing.push('name');
+                    if (!d.email) missing.push('email');
+                    if (!d.address) missing.push('address');
+                    if (isEmptyPreferences(d.preferences)) missing.push('preferences');
+                    if (missing.length && el.incompleteBanner){
+                        el.incompleteBanner.classList.remove('hidden');
+                        el.incompleteDetails && (el.incompleteDetails.textContent = `Missing: ${missing.join(', ')}`);
+                    } else if (el.incompleteBanner) {
+                        el.incompleteBanner.classList.add('hidden');
+                    }
+                }catch(err){
+                    console.error(err);
+                    alert(err?.message || 'Could not save your changes.');
+                }
+            }
+
+            el.saveBtn?.addEventListener('click', (e)=>{ e.preventDefault(); saveProfile(); });
+
+            // Track changes to show unsaved banner
+            ['input','change'].forEach(ev=>{
+                [el.name, el.address, el.preferences].forEach(inp=>{
+                    inp?.addEventListener(ev, ()=>{
+                        if (!isEditing) return;
+                        hasUnsaved = computeHasUnsaved();
+                        showUnsaved(hasUnsaved);
+                    });
+                });
+            });
+
+            // Warn on navigation if unsaved
+            window.addEventListener('beforeunload', (e)=>{
+                if (isEditing && hasUnsaved){
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            });
+
             document.getElementById('logout-btn').addEventListener('click', () => {
                 localStorage.removeItem('dh_token');
-                window.location.href = 'login.html';
+                // window.location.href = FRONTEND_BASE;
             });
         })();
     </script>

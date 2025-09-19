@@ -27,10 +27,10 @@ From the `frontend` folder you can build and run the static site with Docker:
 ```bash
 cd frontend
 docker build -t dinnerhopping-frontend .
-docker run -p 8080:80 dinnerhopping-frontend
+docker run -p 80:80 dinnerhopping-frontend
 ```
 
-The frontend will be available at http://localhost:8080
+The frontend will be available at http://localhost
 
 ## Project structure
 
@@ -62,7 +62,7 @@ If you want to orchestrate the frontend with the backend, add a service to your 
   frontend:
     build: ./frontend
     ports:
-      - "8080:80"
+      - "80:80"
     depends_on:
       - backend
 ```
