@@ -144,13 +144,14 @@ async def dev_pay(payment_id: str):
     p = await db_mod.db.payments.find_one({"_id": ObjectId(payment_id)})
     if not p:
         raise HTTPException(status_code=404, detail='Payment not found')
-    if p.get('status') == 'paid':
+    if p.get('status') in ('succeeded', 'paid'):
         return {"status": "already_paid"}
 
-    # mark paid
+    # mark paid in a harmonized way
     now = datetime.datetime.utcnow()
     await db_mod.db.payments.update_one({"_id": ObjectId(payment_id)}, {"$set": {"status": "succeeded", "paid_at": now}})
-    await db_mod.db.registrations.update_one({"_id": p.get('registration_id')}, {"$set": {"status": "paid", "updated_at": now}})
+    # registration keeps a business-facing status 'paid' but payment record is 'succeeded'
+    await db_mod.db.registrations.update_one({"_id": p.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
     return {"status": "paid"}
 
 
@@ -200,12 +201,12 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
             if not pay:
                 # still not found; ignore
                 return {"status": "not_found"}
-        if pay.get('status') in ('paid', 'succeeded'):
+        if pay.get('status') in ('succeeded', 'paid'):
             return {"status": "already_processed"}
         # mark as paid
         now = datetime.datetime.utcnow()
         await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "succeeded", "paid_at": now}})
-        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "updated_at": now}})
+        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
         return {"status": "ok"}
 
     return {"status": "ignored"}

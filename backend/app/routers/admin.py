@@ -1,21 +1,20 @@
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from .. import db as db_mod
+from ..auth import get_current_user
 import os
 
 router = APIRouter()
 
-ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
-
-
 @router.post('/match')
-async def run_match(x_admin_token: str | None = Header(None)):
+async def run_match(current_user=Depends(get_current_user)):
     """Idempotent admin matching: create per-user plans for each event's registrations.
 
     - Groups registrations in chunks of 6 and assigns three sections per user.
     - Removes existing plan documents for (event_id, user_email) before inserting.
     - Enriches host entries with lat/lon from `users` when available.
     """
-    if x_admin_token != ADMIN_TOKEN:
+    roles = current_user.get('roles') or []
+    if 'admin' not in roles:
         raise HTTPException(status_code=403, detail='Forbidden')
 
     async for event in db_mod.db.events.find({}):

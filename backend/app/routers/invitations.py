@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel, EmailStr
 from app import db as db_mod
 from app.auth import get_current_user, hash_password
+from app.utils import hash_token, generate_token_pair
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 import secrets
@@ -30,6 +31,9 @@ def _serialize_inv(inv: dict) -> dict:
     # ensure id field
     if out.get('_id'):
         out['id'] = out['_id']
+    # do not expose token or token_hash in serialized output
+    out.pop('token', None)
+    out.pop('token_hash', None)
     return out
 
 
@@ -40,7 +44,9 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
     If the user is authenticated (current_user), the invitation is linked to that account.
     Otherwise the endpoint requires name+password to create a new user for the invited email.
     """
-    inv = await db_mod.db.invitations.find_one({"token": token})
+    # match invitation by token hash to avoid storing plaintext tokens in DB
+    token_hash = hash_token(token)
+    inv = await db_mod.db.invitations.find_one({"token_hash": token_hash})
     if not inv:
         raise HTTPException(status_code=404, detail='Invitation not found')
 
@@ -120,7 +126,7 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
 
 
 @router.post('/')
-async def create_invitation(payload: CreateInvitation, current_user=Depends(get_current_user), x_admin_token: str | None = Header(None)):
+async def create_invitation(payload: CreateInvitation, current_user=Depends(get_current_user)):
     """Create an invitation for a registration. Only the registration owner or admin may create invitations."""
     try:
         reg_oid = ObjectId(payload.registration_id)
@@ -131,8 +137,8 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
     if not reg:
         raise HTTPException(status_code=404, detail='Registration not found')
 
-    ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
-    is_admin = x_admin_token == ADMIN_TOKEN
+    roles = current_user.get('roles') or []
+    is_admin = 'admin' in roles
     # ensure requester owns the registration or is admin
     if not is_admin and reg.get('user_id') != current_user.get('_id'):
         raise HTTPException(status_code=403, detail='Forbidden')
@@ -143,10 +149,10 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
 
     # generate unique token (retry a few times if collision)
     for _ in range(3):
-        token = secrets.token_urlsafe(24)
+        token, token_hash_val = generate_token_pair(18)
         inv = {
             "registration_id": reg_oid,
-            "token": token,
+            "token_hash": token_hash_val,
             "invited_email": payload.invited_email.lower(),
             "status": "pending",
             "created_at": now,
@@ -169,10 +175,10 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
 
 
 @router.get('/')
-async def list_invitations(registration_id: Optional[str] = None, current_user=Depends(get_current_user), x_admin_token: str | None = Header(None)):
+async def list_invitations(registration_id: Optional[str] = None, current_user=Depends(get_current_user)):
     """List invitations. Owners see invitations for their registrations; admins can list by registration or all if no filter provided."""
-    ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
-    is_admin = x_admin_token == ADMIN_TOKEN
+    roles = current_user.get('roles') or []
+    is_admin = 'admin' in roles
 
     query = {}
     if registration_id:
@@ -192,7 +198,7 @@ async def list_invitations(registration_id: Optional[str] = None, current_user=D
 
 
 @router.post('/{inv_id}/revoke')
-async def revoke_invitation(inv_id: str, current_user=Depends(get_current_user), x_admin_token: str | None = Header(None)):
+async def revoke_invitation(inv_id: str, current_user=Depends(get_current_user)):
     """Revoke a pending invitation. Only the registration owner or admin can revoke."""
     try:
         oid = ObjectId(inv_id)
@@ -203,8 +209,8 @@ async def revoke_invitation(inv_id: str, current_user=Depends(get_current_user),
     if not inv:
         raise HTTPException(status_code=404, detail='Invitation not found')
 
-    ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
-    is_admin = x_admin_token == ADMIN_TOKEN
+    roles = current_user.get('roles') or []
+    is_admin = 'admin' in roles
     # check ownership
     reg = None
     if inv.get('registration_id'):

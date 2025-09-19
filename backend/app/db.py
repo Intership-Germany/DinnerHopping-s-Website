@@ -19,8 +19,6 @@ class MongoDB:
             # default database name
             db_name = os.getenv('MONGO_DB', 'dinnerhopping')
             self.db = self.client[db_name]
-            # update the module-level `db` variable so other modules can
-            # reference `db_mod.db.<collection>` (e.g. `db_mod.db.users`).
             globals()['db'] = self.db
 
         # create some useful indexes to enforce uniqueness and speed lookups
@@ -35,6 +33,10 @@ class MongoDB:
             await self.db.events.create_index('organizer_id')
             await self.db.events.create_index('status')
             await self.db.events.create_index('date')
+            await self.db.events.create_index('registration_deadline')
+            await self.db.events.create_index('payment_deadline')
+            await self.db.events.create_index('fee_cents')
+            await self.db.events.create_index('matching_status')
             # geospatial location index (GeoJSON Point)
             try:
                 await self.db.events.create_index([('location.point', '2dsphere')])
@@ -46,12 +48,19 @@ class MongoDB:
             await self.db.registrations.create_index('user_id')
             await self.db.registrations.create_index('status')
             await self.db.registrations.create_index('user_email_snapshot')
+            await self.db.registrations.create_index([('event_id', 1), ('user_id', 1)], unique=True, sparse=True)
 
             # INVITATIONS
-            await self.db.invitations.create_index('token', unique=True)
+            # store only a non-reversible token_hash in invitations
+            await self.db.invitations.create_index('token_hash', unique=True)
             await self.db.invitations.create_index('registration_id')
             await self.db.invitations.create_index('invited_email')
             await self.db.invitations.create_index('expires_at')
+
+            # EMAIL VERIFICATIONS (TTL index based on expires_at)
+            await self.db.email_verifications.create_index('token_hash', unique=True)
+            await self.db.email_verifications.create_index('email')
+            await self.db.email_verifications.create_index('expires_at', expireAfterSeconds=0)
 
             # PAYMENTS
             await self.db.payments.create_index('registration_id', unique=True)
@@ -63,10 +72,23 @@ class MongoDB:
             await self.db.matches.create_index('event_id')
             await self.db.matches.create_index('status')
             await self.db.matches.create_index('version')
+            await self.db.matches.create_index([('event_id', 1), ('version', -1)])
 
             # PLANS (existing feature - per user per event)
             await self.db.plans.create_index('user_email')
             await self.db.plans.create_index('event_id')
+            # REFRESH TOKENS
+            await self.db.refresh_tokens.create_index('token_hash', unique=True)
+            await self.db.refresh_tokens.create_index('user_email')
+            await self.db.refresh_tokens.create_index('expires_at')
+
+            # teams, chats and messages collections
+            await self.db.teams.create_index('event_id')
+            await self.db.teams.create_index('status')
+            await self.db.chat_groups.create_index('event_id')
+            await self.db.chat_groups.create_index('created_at')
+            await self.db.chat_messages.create_index([('group_id', 1), ('created_at', -1)])
+
         except PyMongoError as e:
             logging.warning("MongoDB index creation failed; continuing startup: %s", e)
 

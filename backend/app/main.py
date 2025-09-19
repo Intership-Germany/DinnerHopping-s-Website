@@ -8,7 +8,7 @@ from .auth import get_current_user
 from .middleware.rate_limit import RateLimit
 from .middleware.security import SecurityHeadersMiddleware
 from .db import close as close_mongo, connect as connect_to_mongo
-from .routers import admin, events, invitations, payments, users
+from .routers import admin, events, invitations, payments, users, matching, chats
 
 # Compatibility shim: some bcrypt distributions expose `__version__` but not
 # `__about__.__version__`. passlib sometimes attempts to read
@@ -64,6 +64,8 @@ app.include_router(events.router, prefix="/events", tags=["events"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(invitations.router, prefix="/invitations", tags=["invitations"])
 app.include_router(payments.router, prefix="/payments", tags=["payments"])
+app.include_router(matching.router, prefix="/matching", tags=["matching"])
+app.include_router(chats.router, prefix="/chats", tags=["chats"])
 
 api_router = APIRouter()
 

@@ -23,6 +23,8 @@ from typing import Mapping, Optional, Sequence
 import base64
 import os
 import re
+import hmac
+import hashlib
 
 try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -31,7 +33,6 @@ except Exception:  # pragma: no cover - optional dependency in lightweight dev s
 
 from . import db as db_mod
 
-# Anonymisation: grid-cell centré, rayon 500m
 # Simple approach: quantize lat/lon to ~500m grid using Haversine-based degrees approximation
 # For typical latitudes, 0.0045 deg ~ 500m (varies). We'll use 0.0045 to approximate 500m.
 
@@ -275,9 +276,16 @@ async def generate_and_send_verification(recipient: str) -> tuple[str, bool]:
         the email was actually sent (or printed in dev fallback). False means all
         SMTP attempts failed when SMTP was configured.
     """
-    token = secrets.token_urlsafe(32)
+    token, token_hash = generate_token_pair(32)
     created_at = datetime.datetime.now(datetime.timezone.utc)
-    doc = {"email": recipient, "token": token, "created_at": created_at}
+    # TTL for verification tokens (hours)
+    try:
+        ttl_hours = int(os.getenv('EMAIL_VERIFICATION_EXPIRES_HOURS', '1'))
+    except Exception:
+        ttl_hours = 1
+    expires_at = created_at + datetime.timedelta(hours=ttl_hours)
+    # store a non-reversible hash of the token instead of the plaintext token
+    doc = {"email": recipient, "token_hash": token_hash, "created_at": created_at, "expires_at": expires_at}
     try:
         await db_mod.db.email_verifications.insert_one(doc)
         logger.info("Stored verification token for %s", recipient)
@@ -301,6 +309,27 @@ async def generate_and_send_verification(recipient: str) -> tuple[str, bool]:
         # fallback print of link if send failed *despite* having SMTP configured
         print(f"[email fallback] Verification link for {recipient}: {verification_url}")
     return token, ok
+
+
+def hash_token(token: str) -> str:
+    """Return HMAC-SHA256(token, TOKEN_PEPPER) hex digest for safe storage/lookup.
+
+    If TOKEN_PEPPER is unset the function will still compute a hash with an empty pepper
+    but it's strongly recommended to set a long random TOKEN_PEPPER in production.
+    """
+    pepper = os.getenv('TOKEN_PEPPER', '')
+    pepper_bytes = pepper.encode('utf8') if isinstance(pepper, str) else pepper
+    return hmac.new(pepper_bytes, token.encode('utf8'), hashlib.sha256).hexdigest()
+
+
+def generate_token_pair(bytes_entropy: int = 32) -> tuple[str, str]:
+    """Generate a secure random token and its stored hash.
+
+    Returns (token, token_hash) where token is safe to send to the user and
+    token_hash is the HMAC-SHA256 hex digest for storage.
+    """
+    t = secrets.token_urlsafe(bytes_entropy)
+    return t, hash_token(t)
 
 
 async def send_notification(recipient: str, title: str, message_lines: Sequence[str]) -> bool:

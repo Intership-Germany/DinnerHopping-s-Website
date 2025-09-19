@@ -3,7 +3,7 @@ import datetime
 import os
 import re
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -73,12 +73,36 @@ async def authenticate_user(email: str, password: str):
     await db_mod.db.users.update_one({"email": email}, {"$set": {"failed_login_attempts": 0}, "$unset": {"lockout_until": "", "password": ""}})
     return user
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(request: Request):
+    """Dependency that returns the current authenticated user.
+
+    Token retrieval order:
+    1. Authorization: Bearer <token> header
+    2. HttpOnly cookie named 'access_token'
+
+    This fallback allows browser clients to authenticate using secure cookies.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    token = None
+    # 1) Authorization header
+    auth_header = request.headers.get('authorization')
+    if auth_header and auth_header.lower().startswith('bearer '):
+        token = auth_header.split(' ', 1)[1].strip()
+
+    # 2) cookie fallback
+    if not token:
+        cookie_token = request.cookies.get('access_token')
+        if cookie_token:
+            token = cookie_token
+
+    if not token:
+        raise credentials_exception
+
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
         email: str = payload.get("sub")

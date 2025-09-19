@@ -8,8 +8,9 @@ from app.utils import anonymize_address, encrypt_address, anonymize_public_addre
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 from pymongo.errors import PyMongoError
-from fastapi import Header
 import os
+from fastapi import Header
+import datetime
 
 def _serialize(obj):
     from bson import ObjectId as _OID
@@ -32,9 +33,14 @@ class LocationIn(BaseModel):
 class EventCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    date: str  # ISO date string
+    date: Optional[str] = None  # ISO date string (compat)
+    start_at: Optional[str] = None  # ISO datetime string (preferred)
     capacity: Optional[int] = None
+    fee_cents: Optional[int] = 0
     location: Optional[LocationIn] = None
+    registration_deadline: Optional[str] = None
+    payment_deadline: Optional[str] = None
+    after_party_location: Optional[LocationIn] = None
     organizer_id: Optional[str] = None  # user id (ObjectId as str)
     status: Optional[Literal['draft', 'published', 'closed', 'cancelled']] = 'draft'
 
@@ -47,15 +53,21 @@ class EventOut(BaseModel):
     id: str
     title: str
     description: Optional[str] = None
-    date: str
+    date: Optional[str] = None
+    start_at: Optional[str] = None
     location: Optional[LocationOut] = None
     capacity: Optional[int] = None
+    fee_cents: Optional[int] = 0
+    registration_deadline: Optional[str] = None
+    payment_deadline: Optional[str] = None
+    after_party_location: Optional[LocationOut] = None
     attendee_count: int = 0
     status: Optional[Literal['draft', 'published', 'closed', 'cancelled']] = 'draft'
+    matching_status: Optional[Literal['not_started','in_progress','proposed','finalized','archived']] = 'not_started'
     organizer_id: Optional[str] = None
     created_by: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    created_at: Optional[datetime.datetime] = None
+    updated_at: Optional[datetime.datetime] = None
 
 @router.get("/", response_model=list[EventOut])
 async def list_events(date: Optional[str] = None, status: Optional[Literal['draft', 'published', 'closed', 'cancelled']] = None, lat: Optional[float] = None, lon: Optional[float] = None, radius_m: Optional[int] = None):
@@ -96,9 +108,10 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
 
 
 @router.post('/', response_model=EventOut)
-async def create_event(payload: EventCreate, x_admin_token: str | None = Header(None)):
-    ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
-    if x_admin_token != ADMIN_TOKEN:
+async def create_event(payload: EventCreate, current_user=Depends(get_current_user)):
+    # require admin role to create events
+    roles = current_user.get('roles') or []
+    if 'admin' not in roles:
         raise HTTPException(status_code=403, detail='Forbidden')
     now = __import__('datetime').datetime.utcnow()
     doc = payload.dict()
@@ -133,6 +146,10 @@ async def create_event(payload: EventCreate, x_admin_token: str | None = Header(
 
     # default fields per schema
     doc['attendee_count'] = 0
+    doc['fee_cents'] = doc.get('fee_cents', 0)
+    doc['registration_deadline'] = doc.get('registration_deadline')
+    doc['payment_deadline'] = doc.get('payment_deadline')
+    doc['matching_status'] = doc.get('matching_status', 'not_started')
     doc['created_at'] = now
     doc['updated_at'] = now
     # set created_by to organizer if available; otherwise leave None
@@ -143,7 +160,7 @@ async def create_event(payload: EventCreate, x_admin_token: str | None = Header(
         doc['status'] = 'draft'
 
     res = await db_mod.db.events.insert_one(doc)
-    return EventOut(id=str(res.inserted_id), title=doc.get('title'), description=doc.get('description'), date=doc.get('date'), location=doc.get('location'), capacity=doc.get('capacity'), attendee_count=0, status=doc.get('status'), organizer_id=str(doc['organizer_id']) if doc.get('organizer_id') is not None else None, created_by=str(doc['created_by']) if doc.get('created_by') is not None else None, created_at=doc.get('created_at'), updated_at=doc.get('updated_at'))
+    return EventOut(id=str(res.inserted_id), title=doc.get('title'), description=doc.get('description'), date=doc.get('date'), start_at=doc.get('start_at'), location=doc.get('location'), capacity=doc.get('capacity'), fee_cents=doc.get('fee_cents', 0), registration_deadline=doc.get('registration_deadline'), payment_deadline=doc.get('payment_deadline'), after_party_location=doc.get('after_party_location'), attendee_count=0, status=doc.get('status'), matching_status=doc.get('matching_status'), organizer_id=str(doc['organizer_id']) if doc.get('organizer_id') is not None else None, created_by=str(doc['created_by']) if doc.get('created_by') is not None else None, created_at=doc.get('created_at'), updated_at=doc.get('updated_at'))
 
 
 @router.get('/{event_id}')
@@ -180,9 +197,9 @@ async def get_event(event_id: str, anonymise: bool = True):
 
 
 @router.put('/{event_id}', response_model=EventOut)
-async def update_event(event_id: str, payload: EventCreate, x_admin_token: str | None = Header(None)):
-    ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
-    if x_admin_token != ADMIN_TOKEN:
+async def update_event(event_id: str, payload: EventCreate, current_user=Depends(get_current_user)):
+    roles = current_user.get('roles') or []
+    if 'admin' not in roles:
         raise HTTPException(status_code=403, detail='Forbidden')
     update = payload.dict()
     # handle location update
@@ -215,15 +232,22 @@ async def update_event(event_id: str, payload: EventCreate, x_admin_token: str |
             raise HTTPException(status_code=400, detail='invalid organizer_id') from exc
 
     update['updated_at'] = __import__('datetime').datetime.utcnow()
+    # allow updating new fields if provided
+    if payload.dict().get('fee_cents') is not None:
+        update['fee_cents'] = payload.dict().get('fee_cents')
+    if payload.dict().get('registration_deadline') is not None:
+        update['registration_deadline'] = payload.dict().get('registration_deadline')
+    if payload.dict().get('payment_deadline') is not None:
+        update['payment_deadline'] = payload.dict().get('payment_deadline')
     await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": update})
     e = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
-    return EventOut(id=str(e['_id']), title=e.get('title') or e.get('name'), description=e.get('description'), date=e.get('date'), location=e.get('location'), capacity=e.get('capacity'), attendee_count=e.get('attendee_count', 0), status=e.get('status'), organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None, created_by=str(e.get('created_by')) if e.get('created_by') is not None else None, created_at=e.get('created_at'), updated_at=e.get('updated_at'))
+    return EventOut(id=str(e['_id']), title=e.get('title') or e.get('name'), description=e.get('description'), date=e.get('date'), start_at=e.get('start_at'), location=e.get('location'), capacity=e.get('capacity'), fee_cents=e.get('fee_cents', 0), registration_deadline=e.get('registration_deadline'), payment_deadline=e.get('payment_deadline'), after_party_location=e.get('after_party_location'), attendee_count=e.get('attendee_count', 0), status=e.get('status'), matching_status=e.get('matching_status', 'not_started'), organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None, created_by=str(e.get('created_by')) if e.get('created_by') is not None else None, created_at=e.get('created_at'), updated_at=e.get('updated_at'))
 
 
 @router.post('/{event_id}/publish')
-async def publish_event(event_id: str, x_admin_token: str | None = Header(None)):
-    ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', 'admin-token-change-me')
-    if x_admin_token != ADMIN_TOKEN:
+async def publish_event(event_id: str, current_user=Depends(get_current_user)):
+    roles = current_user.get('roles') or []
+    if 'admin' not in roles:
         raise HTTPException(status_code=403, detail='Forbidden')
     await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": {"status": "published", "updated_at": __import__('datetime').datetime.utcnow()}})
     return {"status": "published"}
@@ -286,11 +310,12 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
     invited = payload.get('invited_emails') or []
     sent_invitations = []
     import secrets
+    from app.utils import generate_token_pair
     for em in invited:
-        token = secrets.token_urlsafe(24)
+        token, token_hash_val = generate_token_pair(18)
         inv = {
             "registration_id": res.inserted_id,
-            "token": token,
+            "token_hash": token_hash_val,
             "invited_email": em,
             "status": "pending",
             "created_at": now,
