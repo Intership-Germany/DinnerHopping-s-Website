@@ -1,0 +1,14 @@
+services:
+  frontend:
+    build: .
+    container_name: dinnerhopping-frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./public:/usr/local/apache2/htdocs
+    working_dir: /usr/local/apache2/htdocs
+    env_file:
+      - .env
+    # Optionally, copy custom config if needed
+    # - ./my-httpd.conf:/usr/local/apache2/conf/httpd.conf
+

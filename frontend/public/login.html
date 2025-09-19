@@ -6,6 +6,8 @@
     <title>Dinnerhopping - Login/Sign Up</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Config variables (auto-generated) -->
+    <script src="config.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -136,14 +138,14 @@
 
             // Backend base URL (change if your backend is elsewhere)
             const BACKEND_BASE = window.BACKEND_BASE_URL || 'http://localhost:8000';
-
+            
             // Helper to show a temporary message under the forms
             function showMessage(text, type = 'info') {
                 let el = document.getElementById('global-msg');
                 if (!el) {
                     el = document.createElement('div');
                     el.id = 'global-msg';
-                    el.className = 'mt-4 text-center';
+                    el.className = 'mt-4 mb-4 text-center';
                     loginForm.parentElement.prepend(el);
                 }
                 // allow passing arrays or objects

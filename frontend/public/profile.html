@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dinnerhopping - My Account</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="config.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: linear-gradient(120deg, #f0f4f7 60%, #ffe5d0 100%);
+        }
+
+        .profile-blob {
+            position: absolute;
+            top: -80px;
+            right: -120px;
+            width: 340px;
+            height: 340px;
+            background: radial-gradient(circle at 60% 40%, #f46f47 0%, #ffb88c 100%);
+            opacity: 0.18;
+            filter: blur(32px);
+            z-index: 0;
+            background-color: #f0f4f7;
+        }
+
+        .hero-gradient {
+            background-image: linear-gradient(135deg, #172a3a, #f46f47);
+        }
+    </style>
+</head>
+
+<body class="text-[#172a3a]">
+    <div id="app" class="min-h-screen flex flex-col relative overflow-x-hidden">
+        <!-- Main Navigation Header -->
+        <nav class="w-full z-20 bg-white/80 backdrop-blur border-b border-[#f0f4f7] shadow-sm sticky top-0">
+            <div class="max-w-5xl mx-auto flex items-center justify-between px-6 py-3">
+                <a href="index.html" class="flex items-center gap-2 font-extrabold text-xl tracking-tight">
+                    DinnerHopping
+                </a>
+                <div class="flex gap-6 text-sm font-semibold">
+                    <a href="home.html" class="text-[#172a3a] hover:text-[#f46f47] transition">Home</a>
+                    <a href="profile.html" class="text-[#f46f47] underline underline-offset-4">My Account</a>
+                </div>
+            </div>
+        </nav>
+        <div class="profile-blob"></div>
+        <!-- Skeleton Header -->
+        <header id="skeleton-header" class="relative z-10 flex flex-col items-center justify-center text-center py-6 mb-6 bg-gradient-to-r from-[#172a3a] to-[#f46f47] rounded-b-3xl shadow-lg mx-auto w-full max-w-4xl px-8 animate-pulse">
+            <div class="w-20 h-20 rounded-full bg-white/30 border-4 border-white mb-2"></div>
+            <div class="h-6 w-48 bg-white/40 rounded mb-2"></div>
+            <div class="h-4 w-64 bg-white/30 rounded mb-3"></div>
+            <div class="flex gap-3 justify-center">
+                <div class="h-8 w-24 bg-white/40 rounded-xl"></div>
+                <div class="h-8 w-24 bg-white/30 rounded-xl"></div>
+            </div>
+        </header>
+
+        <!-- Profile Header (real content) -->
+        <header id="profile-header"
+            class="hidden relative z-10 flex flex-col items-center justify-center text-center py-6 mb-6 bg-gradient-to-r from-[#172a3a] to-[#f46f47] rounded-b-3xl shadow-lg mx-auto w-full max-w-4xl px-8">
+            <img src="https://static.vecteezy.com/system/resources/previews/019/879/186/non_2x/user-icon-on-transparent-background-free-png.png" alt="Profile"
+                class="w-20 h-20 rounded-full border-4 border-white shadow-lg mb-2 object-cover">
+            <h1 id="header-name" class="text-3xl font-extrabold text-white drop-shadow mb-0.5"></h1>
+            <p id="header-email" class="text-base text-[#ffe5d0] font-medium mb-1"></p>
+            <div class="flex gap-3 justify-center">
+                <button id="edit-btn"
+                    class="px-3 py-1.5 rounded-xl bg-white text-[#f46f47] font-semibold shadow hover:bg-[#ffe5d0] transition text-sm">
+                    Edit Profile
+                </button>
+                <div id="edit-actions" class="hidden items-center gap-2">
+                    <button id="cancel-btn"
+                        class="px-3 py-1.5 rounded-xl bg-white text-[#f46f47] font-semibold shadow hover:bg-[#ffe5d0] transition text-sm">
+                        Cancel
+                    </button>
+                    <button id="save-btn"
+                        class="px-3 py-1.5 rounded-xl bg-[#f46f47] text-white font-semibold shadow hover:bg-[#ff8c42] transition flex items-center gap-2 text-sm"
+                        title="Save Changes">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M5 13l4 4L19 7" />
+                        </svg>
+                        Save
+                    </button>
+                </div>
+                <button
+                    class="px-3 py-1.5 rounded-xl bg-[#f46f47] text-white font-semibold shadow hover:bg-[#ff8c42] transition flex items-center gap-2 text-sm"
+                    title="Logout" id="logout-btn">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1">
+                        </path>
+                    </svg>
+                    Logout
+                </button>
+            </div>
+        </header>
+
+
+        <!-- Alert Banner for Incomplete Profile -->
+        <div id="incomplete-banner" class="w-full max-w-2xl mx-auto px-2 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 flex items-center hidden" role="alert">
+            <svg class="w-5 h-5 mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01">
+                </path>
+            </svg>
+            <span class="font-semibold">Your profile is incomplete.</span>
+            <span id="incomplete-details" class="ml-2 text-sm">Please fill in all information to fully enjoy the service.</span>
+        </div>
+
+
+        <!-- Unsaved changes banner -->
+        <div id="unsaved-banner" class="w-full max-w-2xl mx-auto px-2 bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-4 flex items-center hidden rounded-xl" role="alert">
+            <svg class="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01"></path>
+            </svg>
+            <span class="font-semibold">You have unsaved changes.</span>
+            <span class="ml-2 text-sm">Please save or cancel before leaving.</span>
+        </div>
+
+        <!-- Skeleton Main Content -->
+        <div id="skeleton-main" class="relative z-10 max-w-2xl mx-auto px-2 space-y-4 animate-pulse">
+            <section class="bg-white/90 p-4 rounded-2xl shadow-xl border border-[#f0f4f7]">
+                <div class="h-5 w-40 bg-gray-200 rounded mb-3"></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="h-9 bg-gray-200 rounded"></div>
+                    <div class="h-9 bg-gray-200 rounded"></div>
+                    <div class="h-9 bg-gray-200 rounded md:col-span-2"></div>
+                </div>
+            </section>
+            <section class="bg-white/90 p-4 rounded-2xl shadow-xl border border-[#f0f4f7]">
+                <div class="h-5 w-40 bg-gray-200 rounded mb-3"></div>
+                <div class="h-16 bg-gray-200 rounded"></div>
+            </section>
+            <section class="bg-white/90 p-4 rounded-2xl shadow-xl border border-[#f0f4f7]">
+                <div class="h-5 w-40 bg-gray-200 rounded mb-3"></div>
+                <div class="space-y-2">
+                    <div class="h-12 bg-gray-200 rounded"></div>
+                    <div class="h-12 bg-gray-200 rounded"></div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Main Content (more compact) -->
+        <main id="profile-main" class="hidden relative z-10 max-w-2xl mx-auto px-2">
+            <!-- Personal Information -->
+            <section class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]">
+                <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Personal Information</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="flex flex-col">
+                        <label class="text-xs font-semibold text-gray-500 mb-0.5">Full Name</label>
+                        <input id="profile-name" type="text" value=""
+                            class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm"
+                            disabled>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="text-xs font-semibold text-gray-500 mb-0.5">Email</label>
+                        <input id="profile-email" type="email" value=""
+                            class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm"
+                            disabled>
+                    </div>
+                    <div class="flex flex-col md:col-span-2">
+                        <label class="text-xs font-semibold text-gray-500 mb-0.5">Address</label>
+                        <input id="profile-address" type="text" value=""
+                            class="p-2 rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:border-[#f46f47] transition-colors duration-300 text-sm"
+                            disabled>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Food Preferences -->
+            <section class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]">
+                <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Food Preferences</h2>
+                <p class="text-xs text-gray-600 mb-2">These are your default preferences for all events. You can adjust
+                    them for each event you sign up for.</p>
+                <textarea id="profile-preferences"
+                    class="w-full p-2 border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-[#f46f47] outline-none text-sm"
+                    rows="2" disabled></textarea>
+            </section>
+
+            <!-- Event History -->
+            <section class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]" hidden>
+                <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Event History</h2>
+                <div class="space-y-2">
+                    <!-- Upcoming Event Card -->
+                    <div
+                        class="flex items-center justify-between p-3 bg-gradient-to-r from-[#ffe5d0] to-[#f0f4f7] rounded-xl border border-[#f46f47]/20 shadow-sm">
+                        <div>
+                            <p class="font-semibold text-[#172a3a] text-sm">Winter Dinnerhopping Göttingen 2025</p>
+                            <p class="text-xs text-gray-500">Participated solo</p>
+                        </div>
+                        <span
+                            class="text-xs text-[#f46f47] font-semibold bg-[#f46f47]/10 px-2 py-0.5 rounded-lg">Registered</span>
+                    </div>
+                    <!-- Past Event Card -->
+                    <div
+                        class="flex items-center justify-between p-3 bg-gradient-to-r from-[#e0f7fa] to-[#f0f4f7] rounded-xl border border-[#008080]/20 shadow-sm">
+                        <div>
+                            <p class="font-semibold text-[#172a3a] text-sm">Summer Dinnerhopping Berlin 2024</p>
+                            <p class="text-xs text-gray-500">Participated as a team</p>
+                        </div>
+                        <span
+                            class="text-xs text-[#008080] font-semibold bg-[#008080]/10 px-2 py-0.5 rounded-lg">Completed</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+        <!-- Footer -->
+        <footer class="bg-[#172a3a] text-white p-8 rounded-t-3xl shadow-xl">
+            <div class="text-center mb-6">
+                <h4 class="text-xl font-bold">Dinnerhopping</h4>
+                <p class="text-sm font-light opacity-80">Student Events</p>
+            </div>
+            <div class="flex justify-center space-x-6 mb-6">
+                <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">About</a>
+                <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">Contact</a>
+                <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">FAQ</a>
+            </div>
+        </footer>
+    </div>
+
+                  
+    <script>
+        (async function(){
+            const BACKEND_BASE = window.BACKEND_BASE_URL || 'http://localhost:8000';
+
+            const token = localStorage.getItem('dh_token');
+            if (!token) {
+                // not logged in — redirect to login
+                window.location.href = 'login.html';
+                return;
+            }
+
+            const el = {
+                headerName: document.getElementById('header-name'),
+                headerEmail: document.getElementById('header-email'),
+                name: document.getElementById('profile-name'),
+                email: document.getElementById('profile-email'),
+                address: document.getElementById('profile-address'),
+                preferences: document.getElementById('profile-preferences'),
+                editBtn: document.getElementById('edit-btn'),
+                saveBtn: document.getElementById('save-btn'),
+                cancelBtn: document.getElementById('cancel-btn'),
+                editActions: document.getElementById('edit-actions'),
+                incompleteBanner: document.getElementById('incomplete-banner'),
+                incompleteDetails: document.getElementById('incomplete-details'),
+                unsavedBanner: document.getElementById('unsaved-banner'),
+                skeletonHeader: document.getElementById('skeleton-header'),
+                skeletonMain: document.getElementById('skeleton-main'),
+                profileHeader: document.getElementById('profile-header'),
+                profileMain: document.getElementById('profile-main'),
+            };
+
+            let initialData = null;
+            let isEditing = false;
+            let hasUnsaved = false;
+
+            function formatPreferences(pref){
+                try {
+                    if (!pref) return '';
+                    if (Array.isArray(pref)) return pref.join(', ');
+                    if (typeof pref === 'string') return pref;
+                    if (typeof pref === 'object') {
+                        const parts = [];
+                        for (const [k,v] of Object.entries(pref)){
+                            if (v === true) parts.push(k);
+                            else if (Array.isArray(v) && v.length) parts.push(`${k}: ${v.join(', ')}`);
+                            else if (typeof v === 'string' && v.trim()) parts.push(`${k}: ${v}`);
+                            else if (typeof v === 'number') parts.push(`${k}: ${v}`);
+                        }
+                        return parts.join(', ');
+                    }
+                    return String(pref);
+                } catch(e){
+                    return '';
+                }
+            }
+
+            function isEmptyPreferences(pref){
+                if (!pref) return true;
+                if (Array.isArray(pref)) return pref.length === 0;
+                if (typeof pref === 'string') return pref.trim().length === 0;
+                if (typeof pref === 'object') return Object.keys(pref).length === 0;
+                return true;
+            }
+
+            try {
+                // debug helper
+                if (!window.dbg) window.dbg = { logReq: (...a)=>console.log(...a) };
+                const res = await fetch(`${BACKEND_BASE}/profile`, { headers: { 'Authorization': `Bearer ${token}` } });
+                const data = await res.json();
+                dbg.logReq('GET /profile', { status: res.status, body: data });
+                if (!res.ok) {
+                    localStorage.removeItem('dh_token');
+                    window.location.href = 'login.html';
+                    return;
+                }
+
+                // Populate header
+                if (el.headerName) el.headerName.textContent = data.name || '';
+                if (el.headerEmail) el.headerEmail.textContent = data.email || '';
+
+                // Populate inputs
+                if (el.name) el.name.value = data.name || '';
+                if (el.email) el.email.value = data.email || '';
+                if (el.address) el.address.value = data.address || '';
+
+                // Populate preferences textarea
+                const prefText = formatPreferences(data.preferences);
+                if (el.preferences) el.preferences.value = prefText || '';
+
+                // Keep a copy to detect changes and allow cancel
+                initialData = {
+                    name: data.name || '',
+                    email: data.email || '',
+                    address: data.address || '',
+                    preferences: data.preferences ?? {}
+                };
+
+                // Reveal real content and hide skeletons
+                el.skeletonHeader?.classList.add('hidden');
+                el.skeletonMain?.classList.add('hidden');
+                el.profileHeader?.classList.remove('hidden');
+                el.profileMain?.classList.remove('hidden');
+
+                // Incomplete profile banner
+                const missing = [];
+                if (!data.name) missing.push('name');
+                if (!data.email) missing.push('email');
+                if (!data.address) missing.push('address');
+                if (isEmptyPreferences(data.preferences)) missing.push('preferences');
+                if (missing.length && el.incompleteBanner){
+                    el.incompleteBanner.classList.remove('hidden');
+                    if (el.incompleteDetails) {
+                        el.incompleteDetails.textContent = `Missing: ${missing.join(', ')}`;
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+                localStorage.removeItem('dh_token');
+                window.location.href = 'login.html';
+            }
+
+            function setEditMode(on){
+                isEditing = !!on;
+                const toggle = (inp) => {
+                    if (!inp) return;
+                    if (isEditing) {
+                        inp.removeAttribute('disabled');
+                        inp.classList.remove('bg-gray-50');
+                        inp.classList.add('bg-white');
+                    } else {
+                        inp.setAttribute('disabled', '');
+                        inp.classList.add('bg-gray-50');
+                        inp.classList.remove('bg-white');
+                    }
+                };
+                toggle(el.name);
+                // Email stays read-only for now
+                if (el.email) el.email.setAttribute('disabled', '');
+                toggle(el.address);
+                toggle(el.preferences);
+
+                // Header actions
+                if (el.editBtn) el.editBtn.classList.toggle('hidden', isEditing);
+                if (el.editActions) el.editActions.classList.toggle('hidden', !isEditing);
+
+                // Unsaved banner resets when turning off
+                if (!isEditing && el.unsavedBanner) el.unsavedBanner.classList.add('hidden');
+                hasUnsaved = false;
+            }
+
+            function showUnsaved(on){
+                if (!el.unsavedBanner) return;
+                el.unsavedBanner.classList.toggle('hidden', !on);
+            }
+
+            function parsePreferencesInput(text){
+                // Accept JSON or comma-separated text; always return an object for backend
+                if (!text || !text.trim()) return {};
+                try {
+                    const parsed = JSON.parse(text);
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                        return parsed; // already a dict
+                    }
+                    if (Array.isArray(parsed)) {
+                        return { tags: parsed };
+                    }
+                } catch(e){ /* non-JSON */ }
+                // fallback: split by comma into tags array inside a dict
+                const tags = text.split(',').map(s=>s.trim()).filter(Boolean);
+                return tags.length ? { tags } : {};
+            }
+
+            function canonicalizePreferences(p){
+                try{
+                    if (p == null) return '';
+                    if (typeof p === 'string'){
+                        const t = p.trim();
+                        if (!t) return '';
+                        return t.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean).sort().join('|');
+                    }
+                    if (Array.isArray(p)){
+                        return p.map(x=>String(x).trim().toLowerCase()).filter(Boolean).sort().join('|');
+                    }
+                    if (typeof p === 'object'){
+                        const parts = [];
+                        for (const [k,v] of Object.entries(p)){
+                            if (v === true) parts.push(k);
+                            else if (Array.isArray(v) && v.length) parts.push(`${k}:${v.map(x=>String(x).trim().toLowerCase()).join(',')}`);
+                            else if (typeof v === 'string' && v.trim()) parts.push(`${k}:${v.trim().toLowerCase()}`);
+                            else if (typeof v === 'number') parts.push(`${k}:${v}`);
+                        }
+                        return parts.map(s=>s.toLowerCase()).sort().join('|');
+                    }
+                    return String(p);
+                }catch{ return ''; }
+            }
+
+            function computeHasUnsaved(){
+                if (!initialData) return false;
+                const current = {
+                    name: el.name?.value ?? '',
+                    email: el.email?.value ?? '',
+                    address: el.address?.value ?? '',
+                    preferences: parsePreferencesInput(el.preferences?.value ?? '')
+                };
+                const normalize = (v) => typeof v === 'string' ? v.trim() : v;
+                const prefEqual = canonicalizePreferences(current.preferences) === canonicalizePreferences(initialData.preferences);
+                return (
+                    normalize(current.name) !== normalize(initialData.name) ||
+                    normalize(current.email) !== normalize(initialData.email) ||
+                    normalize(current.address) !== normalize(initialData.address) ||
+                    !prefEqual
+                );
+            }
+
+            // Wire buttons and change tracking
+            el.editBtn?.addEventListener('click', (e)=>{ e.preventDefault(); setEditMode(true); });
+            el.cancelBtn?.addEventListener('click', (e)=>{
+                e.preventDefault();
+                if (!initialData) return setEditMode(false);
+                if (el.name) el.name.value = initialData.name;
+                if (el.email) el.email.value = initialData.email;
+                if (el.address) el.address.value = initialData.address;
+                if (el.preferences) el.preferences.value = formatPreferences(initialData.preferences);
+                setEditMode(false);
+            });
+
+            async function saveProfile(){
+                if (!isEditing) return;
+                const parsedPrefs = parsePreferencesInput(el.preferences?.value || '');
+                const payload = {
+                    name: el.name?.value?.trim() || undefined,
+                    address: el.address?.value?.trim() || undefined,
+                    preferences: (Object.keys(parsedPrefs).length ? parsedPrefs : undefined)
+                };
+                try{
+                    const res = await fetch(`${BACKEND_BASE}/profile`, {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    const body = await res.json().catch(()=>({}));
+                    dbg.logReq('PUT /profile', { status: res.status, body });
+                    if (!res.ok) {
+                        let msg = 'Failed to save';
+                        if (typeof body?.detail === 'string') msg = body.detail;
+                        else if (Array.isArray(body?.detail) && body.detail.length){
+                            // pick first error message or join
+                            msg = body.detail.map(d => d.msg || JSON.stringify(d)).join('\n');
+                        }
+                        throw new Error(msg);
+                    }
+
+                    // Update header + initialData + fields from server response
+                    const d = body;
+                    if (el.headerName) el.headerName.textContent = d.name || '';
+                    if (el.headerEmail) el.headerEmail.textContent = d.email || '';
+                    initialData = {
+                        name: d.name || '',
+                        email: d.email || '',
+                        address: d.address || '',
+                        preferences: d.preferences ?? {}
+                    };
+                    // Normalize UI values
+                    if (el.name) el.name.value = initialData.name;
+                    if (el.email) el.email.value = initialData.email;
+                    if (el.address) el.address.value = initialData.address;
+                    if (el.preferences) el.preferences.value = formatPreferences(initialData.preferences);
+
+                    setEditMode(false);
+
+                    // Re-check incomplete banner
+                    const missing = [];
+                    if (!d.name) missing.push('name');
+                    if (!d.email) missing.push('email');
+                    if (!d.address) missing.push('address');
+                    if (isEmptyPreferences(d.preferences)) missing.push('preferences');
+                    if (missing.length && el.incompleteBanner){
+                        el.incompleteBanner.classList.remove('hidden');
+                        el.incompleteDetails && (el.incompleteDetails.textContent = `Missing: ${missing.join(', ')}`);
+                    } else if (el.incompleteBanner) {
+                        el.incompleteBanner.classList.add('hidden');
+                    }
+                }catch(err){
+                    console.error(err);
+                    alert(err?.message || 'Could not save your changes.');
+                }
+            }
+
+            el.saveBtn?.addEventListener('click', (e)=>{ e.preventDefault(); saveProfile(); });
+
+            // Track changes to show unsaved banner
+            ['input','change'].forEach(ev=>{
+                [el.name, el.address, el.preferences].forEach(inp=>{
+                    inp?.addEventListener(ev, ()=>{
+                        if (!isEditing) return;
+                        hasUnsaved = computeHasUnsaved();
+                        showUnsaved(hasUnsaved);
+                    });
+                });
+            });
+
+            // Warn on navigation if unsaved
+            window.addEventListener('beforeunload', (e)=>{
+                if (isEditing && hasUnsaved){
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            });
+
+            document.getElementById('logout-btn').addEventListener('click', () => {
+                localStorage.removeItem('dh_token');
+                // window.location.href = FRONTEND_BASE;
+            });
+        })();
+    </script>
+</body>
+
+</html>
