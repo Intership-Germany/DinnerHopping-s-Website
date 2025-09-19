@@ -27,9 +27,9 @@ An example file `backend/.env.example` is provided; copy it to `.env` and fill i
 
 - `MONGO_URI` — MongoDB connection string (default: `mongodb://localhost:27017/dinnerhopping`).
 - `JWT_SECRET` — secret key for JWT signing (default: `change-me`).
-- `ADMIN_TOKEN` — token used for protecting admin endpoints (set to something secret in prod).
 - `BACKEND_BASE_URL` — base URL used in generated links (default: `http://localhost:8000`).
 - `ALLOWED_ORIGINS` — comma-separated CORS origins (default: `*`).
+- `TOKEN_PEPPER` — application-wide secret used to HMAC-token values (recommended, set to a long random string). When set, verification and invitation tokens are stored as a non-reversible hash in the database.
 - `STRIPE_API_KEY` — optional; when set the payments flow will create Stripe Checkout Sessions.
 - `STRIPE_WEBHOOK_SECRET` — optional; when set webhook requests will be verified.
 - `SMTP_HOST` — optional; hostname of SMTP server (e.g. `ssl0.ovh.net` for OVH mail).
@@ -156,7 +156,7 @@ curl "http://localhost:8000/verify-email?token=<token>"
 # Login
 curl -X POST http://localhost:8000/login -H "Content-Type: application/json" -d '{"username":"t@example.com","password":"Testpass1"}'
 
-# Create an event (may be admin-only depending on deployment)
+# Create an event (admin role required)
 curl -X POST http://localhost:8000/events/ -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"title":"My Event","date":"2025-09-20T19:00:00Z","location":{"name":"Venue"},"capacity":10}'
 
 # Register for an event

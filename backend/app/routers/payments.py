@@ -10,7 +10,7 @@ router = APIRouter()
 
 class CreatePaymentIn(BaseModel):
     registration_id: str
-    amount_cents: int
+    amount_cents: int  # client supplies minor units (cents)
     idempotency_key: str | None = None
 
 
@@ -25,7 +25,7 @@ async def create_payment(payload: CreatePaymentIn):
     # ensure registration exists
     try:
         reg_obj = ObjectId(payload.registration_id)
-    except Exception:
+    except Exception:  # noqa: BLE001 - validate ObjectId format only
         raise HTTPException(status_code=400, detail='Invalid registration_id')
 
     reg = await db_mod.db.registrations.find_one({"_id": reg_obj})
@@ -53,10 +53,12 @@ async def create_payment(payload: CreatePaymentIn):
         # create or return an existing payment doc atomically using upsert to avoid races
         initial_doc = {
             "registration_id": reg_obj,
-            "amount_cents": payload.amount_cents,
+            "amount": payload.amount_cents / 100.0,
+            "currency": 'EUR',
             "status": "pending",
             "provider": "stripe",
             "idempotency_key": payload.idempotency_key,
+            "meta": {},
             "created_at": datetime.datetime.utcnow(),
         }
         doc = await db_mod.db.payments.find_one_and_update(
@@ -74,7 +76,6 @@ async def create_payment(payload: CreatePaymentIn):
         import stripe
         stripe.api_key = stripe_key
         try:
-            # include our payment DB id and idempotency key in Stripe session metadata so webhooks can map back reliably
             session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
                 line_items=[{"price_data": {"currency": "eur", "product_data": {"name": "Event registration"}, "unit_amount": payload.amount_cents}, "quantity": 1}],
@@ -86,17 +87,19 @@ async def create_payment(payload: CreatePaymentIn):
                     "idempotency_key": payload.idempotency_key or '',
                 },
             )
-        except Exception as e:
-            # if stripe call fails, try to remove created payment doc only if we inserted it here
+        except Exception as e:  # noqa: BLE001 - aggregate stripe errors
             try:
-                # attempt to delete the doc only if it still matches our pending marker
                 await db_mod.db.payments.delete_one({"_id": payment_id, "provider_payment_id": {"$exists": False}})
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
             raise HTTPException(status_code=500, detail=f'Stripe error: {str(e)}')
 
         # update payment with provider details
         await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"provider_payment_id": session.id, "payment_link": session.url}})
+        try:
+            await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
+        except Exception:
+            pass
         return {"payment_id": str(payment_id), "payment_link": session.url, "status": "pending"}
 
     # dev fallback: use atomic upsert to avoid duplicates
@@ -107,10 +110,12 @@ async def create_payment(payload: CreatePaymentIn):
 
     dev_doc = {
         "registration_id": reg_obj,
-        "amount_cents": payload.amount_cents,
+        "amount": payload.amount_cents / 100.0,
+        "currency": 'EUR',
         "status": "pending",
         "provider": "dev-local",
         "idempotency_key": payload.idempotency_key,
+        "meta": {},
         "created_at": datetime.datetime.utcnow(),
     }
     doc = await db_mod.db.payments.find_one_and_update(
@@ -126,6 +131,10 @@ async def create_payment(payload: CreatePaymentIn):
 
     pay_link = f"/payments/{str(payment_id)}/pay"
     await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"payment_link": pay_link}})
+    try:
+        await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
+    except Exception:
+        pass
     return {"payment_id": str(payment_id), "payment_link": pay_link, "status": "pending"}
 
 
@@ -135,13 +144,14 @@ async def dev_pay(payment_id: str):
     p = await db_mod.db.payments.find_one({"_id": ObjectId(payment_id)})
     if not p:
         raise HTTPException(status_code=404, detail='Payment not found')
-    if p.get('status') == 'paid':
+    if p.get('status') in ('succeeded', 'paid'):
         return {"status": "already_paid"}
 
-    # mark paid
-    await db_mod.db.payments.update_one({"_id": ObjectId(payment_id)}, {"$set": {"status": "paid", "paid_at": datetime.datetime.utcnow()}})
-    # update registration to paid
-    await db_mod.db.registrations.update_one({"_id": p.get('registration_id')}, {"$set": {"paid": True}})
+    # mark paid in a harmonized way
+    now = datetime.datetime.utcnow()
+    await db_mod.db.payments.update_one({"_id": ObjectId(payment_id)}, {"$set": {"status": "succeeded", "paid_at": now}})
+    # registration keeps a business-facing status 'paid' but payment record is 'succeeded'
+    await db_mod.db.registrations.update_one({"_id": p.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
     return {"status": "paid"}
 
 
@@ -158,14 +168,14 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
         import stripe
         try:
             event = stripe.Webhook.construct_event(payload, stripe_signature, webhook_secret)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             raise HTTPException(status_code=400, detail=f'Invalid signature: {str(e)}')
     else:
         # If no webhook secret, trust the payload (dev only). Parse as JSON.
         import json
         try:
             event = json.loads(payload)
-        except Exception:
+        except Exception:  # noqa: BLE001
             raise HTTPException(status_code=400, detail='Invalid payload')
 
     # handle checkout.session.completed
@@ -186,17 +196,17 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
                 try:
                     meta_obj = ObjectId(meta_payment_id)
                     pay = await db_mod.db.payments.find_one({"_id": meta_obj})
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pay = None
             if not pay:
                 # still not found; ignore
                 return {"status": "not_found"}
-        if pay.get('status') == 'paid':
+        if pay.get('status') in ('succeeded', 'paid'):
             return {"status": "already_processed"}
         # mark as paid
-        await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "paid", "paid_at": datetime.datetime.utcnow()}})
-        # update registration
-        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"paid": True}})
+        now = datetime.datetime.utcnow()
+        await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "succeeded", "paid_at": now}})
+        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
         return {"status": "ok"}
 
     return {"status": "ignored"}
