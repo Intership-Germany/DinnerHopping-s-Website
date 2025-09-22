@@ -6,23 +6,28 @@
   <title>Admin Dashboard | DinnerHopping</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="config.js"></script>
+  <script src="auth.js"></script>
+  <script src="debug-banner.js"></script>
+  <script src="includes.js" defer></script>
   <style>
     body { font-family: 'Inter', sans-serif; }
   </style>
 </head>
 <body class="text-[#172a3a] min-h-screen flex flex-col" style="background-color: #f0f4f7;">
+  <script>
+    // Protect admin page via cookie-based gate
+    if (window.auth && window.auth.enforceLogin) {
+      window.auth.enforceLogin('login.html');
+    } else {
+      (function(){
+        const hasToken = document.cookie.split('; ').some(c => c.startsWith('dh_token='));
+        if (!hasToken) window.location.href = 'login.html';
+      })();
+    }
+  </script>
   <!-- Navigation Bar -->
-  <nav class="w-full z-20 bg-white/80 backdrop-blur border-b border-[#f0f4f7] shadow-sm sticky top-0">
-    <div class="max-w-5xl mx-auto flex items-center justify-between px-6 py-3">
-      <a href="index.html" class="flex items-center gap-2 font-extrabold text-xl tracking-tight">
-        DinnerHopping
-      </a>
-      <div class="flex gap-6 text-sm font-semibold">
-        <a href="home.html" class="text-[#172a3a] hover:text-[#f46f47] transition">Home</a>
-        <a href="#" class="text-[#f46f47] underline underline-offset-4">Admin</a>
-      </div>
-    </div>
-  </nav>
+  <div data-include="partials/header.html"></div>
 
   <main class="flex-grow max-w-5xl mx-auto w-full px-4 py-10">
     <!-- Create Event Section -->
@@ -132,16 +137,6 @@
   </main>
 
   <!-- Footer -->
-  <footer class="bg-[#172a3a] text-white p-8 rounded-t-3xl shadow-xl mt-auto">
-    <div class="text-center mb-6">
-      <h4 class="text-xl font-bold">Dinnerhopping</h4>
-      <p class="text-sm font-light opacity-80">Student Events</p>
-    </div>
-    <div class="flex justify-center space-x-6 mb-6">
-      <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">About</a>
-      <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">Contact</a>
-      <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">FAQ</a>
-    </div>
-  </footer>
+  <div data-include="partials/footer.html"></div>
 </body>
 </html>

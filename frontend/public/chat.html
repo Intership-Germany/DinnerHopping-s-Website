@@ -6,6 +6,10 @@
     <title>Group Chat - Starter</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="config.js"></script>
+    <script src="auth.js"></script>
+    <script src="debug-banner.js"></script>
+    <script src="includes.js" defer></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -17,11 +21,25 @@
     </style>
 </head>
 <body class="flex flex-col min-h-screen text-[#172a3a]">
-    <header class="bg-[#008080] text-white px-6 py-4 flex items-center gap-3 shadow">
-        <span class="font-bold text-lg">Starter Group Chat</span>
-        <span class="ml-auto text-xs opacity-80">Weender Landstraße</span>
-    </header>
+    <script>
+        // Gate chat page to authenticated users
+        if (window.auth && window.auth.enforceLogin) {
+            window.auth.enforceLogin('login.html');
+        } else {
+            (function(){
+                const hasToken = document.cookie.split('; ').some(c => c.startsWith('dh_token='));
+                if (!hasToken) window.location.href = 'login.html';
+            })();
+        }
+    </script>
+    <!-- Shared site header -->
+    <div data-include="partials/header.html"></div>
     <main class="flex-1 flex flex-col justify-end px-4 py-6 bg-[#f0f4f7]">
+        <!-- Chat contextual header -->
+        <div class="bg-[#008080] text-white px-6 py-3 rounded-xl shadow mb-4 flex items-center">
+            <span class="font-bold">Starter Group Chat</span>
+            <span class="ml-auto text-xs opacity-80">Weender Landstraße</span>
+        </div>
         <div class="space-y-4 mb-4">
             <!-- Fake conversation -->
             <div class="flex items-end gap-2">
@@ -60,5 +78,7 @@
             <button type="submit" class="px-5 py-2 bg-[#008080] text-white font-bold rounded-xl shadow-lg" disabled>Send</button>
         </form>
     </main>
+    <!-- Shared footer for layout balance -->
+    <div data-include="partials/footer.html"></div>
 </body>
 </html>

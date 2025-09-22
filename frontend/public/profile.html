@@ -8,6 +8,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="config.js"></script>
+    <script src="auth.js"></script>
+    <script src="client.js"></script>
+    <script src="debug-banner.js"></script>
+    <script src="includes.js" defer></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -38,17 +42,7 @@
 <body class="text-[#172a3a]">
     <div id="app" class="min-h-screen flex flex-col relative overflow-x-hidden">
         <!-- Main Navigation Header -->
-        <nav class="w-full z-20 bg-white/80 backdrop-blur border-b border-[#f0f4f7] shadow-sm sticky top-0">
-            <div class="max-w-5xl mx-auto flex items-center justify-between px-6 py-3">
-                <a href="index.html" class="flex items-center gap-2 font-extrabold text-xl tracking-tight">
-                    DinnerHopping
-                </a>
-                <div class="flex gap-6 text-sm font-semibold">
-                    <a href="home.html" class="text-[#172a3a] hover:text-[#f46f47] transition">Home</a>
-                    <a href="profile.html" class="text-[#f46f47] underline underline-offset-4">My Account</a>
-                </div>
-            </div>
-        </nav>
+        <div data-include="partials/header.html"></div>
         <div class="profile-blob"></div>
         <!-- Skeleton Header -->
         <header id="skeleton-header" class="relative z-10 flex flex-col items-center justify-center text-center py-6 mb-6 bg-gradient-to-r from-[#172a3a] to-[#f46f47] rounded-b-3xl shadow-lg mx-auto w-full max-w-4xl px-8 animate-pulse">
@@ -210,30 +204,17 @@
             </section>
         </main>
         <!-- Footer -->
-        <footer class="bg-[#172a3a] text-white p-8 rounded-t-3xl shadow-xl">
-            <div class="text-center mb-6">
-                <h4 class="text-xl font-bold">Dinnerhopping</h4>
-                <p class="text-sm font-light opacity-80">Student Events</p>
-            </div>
-            <div class="flex justify-center space-x-6 mb-6">
-                <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">About</a>
-                <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">Contact</a>
-                <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">FAQ</a>
-            </div>
-        </footer>
+        <div data-include="partials/footer.html"></div>
     </div>
 
                   
     <script>
         (async function(){
+            // Hybrid auth: use Bearer token if available; else rely on cookies+apiFetch if backend supports it
             const BACKEND_BASE = window.BACKEND_BASE_URL || 'http://localhost:8000';
-
-            const token = localStorage.getItem('dh_token');
-            if (!token) {
-                // not logged in — redirect to login
-                window.location.href = 'login.html';
-                return;
-            }
+            const token = (window.auth && window.auth.getCookie) ? window.auth.getCookie('dh_token') : (function(){
+                const m = document.cookie.match(/(?:^|; )dh_token=([^;]*)/); return m?decodeURIComponent(m[1]):null;
+            })();
 
             const el = {
                 headerName: document.getElementById('header-name'),
@@ -265,6 +246,13 @@
                     if (Array.isArray(pref)) return pref.join(', ');
                     if (typeof pref === 'string') return pref;
                     if (typeof pref === 'object') {
+                        // If it's a simple { tags: [...] } shape, show just the values
+                        const keys = Object.keys(pref);
+                        if (keys.length === 1 && keys[0] === 'tags') {
+                            const v = pref.tags;
+                            if (Array.isArray(v)) return v.join(', ');
+                            if (typeof v === 'string') return v;
+                        }
                         const parts = [];
                         for (const [k,v] of Object.entries(pref)){
                             if (v === true) parts.push(k);
@@ -291,11 +279,17 @@
             try {
                 // debug helper
                 if (!window.dbg) window.dbg = { logReq: (...a)=>console.log(...a) };
-                const res = await fetch(`${BACKEND_BASE}/profile`, { headers: { 'Authorization': `Bearer ${token}` } });
+                let res;
+                if (token) {
+                    res = await fetch(`${BACKEND_BASE}/profile`, { headers: { 'Authorization': `Bearer ${token}` } });
+                } else {
+                    // fallback to cookie-based request if no token (requires CORS+cookies configured)
+                    res = await window.apiFetch(`/profile`, { method: 'GET' });
+                }
                 const data = await res.json();
                 dbg.logReq('GET /profile', { status: res.status, body: data });
                 if (!res.ok) {
-                    localStorage.removeItem('dh_token');
+                    // If we attempted cookie mode and failed, redirect to login
                     window.location.href = 'login.html';
                     return;
                 }
@@ -341,7 +335,6 @@
                 }
             } catch (err) {
                 console.error(err);
-                localStorage.removeItem('dh_token');
                 window.location.href = 'login.html';
             }
 
@@ -359,9 +352,14 @@
                         inp.classList.remove('bg-white');
                     }
                 };
-                toggle(el.name);
-                // Email stays read-only for now
-                if (el.email) el.email.setAttribute('disabled', '');
+                // Full Name must remain read-only
+                if (el.name) {
+                    el.name.setAttribute('disabled', '');
+                    el.name.classList.add('bg-gray-50');
+                    el.name.classList.remove('bg-white');
+                }
+                // Email becomes editable in edit mode
+                toggle(el.email);
                 toggle(el.address);
                 toggle(el.preferences);
 
@@ -455,19 +453,29 @@
                 if (!isEditing) return;
                 const parsedPrefs = parsePreferencesInput(el.preferences?.value || '');
                 const payload = {
-                    name: el.name?.value?.trim() || undefined,
+                    // Full name is read-only and not updatable here
+                    email: el.email?.value?.trim() || undefined,
                     address: el.address?.value?.trim() || undefined,
                     preferences: (Object.keys(parsedPrefs).length ? parsedPrefs : undefined)
                 };
                 try{
-                    const res = await fetch(`${BACKEND_BASE}/profile`, {
-                        method: 'PUT',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(payload)
-                    });
+                    let res;
+                    if (token) {
+                        res = await fetch(`${BACKEND_BASE}/profile`, {
+                            method: 'PUT',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(payload)
+                        });
+                    } else {
+                        res = await window.apiFetch(`/profile`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                    }
                     const body = await res.json().catch(()=>({}));
                     dbg.logReq('PUT /profile', { status: res.status, body });
                     if (!res.ok) {
@@ -520,7 +528,7 @@
 
             // Track changes to show unsaved banner
             ['input','change'].forEach(ev=>{
-                [el.name, el.address, el.preferences].forEach(inp=>{
+                [el.email, el.address, el.preferences].forEach(inp=>{
                     inp?.addEventListener(ev, ()=>{
                         if (!isEditing) return;
                         hasUnsaved = computeHasUnsaved();
@@ -537,9 +545,18 @@
                 }
             });
 
-            document.getElementById('logout-btn').addEventListener('click', () => {
-                localStorage.removeItem('dh_token');
-                // window.location.href = FRONTEND_BASE;
+            document.getElementById('logout-btn').addEventListener('click', async () => {
+                try {
+                    // Optional: implement /logout on backend to clear cookies; fallback to redirect
+                    await window.apiFetch(`/logout`, { method: 'POST' });
+                } catch {}
+                // Clear client-managed cookie token if present (Strict + Secure on HTTPS)
+                if (window.auth && window.auth.deleteCookie) {
+                    window.auth.deleteCookie('dh_token');
+                } else {
+                    document.cookie = `dh_token=; Path=/; SameSite=Strict${location.protocol==='https:'?'; Secure':''}; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+                }
+                window.location.href = 'login.html';
             });
         })();
     </script>
