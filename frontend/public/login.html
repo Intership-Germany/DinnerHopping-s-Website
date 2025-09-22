@@ -206,7 +206,6 @@
                         document.cookie = `dh_token=${encodeURIComponent(token)}; ${attrs}`;
                     }
                     showMessage('Logged in successfully');
-                    // redirect to profile page if exists
                     window.location.href = 'profile.html';
                 } catch (err) {
                     showMessage('Network error', 'error');
