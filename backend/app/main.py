@@ -6,7 +6,8 @@ from fastapi import FastAPI, APIRouter, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from .auth import get_current_user
 from .middleware.rate_limit import RateLimit
-from .middleware.security import SecurityHeadersMiddleware
+from .middleware.security import SecurityHeadersMiddleware, CSRFMiddleware
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from .db import close as close_mongo, connect as connect_to_mongo
 from .routers import admin, events, invitations, payments, users, matching, chats
 
@@ -35,16 +36,25 @@ if ALLOWED_ORIGINS == '*':
 else:
     origins = [o.strip() for o in ALLOWED_ORIGINS.split(',') if o.strip()]
 
+# If using cookies for auth (frontend + backend on different domains), you must
+# set specific origins and allow_credentials=True. Browsers reject wildcard
+# origins when allow_credentials is true.
+allow_credentials = os.getenv('CORS_ALLOW_CREDENTIALS', 'true').lower() in ('1','true','yes')
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # security middlewares
+if os.getenv('ENFORCE_HTTPS', 'true').lower() in ('1','true','yes'):
+    # Redirect HTTP to HTTPS (behind a proxy, ensure X-Forwarded-Proto is set)
+    app.add_middleware(HTTPSRedirectMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+# CSRF double-submit protection for cookie-auth clients
+app.add_middleware(CSRFMiddleware)
 # simple in-memory rate limiter (dev)
 app.add_middleware(RateLimit, max_requests=300, window_sec=60)
 

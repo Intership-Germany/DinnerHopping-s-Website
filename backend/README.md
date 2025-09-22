@@ -3,7 +3,7 @@
 
 This service is a minimal FastAPI backend with MongoDB for the DinnerHopping proof-of-concept.
 It exposes user authentication, event management, registrations/invitations and a payments flow
-(Stripe integration plus a dev-local fallback).
+(Stripe integration plus PayPal and a manual SEPA (Wero) option, with a dev-local fallback).
 
 This README explains how the API works, how to run it locally, environment variables, and
 how to run the included end-to-end tests.
@@ -32,6 +32,8 @@ An example file `backend/.env.example` is provided; copy it to `.env` and fill i
 - `TOKEN_PEPPER` — application-wide secret used to HMAC-token values (recommended, set to a long random string). When set, verification and invitation tokens are stored as a non-reversible hash in the database.
 - `STRIPE_API_KEY` — optional; when set the payments flow will create Stripe Checkout Sessions.
 - `STRIPE_WEBHOOK_SECRET` — optional; when set webhook requests will be verified.
+ - PayPal (optional): set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `PAYPAL_ENV` (`sandbox`|`live`).
+ - Wero (SEPA transfer): configure `WERO_IBAN`, `WERO_BIC`, `WERO_BENEFICIARY`, `WERO_PURPOSE_PREFIX`.
 - `SMTP_HOST` — optional; hostname of SMTP server (e.g. `ssl0.ovh.net` for OVH mail).
 - `SMTP_PORT` — optional; SMTP port (587 for STARTTLS, 465 for SSL). Default: 587 when `SMTP_HOST` set.
 - `SMTP_USER` — SMTP username (usually the full email address).
@@ -94,20 +96,31 @@ Registrations & Invitations
 
 Payments
 - POST /payments/create
-	- Body: { registration_id, amount_cents, idempotency_key? }
+	- Body: { registration_id, amount_cents, idempotency_key?, provider? }
 	- Behaviour:
-		- If `STRIPE_API_KEY` is set: creates (or returns) a payment record in DB and opens a
-			Stripe Checkout Session. The code stores our DB payment id in Stripe session metadata
-			so webhooks can map back reliably.
+		- If provider is 'paypal' (and PayPal env vars set): creates an Order and returns the
+			approval URL; redirects back to /payments/paypal/return which captures the order and
+			marks the registration as paid.
+		- If provider is 'stripe' (and `STRIPE_API_KEY` is set): creates (or returns) a payment record in DB and opens a
+			Stripe Checkout Session. The code stores our DB payment id in Stripe session metadata so webhooks can map back reliably.
+		- If provider is 'wero': returns bank transfer instructions including an EPC QR payload the app can render; an admin can confirm with POST /payments/{id}/confirm.
 		- If `STRIPE_API_KEY` is not set (dev mode): creates a dev-local payment document and
 			returns a local `/payments/{id}/pay` link which marks the payment as paid when visited.
 	- The implementation uses a DB atomic upsert to avoid duplicate-key races and supports
 		an optional `idempotency_key` to deduplicate client retries.
 
+	Note: The payment amount is authoritative from the event settings (`events.fee_cents`). The backend ignores client-supplied amounts and will return an error if a mismatched amount is provided. If an event has no fee (`fee_cents` == 0) the API returns {"status":"no_payment_required"}.
+
 - GET /payments/{id}/pay
 	- Dev-only: marks the payment as paid and updates the linked registration.
 
 - POST /payments/webhooks/stripe
+ - GET /payments/providers — Lists enabled providers and default selection.
+ - GET /payments/paypal/return?payment_id=...&token=... — Captures PayPal order and marks paid.
+ - POST /payments/{id}/confirm — Admin-only manual confirmation for bank transfers (Wero).
+
+Invited users and payments
+- When an invitation is accepted, a Registration with status "invited" is created for the invited email. Invited participants must pay to be confirmed. The frontend can call POST /payments/create with that registration_id and present either PayPal, Stripe, or Wero options. On success, the Registration status becomes "paid".
 	- Receives Stripe webhooks. If `STRIPE_WEBHOOK_SECRET` is set it will verify signatures.
 	- Processes `checkout.session.completed` events and marks the DB payment as paid.
 	- The handler is resilient: it first looks up payments by provider id, and falls back to

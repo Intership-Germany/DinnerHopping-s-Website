@@ -3,14 +3,14 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Literal
 from app import db as db_mod
-from app.auth import get_current_user
-from app.utils import anonymize_address, encrypt_address, anonymize_public_address
+from app.auth import get_current_user, require_admin
+from app.utils import anonymize_address, encrypt_address, anonymize_public_address, require_event_published, require_event_registration_open
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 from pymongo.errors import PyMongoError
-import os
-from fastapi import Header
 import datetime
+
+######### Helpers #########
 
 def _serialize(obj):
     from bson import ObjectId as _OID
@@ -21,6 +21,8 @@ def _serialize(obj):
     if isinstance(obj, _OID):
         return str(obj)
     return obj
+
+######### Router / Endpoints #########
 
 router = APIRouter()
 
@@ -37,7 +39,6 @@ class EventCreate(BaseModel):
     start_at: Optional[str] = None  # ISO datetime string (preferred)
     capacity: Optional[int] = None
     fee_cents: Optional[int] = 0
-    location: Optional[LocationIn] = None
     registration_deadline: Optional[str] = None
     payment_deadline: Optional[str] = None
     after_party_location: Optional[LocationIn] = None
@@ -55,7 +56,6 @@ class EventOut(BaseModel):
     description: Optional[str] = None
     date: Optional[str] = None
     start_at: Optional[str] = None
-    location: Optional[LocationOut] = None
     capacity: Optional[int] = None
     fee_cents: Optional[int] = 0
     registration_deadline: Optional[str] = None
@@ -70,7 +70,7 @@ class EventOut(BaseModel):
     updated_at: Optional[datetime.datetime] = None
 
 @router.get("/", response_model=list[EventOut])
-async def list_events(date: Optional[str] = None, status: Optional[Literal['draft', 'published', 'closed', 'cancelled']] = None, lat: Optional[float] = None, lon: Optional[float] = None, radius_m: Optional[int] = None):
+async def list_events(date: Optional[str] = None, status: Optional[Literal['draft', 'published', 'closed', 'cancelled']] = None, lat: Optional[float] = None, lon: Optional[float] = None, radius_m: Optional[int] = None, participant: Optional[str] = None, current_user=Depends(get_current_user)):
     """List events with optional filters:
     - date: exact match
     - status: 'published' or 'draft'
@@ -88,6 +88,52 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
         query['lat'] = {"$gte": lat - delta_deg, "$lte": lat + delta_deg}
         query['lon'] = {"$gte": lon - delta_deg, "$lte": lon + delta_deg}
 
+    # if participant filter provided, resolve to event_ids via registrations
+    if participant:
+        # support special keyword 'me' to mean currently authenticated user
+        target_email = None
+        target_user_id = None
+        if participant == 'me':
+            # current_user is provided by dependency; use their _id
+            target_user_id = current_user.get('_id')
+        else:
+            # if looks like an email use snapshot match, otherwise treat as user_id
+            if '@' in participant:
+                target_email = participant.lower()
+            else:
+                try:
+                    target_user_id = ObjectId(participant)
+                except Exception:
+                    # fallback: treat as email snapshot
+                    target_email = participant.lower()
+
+        reg_query = {}
+        if target_user_id is not None:
+            reg_query['user_id'] = target_user_id
+        if target_email is not None:
+            reg_query['user_email_snapshot'] = target_email
+
+        event_ids = set()
+        async for r in db_mod.db.registrations.find(reg_query, {'event_id': 1}):
+            if r.get('event_id') is not None:
+                event_ids.add(r['event_id'])
+
+        # if no registrations found, return empty list
+        if not event_ids:
+            return []
+
+        # restrict events query to these ids
+        query['_id'] = {'$in': list(event_ids)}
+
+    # hide draft events from non-admins unless they are the organizer
+    roles = current_user.get('roles') or []
+    is_admin = 'admin' in roles
+    if not is_admin:
+        # if caller is not admin, exclude drafts unless organizer filter applies
+        # If status was explicitly requested as 'draft' above, allow only if requester is admin
+        if not status:
+            query['status'] = {'$ne': 'draft'}
+
     events_resp = []
     async for e in db_mod.db.events.find(query):
         events_resp.append(EventOut(
@@ -95,12 +141,12 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
             title=e.get('title') or e.get('name') or 'Untitled',
             description=e.get('description'),
             date=e.get('date') or '',
-            location=e.get('location'),
             capacity=e.get('capacity'),
             attendee_count=e.get('attendee_count', 0),
             status=e.get('status'),
             organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
             created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
+            after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
             created_at=e.get('created_at'),
             updated_at=e.get('updated_at')
         ))
@@ -108,37 +154,39 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
 
 
 @router.post('/', response_model=EventOut)
-async def create_event(payload: EventCreate, current_user=Depends(get_current_user)):
-    # require admin role to create events
-    roles = current_user.get('roles') or []
-    if 'admin' not in roles:
-        raise HTTPException(status_code=403, detail='Forbidden')
+async def create_event(payload: EventCreate, current_user=Depends(require_admin)):
+    # admin-only: only admins can create events
     now = __import__('datetime').datetime.utcnow()
     doc = payload.dict()
-    # build location subdocument if provided
-    loc_in = doc.pop('location', None)
-    location = None
+    # build after_party_location subdocument if provided (accept legacy 'location')
+    loc_in = doc.pop('after_party_location', None)
+    if loc_in is None:
+        # support legacy payload key
+        loc_in = doc.pop('location', None)
+    after_party_location = None
     if isinstance(loc_in, dict):
         address = loc_in.get('address')
         lat = loc_in.get('lat')
         lon = loc_in.get('lon')
         if address:
-            location = {
+            after_party_location = {
                 'address_encrypted': encrypt_address(address),
                 'address_public': anonymize_public_address(address),
                 'point': {'type': 'Point', 'coordinates': [lon, lat]} if lat is not None and lon is not None else None
             }
         elif lat is not None and lon is not None:
-            location = {
+            after_party_location = {
                 'address_encrypted': None,
                 'address_public': None,
                 'point': {'type': 'Point', 'coordinates': [lon, lat]}
             }
-    if location is not None:
-        doc['location'] = location
+    if after_party_location is not None:
+        doc['after_party_location'] = after_party_location
 
-    # convert organizer_id to ObjectId if present
-    if doc.get('organizer_id'):
+    # If organizer_id not provided, set to current admin user by default
+    if not doc.get('organizer_id'):
+        doc['organizer_id'] = current_user.get('_id')
+    else:
         try:
             doc['organizer_id'] = ObjectId(doc['organizer_id'])
         except (InvalidId, TypeError, ValueError) as exc:
@@ -152,42 +200,54 @@ async def create_event(payload: EventCreate, current_user=Depends(get_current_us
     doc['matching_status'] = doc.get('matching_status', 'not_started')
     doc['created_at'] = now
     doc['updated_at'] = now
-    # set created_by to organizer if available; otherwise leave None
-    doc['created_by'] = doc.get('organizer_id') if doc.get('organizer_id') is not None else None
+    # set created_by to current user
+    doc['created_by'] = current_user.get('_id')
 
     # enforce status default (pydantic already defaults but ensure correct)
     if not doc.get('status'):
         doc['status'] = 'draft'
 
     res = await db_mod.db.events.insert_one(doc)
-    return EventOut(id=str(res.inserted_id), title=doc.get('title'), description=doc.get('description'), date=doc.get('date'), start_at=doc.get('start_at'), location=doc.get('location'), capacity=doc.get('capacity'), fee_cents=doc.get('fee_cents', 0), registration_deadline=doc.get('registration_deadline'), payment_deadline=doc.get('payment_deadline'), after_party_location=doc.get('after_party_location'), attendee_count=0, status=doc.get('status'), matching_status=doc.get('matching_status'), organizer_id=str(doc['organizer_id']) if doc.get('organizer_id') is not None else None, created_by=str(doc['created_by']) if doc.get('created_by') is not None else None, created_at=doc.get('created_at'), updated_at=doc.get('updated_at'))
+    return EventOut(id=str(res.inserted_id), title=doc.get('title'), description=doc.get('description'), date=doc.get('date'), start_at=doc.get('start_at'), capacity=doc.get('capacity'), fee_cents=doc.get('fee_cents', 0), registration_deadline=doc.get('registration_deadline'), payment_deadline=doc.get('payment_deadline'), after_party_location=doc.get('after_party_location'), attendee_count=0, status=doc.get('status'), matching_status=doc.get('matching_status'), organizer_id=str(doc['organizer_id']) if doc.get('organizer_id') is not None else None, created_by=str(doc['created_by']) if doc.get('created_by') is not None else None, created_at=doc.get('created_at'), updated_at=doc.get('updated_at'))
 
 
 @router.get('/{event_id}')
-async def get_event(event_id: str, anonymise: bool = True):
+async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(get_current_user)):
     e = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
     if not e:
         raise HTTPException(status_code=404, detail='Event not found')
+    # enforce that drafts are not visible to non-admins/non-organizers
+    roles = current_user.get('roles') or []
+    is_admin = 'admin' in roles
+    # organizer_id may be stored as ObjectId
+    org = e.get('organizer_id')
+    if e.get('status') == 'draft' and not is_admin:
+        if org is None or str(org) != str(current_user.get('_id')):
+            raise HTTPException(status_code=404, detail='Event not found')
     # serialize the whole document, converting ObjectId
     serialized = _serialize(e)
     # ensure id is present as string
     serialized['id'] = str(e.get('_id'))
-    # anonymise location info
-    loc = e.get('location') if isinstance(e.get('location'), dict) else None
+    # anonymise after_party_location info (fallback to legacy 'location')
+    loc = None
+    if isinstance(e.get('after_party_location'), dict):
+        loc = e.get('after_party_location')
+    elif isinstance(e.get('location'), dict):
+        loc = e.get('location')
     if anonymise and loc:
         # if address_public present keep only that
         pub = loc.get('address_public')
         if pub:
-            serialized['location'] = {'address_public': pub}
+            serialized['after_party_location'] = {'address_public': pub}
         else:
             # derive anonymised from point coordinates if present
             pt = loc.get('point') if isinstance(loc.get('point'), dict) else None
             if pt and isinstance(pt.get('coordinates'), list) and len(pt['coordinates']) == 2:
                 lon, lat = pt['coordinates']
                 if lat is not None and lon is not None:
-                    serialized['location'] = anonymize_address(lat, lon)
+                    serialized['after_party_location'] = anonymize_address(lat, lon)
     else:
-        serialized['location'] = loc
+        serialized['after_party_location'] = loc
     # include organizer_id/created_by as strings
     if e.get('organizer_id') is not None:
         serialized['organizer_id'] = str(e.get('organizer_id'))
@@ -197,32 +257,31 @@ async def get_event(event_id: str, anonymise: bool = True):
 
 
 @router.put('/{event_id}', response_model=EventOut)
-async def update_event(event_id: str, payload: EventCreate, current_user=Depends(get_current_user)):
-    roles = current_user.get('roles') or []
-    if 'admin' not in roles:
-        raise HTTPException(status_code=403, detail='Forbidden')
+async def update_event(event_id: str, payload: EventCreate, _=Depends(require_admin)):
     update = payload.dict()
-    # handle location update
-    loc_in = update.pop('location', None)
-    location = None
+    # handle after_party_location update (accept legacy 'location')
+    loc_in = update.pop('after_party_location', None)
+    if loc_in is None:
+        loc_in = update.pop('location', None)
+    after_party_location = None
     if isinstance(loc_in, dict):
         address = loc_in.get('address')
         lat = loc_in.get('lat')
         lon = loc_in.get('lon')
         if address:
-            location = {
+            after_party_location = {
                 'address_encrypted': encrypt_address(address),
                 'address_public': anonymize_public_address(address),
                 'point': {'type': 'Point', 'coordinates': [lon, lat]} if lat is not None and lon is not None else None
             }
         elif lat is not None and lon is not None:
-            location = {
+            after_party_location = {
                 'address_encrypted': None,
                 'address_public': None,
                 'point': {'type': 'Point', 'coordinates': [lon, lat]}
             }
-    if location is not None:
-        update['location'] = location
+    if after_party_location is not None:
+        update['after_party_location'] = after_party_location
 
     # convert organizer_id if provided
     if update.get('organizer_id'):
@@ -241,14 +300,15 @@ async def update_event(event_id: str, payload: EventCreate, current_user=Depends
         update['payment_deadline'] = payload.dict().get('payment_deadline')
     await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": update})
     e = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
-    return EventOut(id=str(e['_id']), title=e.get('title') or e.get('name'), description=e.get('description'), date=e.get('date'), start_at=e.get('start_at'), location=e.get('location'), capacity=e.get('capacity'), fee_cents=e.get('fee_cents', 0), registration_deadline=e.get('registration_deadline'), payment_deadline=e.get('payment_deadline'), after_party_location=e.get('after_party_location'), attendee_count=e.get('attendee_count', 0), status=e.get('status'), matching_status=e.get('matching_status', 'not_started'), organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None, created_by=str(e.get('created_by')) if e.get('created_by') is not None else None, created_at=e.get('created_at'), updated_at=e.get('updated_at'))
+    return EventOut(id=str(e['_id']), title=e.get('title') or e.get('name'), description=e.get('description'), date=e.get('date'), start_at=e.get('start_at'), capacity=e.get('capacity'), fee_cents=e.get('fee_cents', 0), registration_deadline=e.get('registration_deadline'), payment_deadline=e.get('payment_deadline'), after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')), attendee_count=e.get('attendee_count', 0), status=e.get('status'), matching_status=e.get('matching_status', 'not_started'), organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None, created_by=str(e.get('created_by')) if e.get('created_by') is not None else None, created_at=e.get('created_at'), updated_at=e.get('updated_at'))
 
 
 @router.post('/{event_id}/publish')
-async def publish_event(event_id: str, current_user=Depends(get_current_user)):
-    roles = current_user.get('roles') or []
-    if 'admin' not in roles:
-        raise HTTPException(status_code=403, detail='Forbidden')
+async def publish_event(event_id: str, _=Depends(require_admin)):
+    # admin-only: publishing is a privileged action
+    e = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
+    if not e:
+        raise HTTPException(status_code=404, detail='Event not found')
     await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": {"status": "published", "updated_at": __import__('datetime').datetime.utcnow()}})
     return {"status": "published"}
 
@@ -256,9 +316,10 @@ async def publish_event(event_id: str, current_user=Depends(get_current_user)):
 async def register_for_event(event_id: str, payload: dict, current_user=Depends(get_current_user)):
     # payload may include team info, invited_emails and preferences override
     # invited_emails: list of emails to invite (they will receive an invitation token)
-    event = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
-    if not event:
-        raise HTTPException(status_code=404, detail="Event not found")
+    # ensure event exists and is published
+    event = await require_event_published(event_id)
+    # ensure registration window is still open
+    require_event_registration_open(event)
 
     # avoid duplicate registrations for same user/event
     existing = await db_mod.db.registrations.find_one({"event_id": ObjectId(event_id), "user_id": current_user.get('_id')})

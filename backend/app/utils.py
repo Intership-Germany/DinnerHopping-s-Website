@@ -332,6 +332,122 @@ def generate_token_pair(bytes_entropy: int = 32) -> tuple[str, str]:
     return t, hash_token(t)
 
 
+######### Event / Registration helpers #########
+from fastapi import HTTPException
+from bson.objectid import ObjectId
+from typing import Optional
+
+
+async def get_event(event_id) -> Optional[dict]:
+    """Return an event document by id (accepts str or ObjectId) or None if not found/invalid.
+
+    Usage: ev = await get_event(event_id)
+    """
+    if not event_id:
+        return None
+    try:
+        oid = event_id if isinstance(event_id, ObjectId) else ObjectId(event_id)
+    except Exception:
+        return None
+    return await db_mod.db.events.find_one({'_id': oid})
+
+
+async def require_event_published(event_id) -> dict:
+    """Raise HTTPException if event not found or not published. Returns event dict on success."""
+    ev = await get_event(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail='Event not found')
+    if ev.get('status') != 'published':
+        raise HTTPException(status_code=400, detail='Event is not open for this action')
+    return ev
+
+
+async def user_registered_or_organizer(user: dict, event_id) -> bool:
+    """Return True if user is registered for event or is the organizer."""
+    ev = await get_event(event_id)
+    if not ev:
+        return False
+    try:
+        is_organizer = str(ev.get('organizer_id')) == str(user.get('_id'))
+    except Exception:
+        is_organizer = False
+    reg = await db_mod.db.registrations.find_one({'event_id': ev.get('_id'), 'user_email_snapshot': user.get('email')})
+    return bool(reg) or bool(is_organizer)
+
+
+async def require_user_registered_or_organizer(user: dict, event_id) -> dict:
+    """Raise 403 if user is neither registered nor organizer. Returns event on success."""
+    ok = await user_registered_or_organizer(user, event_id)
+    if not ok:
+        raise HTTPException(status_code=403, detail='Not registered for this event')
+    ev = await get_event(event_id)
+    if not ev:
+        # defensive: if event vanishes between checks
+        raise HTTPException(status_code=404, detail='Event not found')
+    return ev
+
+######### End helpers #########
+
+
+######### Authorization helpers (owner/admin, deadlines) #########
+
+from fastapi import HTTPException as _HTTPException
+
+
+def _is_admin(user: dict) -> bool:
+    roles = (user or {}).get('roles') or []
+    return 'admin' in roles
+
+
+async def require_registration_owner_or_admin(user: dict, registration_id) -> dict:
+    """Return registration document if current user is its owner or admin; else raise 403.
+
+    Ownership is determined by either matching user_id with user's _id or
+    matching user_email_snapshot with user's email (for legacy/compat records).
+    """
+    if registration_id is None:
+        raise _HTTPException(status_code=400, detail='registration_id required')
+    try:
+        oid = registration_id if isinstance(registration_id, ObjectId) else ObjectId(registration_id)
+    except Exception as exc:
+        raise _HTTPException(status_code=400, detail='invalid registration_id') from exc
+    reg = await db_mod.db.registrations.find_one({'_id': oid})
+    if not reg:
+        raise _HTTPException(status_code=404, detail='Registration not found')
+    if _is_admin(user):
+        return reg
+    # Check ownership by id or email snapshot
+    if reg.get('user_id') == user.get('_id'):
+        return reg
+    if (reg.get('user_email_snapshot') or '').lower() == (user.get('email') or '').lower():
+        return reg
+    raise _HTTPException(status_code=403, detail='Forbidden')
+
+
+def _now_utc() -> datetime.datetime:
+    # Keep using naive UTC datetime to match existing storage pattern
+    return datetime.datetime.utcnow()
+
+
+def require_event_registration_open(ev: dict) -> None:
+    """Raise 400 if registration_deadline passed for the event."""
+    if not ev:
+        raise _HTTPException(status_code=404, detail='Event not found')
+    ddl = ev.get('registration_deadline')
+    if ddl and isinstance(ddl, datetime.datetime) and _now_utc() > ddl:
+        raise _HTTPException(status_code=400, detail='Registration deadline passed')
+
+
+def require_event_payment_open(ev: dict) -> None:
+    """Raise 400 if payment_deadline passed for the event."""
+    if not ev:
+        raise _HTTPException(status_code=404, detail='Event not found')
+    ddl = ev.get('payment_deadline')
+    if ddl and isinstance(ddl, datetime.datetime) and _now_utc() > ddl:
+        raise _HTTPException(status_code=400, detail='Payment deadline passed')
+
+
+
 async def send_notification(recipient: str, title: str, message_lines: Sequence[str]) -> bool:
     """Generic plaintext notification helper."""
     body = "\n".join(message_lines) + "\n"

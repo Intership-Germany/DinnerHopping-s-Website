@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel, EmailStr
 from app import db as db_mod
 from app.auth import get_current_user, hash_password
-from app.utils import hash_token, generate_token_pair
+from app.utils import hash_token, generate_token_pair, require_event_published, user_registered_or_organizer, require_registration_owner_or_admin
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 import secrets
@@ -11,6 +11,8 @@ from fastapi import HTTPException as FastAPIHTTPException
 import os
 import datetime
 from typing import Optional
+
+######### Router / Endpoints #########
 
 router = APIRouter()
 
@@ -63,6 +65,10 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
 
     invited_email = inv.get('invited_email')
 
+    # ensure event still accepts registrations
+    if inv.get('event_id'):
+        await require_event_published(inv.get('event_id'))
+
     user_email = None
     if authorization:
         # try to resolve JWT -> user
@@ -86,7 +92,6 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
             "password_hash": hash_password(payload.password),
             # invited users are implicitly verified via invitation acceptance
             "email_verified": True,
-            "is_verified": True,  # backward compatibility
             "roles": ['user'],
             "preferences": {},
             "failed_login_attempts": 0,
@@ -96,21 +101,29 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
         await db_mod.db.users.insert_one(user_doc)
         user_email = invited_email
 
-    # create registration for the invited user (link invitation_id)
+    # create registration for the invited user (link invitation_id), avoid duplicate registration
     event_id = inv.get('event_id')
     now = datetime.datetime.utcnow()
-    reg = {
-        "event_id": event_id,
-        "user_email_snapshot": user_email,
-        "status": "invited",
-        "invitation_id": inv.get('_id'),
-        "user_id": None,
-        "team_size": 1,
-        "preferences": {},
-        "created_at": now,
-        "updated_at": now
-    }
-    reg_res = await db_mod.db.registrations.insert_one(reg)
+    existing = None
+    try:
+        existing = await db_mod.db.registrations.find_one({'event_id': event_id, 'user_email_snapshot': user_email})
+    except Exception:
+        existing = None
+    if existing:
+        reg_res = existing
+    else:
+        reg = {
+            "event_id": event_id,
+            "user_email_snapshot": user_email,
+            "status": "invited",
+            "invitation_id": inv.get('_id'),
+            "user_id": None,
+            "team_size": 1,
+            "preferences": {},
+            "created_at": now,
+            "updated_at": now
+        }
+        reg_res = await db_mod.db.registrations.insert_one(reg)
     # retro-link invitation with registration if missing
     if not inv.get('registration_id'):
         try:
@@ -122,7 +135,8 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
     # mark invitation accepted
     await db_mod.db.invitations.update_one({"_id": inv['_id']}, {"$set": {"status": "accepted", "accepted_by": user_email, "accepted_at": now}})
 
-    return {"status": "accepted", "user_email": user_email, "registration_id": str(reg_res.inserted_id)}
+    reg_id = str(reg_res.inserted_id) if hasattr(reg_res, 'inserted_id') else str(reg_res.get('_id'))
+    return {"status": "accepted", "user_email": user_email, "registration_id": reg_id}
 
 
 @router.post('/')
@@ -133,25 +147,29 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
     except (InvalidId, TypeError) as exc:
         raise HTTPException(status_code=400, detail='invalid registration_id') from exc
 
-    reg = await db_mod.db.registrations.find_one({"_id": reg_oid})
-    if not reg:
-        raise HTTPException(status_code=404, detail='Registration not found')
-
-    roles = current_user.get('roles') or []
-    is_admin = 'admin' in roles
     # ensure requester owns the registration or is admin
-    if not is_admin and reg.get('user_id') != current_user.get('_id'):
-        raise HTTPException(status_code=403, detail='Forbidden')
+    reg = await require_registration_owner_or_admin(current_user, reg_oid)
 
     now = datetime.datetime.utcnow()
     expires_days = payload.expires_days or 30
     expires_at = now + datetime.timedelta(days=expires_days)
 
     # generate unique token (retry a few times if collision)
+    # Prevent the same inviter from inviting the same email for the same event more than once
+    event_id = reg.get('event_id')
+    existing_inv = await db_mod.db.invitations.find_one({
+        'invited_email': payload.invited_email.lower(),
+        'event_id': event_id,
+        'created_by_user_id': current_user.get('_id')
+    })
+    if existing_inv:
+        raise HTTPException(status_code=400, detail='You have already invited this user for this event')
+
     for _ in range(3):
         token, token_hash_val = generate_token_pair(18)
         inv = {
             "registration_id": reg_oid,
+            "event_id": event_id,
             "token_hash": token_hash_val,
             "invited_email": payload.invited_email.lower(),
             "status": "pending",
@@ -209,16 +227,10 @@ async def revoke_invitation(inv_id: str, current_user=Depends(get_current_user))
     if not inv:
         raise HTTPException(status_code=404, detail='Invitation not found')
 
-    roles = current_user.get('roles') or []
-    is_admin = 'admin' in roles
-    # check ownership
+    # check ownership via helper
     reg = None
     if inv.get('registration_id'):
-        reg = await db_mod.db.registrations.find_one({"_id": inv.get('registration_id')})
-
-    if not is_admin and reg and reg.get('user_id') != current_user.get('_id'):
-        # if registration exists and user is not owner -> forbidden
-        raise HTTPException(status_code=403, detail='Forbidden')
+        reg = await require_registration_owner_or_admin(current_user, inv.get('registration_id'))
 
     if inv.get('status') != 'pending':
         raise HTTPException(status_code=400, detail='Only pending invitations can be revoked')

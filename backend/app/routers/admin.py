@@ -1,21 +1,18 @@
 from fastapi import APIRouter, HTTPException, Depends
 from .. import db as db_mod
-from ..auth import get_current_user
-import os
+from ..auth import require_admin
 
 router = APIRouter()
 
 @router.post('/match')
-async def run_match(current_user=Depends(get_current_user)):
+async def run_match(_=Depends(require_admin)):
     """Idempotent admin matching: create per-user plans for each event's registrations.
 
     - Groups registrations in chunks of 6 and assigns three sections per user.
     - Removes existing plan documents for (event_id, user_email) before inserting.
     - Enriches host entries with lat/lon from `users` when available.
     """
-    roles = current_user.get('roles') or []
-    if 'admin' not in roles:
-        raise HTTPException(status_code=403, detail='Forbidden')
+    # current_user has been validated by the require_admin dependency
 
     async for event in db_mod.db.events.find({}):
         regs = []
@@ -62,3 +59,50 @@ async def run_match(current_user=Depends(get_current_user)):
     # could aggregate the above per-event plans into a single matches document.
 
     return {"status": "matching_completed"}
+
+
+@router.post('/promote')
+async def promote_user(email: str, _=Depends(require_admin)):
+    """Grant the 'admin' role to a user identified by email.
+
+    Only callable by existing admins. Returns the updated user doc (safe fields).
+    """
+    if not email:
+        raise HTTPException(status_code=400, detail='email required')
+    email = email.lower()
+    user = await db_mod.db.users.find_one({'email': email})
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+    roles = user.get('roles') or []
+    if 'admin' in roles:
+        return {'status': 'already_admin', 'email': email}
+    roles = list(set(roles + ['admin']))
+    await db_mod.db.users.update_one({'email': email}, {'$set': {'roles': roles, 'updated_at': __import__('datetime').datetime.utcnow()}})
+    return {'status': 'promoted', 'email': email}
+
+
+@router.post('/demote')
+async def demote_user(email: str, _=Depends(require_admin)):
+    """Revoke the 'admin' role from a user identified by email.
+
+    Protects against demoting the last admin (requires at least one admin to remain).
+    """
+    if not email:
+        raise HTTPException(status_code=400, detail='email required')
+    email = email.lower()
+    user = await db_mod.db.users.find_one({'email': email})
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+    roles = user.get('roles') or []
+    if 'admin' not in roles:
+        return {'status': 'not_admin', 'email': email}
+
+    # ensure at least one admin remains
+    admin_count = await db_mod.db.users.count_documents({'roles': 'admin'})
+    if admin_count <= 1:
+        # if this is the last admin, prevent demotion to avoid lockout
+        raise HTTPException(status_code=400, detail='Cannot demote the last admin')
+
+    new_roles = [r for r in roles if r != 'admin']
+    await db_mod.db.users.update_one({'email': email}, {'$set': {'roles': new_roles, 'updated_at': __import__('datetime').datetime.utcnow()}})
+    return {'status': 'demoted', 'email': email}
