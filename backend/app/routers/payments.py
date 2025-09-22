@@ -1,10 +1,17 @@
-from fastapi import APIRouter, HTTPException, Header, Request
+from fastapi import APIRouter, HTTPException, Header, Request, Depends
 from pydantic import BaseModel
 import os
-from .. import db as db_mod
+from app import db as db_mod
 from bson.objectid import ObjectId
 from pymongo import ReturnDocument
 import datetime
+from typing import Optional, Dict, Any
+import base64
+
+from app.auth import get_current_user, require_admin
+from app.utils import require_event_published, require_registration_owner_or_admin, require_event_payment_open
+
+######### Router / Endpoints #########
 
 router = APIRouter()
 
@@ -12,10 +19,102 @@ class CreatePaymentIn(BaseModel):
     registration_id: str
     amount_cents: int  # client supplies minor units (cents)
     idempotency_key: str | None = None
+    provider: Optional[str] = None  # 'paypal' | 'wero' | 'stripe' (default based on env)
+    currency: Optional[str] = 'EUR'
+
+
+def _paypal_base() -> str:
+    env = os.getenv('PAYPAL_ENV', 'sandbox').lower()
+    if env == 'live':
+        return 'https://api-m.paypal.com'
+    return 'https://api-m.sandbox.paypal.com'
+
+
+def _import_httpx():
+    import importlib
+    try:
+        return importlib.import_module('httpx')
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail='httpx is required for PayPal integration') from exc
+
+
+async def _paypal_get_access_token() -> str:
+    """Obtain a PayPal OAuth2 access token using client credentials."""
+    client_id = os.getenv('PAYPAL_CLIENT_ID')
+    client_secret = os.getenv('PAYPAL_CLIENT_SECRET')
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=500, detail='PayPal not configured')
+    httpx = _import_httpx()
+    auth = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.post(
+            f"{_paypal_base()}/v1/oauth2/token",
+            headers={'Authorization': f'Basic {auth}'},
+            data={'grant_type': 'client_credentials'},
+        )
+        if resp.status_code >= 300:
+            raise HTTPException(status_code=502, detail=f'PayPal token error: {resp.text[:200]}')
+        data = resp.json()
+        return data.get('access_token')
+
+
+async def _paypal_create_order(amount_cents: int, currency: str, payment_id: ObjectId) -> Dict[str, Any]:
+    """Create a PayPal order and return JSON with id and approval link."""
+    httpx = _import_httpx()
+    token = await _paypal_get_access_token()
+    base_url = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+    return_url = f"{base_url}/payments/paypal/return?payment_id={str(payment_id)}"
+    cancel_url = f"{base_url}/payments/{str(payment_id)}/cancel"
+    payload = {
+        'intent': 'CAPTURE',
+        'purchase_units': [
+            {
+                'amount': {
+                    'currency_code': (currency or 'EUR').upper(),
+                    'value': f"{amount_cents/100:.2f}",
+                },
+                'reference_id': str(payment_id),
+            }
+        ],
+        'application_context': {
+            'return_url': return_url,
+            'cancel_url': cancel_url,
+            'brand_name': 'DinnerHopping',
+            'user_action': 'PAY_NOW',
+        },
+    }
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.post(
+            f"{_paypal_base()}/v2/checkout/orders",
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+            json=payload,
+        )
+    if resp.status_code >= 300:
+        raise HTTPException(status_code=502, detail=f'PayPal order error: {resp.text[:200]}')
+    data = resp.json()
+    approval_link = None
+    for l in data.get('links', []) or []:
+        if l.get('rel') == 'approve':
+            approval_link = l.get('href')
+            break
+    return {'id': data.get('id'), 'approval_link': approval_link, 'raw': data}
+
+
+async def _paypal_capture_order(order_id: str) -> Dict[str, Any]:
+    httpx = _import_httpx()
+    token = await _paypal_get_access_token()
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.post(
+            f"{_paypal_base()}/v2/checkout/orders/{order_id}/capture",
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        )
+    if resp.status_code >= 300:
+        raise HTTPException(status_code=502, detail=f'PayPal capture error: {resp.text[:200]}')
+    return resp.json()
 
 
 @router.post('/create')
-async def create_payment(payload: CreatePaymentIn):
+async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_current_user)):
     """Create a payment record and return a payment link.
 
     If STRIPE_API_KEY is configured we create a Stripe Checkout Session.
@@ -25,10 +124,11 @@ async def create_payment(payload: CreatePaymentIn):
     # ensure registration exists
     try:
         reg_obj = ObjectId(payload.registration_id)
-    except Exception:  # noqa: BLE001 - validate ObjectId format only
-        raise HTTPException(status_code=400, detail='Invalid registration_id')
+    except Exception as exc:  # noqa: BLE001 - validate ObjectId format only
+        raise HTTPException(status_code=400, detail='Invalid registration_id') from exc
 
-    reg = await db_mod.db.registrations.find_one({"_id": reg_obj})
+    # Enforce owner-or-admin for payment creation
+    reg = await require_registration_owner_or_admin(current_user, reg_obj)
     if not reg:
         raise HTTPException(status_code=404, detail='Registration not found')
 
@@ -38,8 +138,79 @@ async def create_payment(payload: CreatePaymentIn):
         if existing:
             return {"payment_id": str(existing.get('_id')), "payment_link": existing.get('payment_link'), "status": existing.get('status')}
 
+    provider = (payload.provider or '').lower().strip()
+    # default provider if not given
+    if not provider:
+        provider = 'paypal' if os.getenv('PAYPAL_CLIENT_ID') and os.getenv('PAYPAL_CLIENT_SECRET') else ('stripe' if os.getenv('STRIPE_API_KEY') else 'wero')
+
+    # Derive amount from the event settings (admin-controlled). Use event.fee_cents as source of truth.
+    # Load the registration to get event_id (we already loaded `reg` above).
+    ev = None
+    try:
+        ev = await db_mod.db.events.find_one({"_id": reg.get('event_id')}) if reg and reg.get('event_id') else None
+    except Exception:
+        ev = None
+    # Do not allow payment creation for events that aren't published
+    if ev:
+        await require_event_published(ev.get('_id'))
+        # Ensure payment window is still open
+        require_event_payment_open(ev)
+    event_fee_cents = int((ev or {}).get('fee_cents') or 0)
+    if event_fee_cents <= 0:
+        # No payment required for this registration/event
+        return {"status": "no_payment_required", "amount_cents": 0}
+
+    # If client passed an explicit amount, ensure it matches the admin-configured fee
+    if payload.amount_cents and payload.amount_cents != event_fee_cents:
+        raise HTTPException(status_code=400, detail='Amount must match event fee configured by organizer')
+
+    # Use event_fee_cents as the canonical amount for all providers
+    canonical_amount_cents = event_fee_cents
+
+    # Handle PayPal
+    if provider == 'paypal':
+        # idempotency by registration
+        existing_by_reg = await db_mod.db.payments.find_one({"registration_id": reg_obj})
+        if existing_by_reg:
+            return {"payment_id": str(existing_by_reg.get('_id')), "payment_link": existing_by_reg.get('payment_link'), "status": existing_by_reg.get('status')}
+
+        amount_cents = canonical_amount_cents
+
+        initial_doc = {
+            "registration_id": reg_obj,
+            "amount": canonical_amount_cents / 100.0,
+            "currency": (payload.currency or 'EUR').upper(),
+            "status": "pending",
+            "provider": "paypal",
+            "idempotency_key": payload.idempotency_key,
+            "meta": {},
+            "created_at": datetime.datetime.utcnow(),
+        }
+        doc = await db_mod.db.payments.find_one_and_update(
+            {"registration_id": reg_obj},
+            {"$setOnInsert": initial_doc},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        payment_id = doc.get('_id')
+        # if already created and has approval link, return
+        if doc.get('provider_payment_id') and doc.get('payment_link'):
+            return {"payment_id": str(payment_id), "payment_link": doc.get('payment_link'), "status": doc.get('status')}
+
+        # Create PayPal order
+        order = await _paypal_create_order(canonical_amount_cents, payload.currency or 'EUR', payment_id)
+        approval = order.get('approval_link')
+        order_id = order.get('id')
+        await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"provider_payment_id": order_id, "payment_link": approval, "meta": {"create_order": order}}})
+        try:
+            await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
+        except Exception:
+            pass
+        return {"payment_id": str(payment_id), "payment_link": approval, "status": "pending"}
+
+    # Handle Stripe (existing)
     stripe_key = os.getenv('STRIPE_API_KEY')
-    if stripe_key:
+    if provider == 'stripe' and stripe_key:
         # if a payment already exists for this registration, return it
         existing_by_reg = await db_mod.db.payments.find_one({"registration_id": reg_obj})
         if existing_by_reg:
@@ -53,7 +224,7 @@ async def create_payment(payload: CreatePaymentIn):
         # create or return an existing payment doc atomically using upsert to avoid races
         initial_doc = {
             "registration_id": reg_obj,
-            "amount": payload.amount_cents / 100.0,
+            "amount": canonical_amount_cents / 100.0,
             "currency": 'EUR',
             "status": "pending",
             "provider": "stripe",
@@ -78,7 +249,7 @@ async def create_payment(payload: CreatePaymentIn):
         try:
             session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
-                line_items=[{"price_data": {"currency": "eur", "product_data": {"name": "Event registration"}, "unit_amount": payload.amount_cents}, "quantity": 1}],
+                line_items=[{"price_data": {"currency": "eur", "product_data": {"name": "Event registration"}, "unit_amount": canonical_amount_cents}, "quantity": 1}],
                 mode='payment',
                 success_url=os.getenv('BACKEND_BASE_URL', 'http://localhost:8000') + f'/payments/{payment_id}/success',
                 cancel_url=os.getenv('BACKEND_BASE_URL', 'http://localhost:8000') + f'/payments/{payment_id}/cancel',
@@ -102,7 +273,66 @@ async def create_payment(payload: CreatePaymentIn):
             pass
         return {"payment_id": str(payment_id), "payment_link": session.url, "status": "pending"}
 
-    # dev fallback: use atomic upsert to avoid duplicates
+    # WERO: provide bank transfer instructions (EPC QR)
+    if provider == 'wero':
+        amount_cents = canonical_amount_cents
+        # Upsert payment doc
+        dev_doc = {
+            "registration_id": reg_obj,
+            "amount": amount_cents / 100.0,
+            "currency": (payload.currency or 'EUR').upper(),
+            "status": "pending",
+            "provider": "wero",
+            "idempotency_key": payload.idempotency_key,
+            "meta": {},
+            "created_at": datetime.datetime.utcnow(),
+        }
+        doc = await db_mod.db.payments.find_one_and_update(
+            {"registration_id": reg_obj},
+            {"$setOnInsert": dev_doc},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        payment_id = doc.get('_id')
+        # Build payment instructions
+        iban = os.getenv('WERO_IBAN', 'DE02120300000000202051')
+        bic = os.getenv('WERO_BIC', 'BYLADEM1001')
+        name = os.getenv('WERO_BENEFICIARY', 'DinnerHopping')
+        rem_prefix = os.getenv('WERO_PURPOSE_PREFIX', 'DH')
+        remittance = f"{rem_prefix}-{str(payment_id)[-8:].upper()}"
+        amount = f"{amount_cents/100:.2f}"
+        currency = (payload.currency or 'EUR').upper()
+        # EPC QR payload (basic)
+        epc = "\n".join([
+            "BCD",
+            "001",
+            "1",
+            "SCT",
+            bic,
+            name,
+            iban,
+            f"EUR{amount}",
+            "",
+            remittance,
+            ""
+        ])
+        instructions = {
+            "iban": iban,
+            "bic": bic,
+            "beneficiary": name,
+            "amount": amount,
+            "currency": currency,
+            "remittance": remittance,
+            "epc_qr_payload": epc,
+        }
+        await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"meta.instructions": instructions}})
+        try:
+            await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
+        except Exception:
+            pass
+        return {"payment_id": str(payment_id), "status": "pending", "instructions": instructions}
+
+    # dev fallback: use atomic upsert to avoid duplicates (legacy dev-local)
     if payload.idempotency_key:
         existing_idem = await db_mod.db.payments.find_one({"idempotency_key": payload.idempotency_key})
         if existing_idem:
@@ -153,6 +383,59 @@ async def dev_pay(payment_id: str):
     # registration keeps a business-facing status 'paid' but payment record is 'succeeded'
     await db_mod.db.registrations.update_one({"_id": p.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
     return {"status": "paid"}
+
+
+@router.get('/{payment_id}/cancel')
+async def payment_cancel(payment_id: str):
+    """Generic cancel landing endpoint for providers. Marks payment as failed (non-destructive)."""
+    try:
+        oid = ObjectId(payment_id)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail='Invalid payment id')
+    p = await db_mod.db.payments.find_one({"_id": oid})
+    if not p:
+        raise HTTPException(status_code=404, detail='Payment not found')
+    await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "updated_at": datetime.datetime.utcnow()}})
+    return {"status": "cancelled"}
+
+
+@router.get('/{payment_id}/success')
+async def payment_success(payment_id: str):
+    """Generic success landing endpoint for providers that redirect. Does not mark paid by itself (Stripe uses webhook)."""
+    try:
+        oid = ObjectId(payment_id)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail='Invalid payment id')
+    p = await db_mod.db.payments.find_one({"_id": oid})
+    if not p:
+        raise HTTPException(status_code=404, detail='Payment not found')
+    return {"status": p.get('status')}
+
+
+@router.get('/paypal/return')
+async def paypal_return(payment_id: str, token: Optional[str] = None):
+    """Return URL for PayPal. Captures the order and marks payment as paid if completed."""
+    try:
+        oid = ObjectId(payment_id)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail='Invalid payment id')
+    pay = await db_mod.db.payments.find_one({"_id": oid})
+    if not pay:
+        raise HTTPException(status_code=404, detail='Payment not found')
+    order_id = token or pay.get('provider_payment_id')
+    if not order_id:
+        raise HTTPException(status_code=400, detail='Missing PayPal order id')
+    # capture
+    capture = await _paypal_capture_order(order_id)
+    status = (capture.get('status') or '').upper()
+    now = datetime.datetime.utcnow()
+    if status == 'COMPLETED':
+        await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now, "meta.capture": capture}})
+        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+        return {"status": "paid"}
+    else:
+        await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
+        return {"status": "failed"}
 
 
 @router.post('/webhooks/stripe')
@@ -210,3 +493,65 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
         return {"status": "ok"}
 
     return {"status": "ignored"}
+
+
+@router.post('/webhooks/paypal')
+async def paypal_webhook(request: Request):
+    """Minimal PayPal webhook handler. In dev, we trust the payload; in prod, consider verifying via Webhook Verify API.
+
+    Handles PAYMENT.CAPTURE.COMPLETED and CHECKOUT.ORDER.APPROVED/COMPLETED.
+    """
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail='Invalid payload')
+    typ = body.get('event_type') or body.get('type')
+    resource = body.get('resource') or {}
+    order_id = resource.get('id') or resource.get('supplementary_data', {}).get('related_ids', {}).get('order_id')
+    if not order_id:
+        return {"status": "ignored"}
+    # try to find payment by provider_payment_id
+    pay = await db_mod.db.payments.find_one({"provider_payment_id": order_id})
+    if not pay:
+        return {"status": "not_found"}
+    if typ in ('PAYMENT.CAPTURE.COMPLETED', 'CHECKOUT.ORDER.COMPLETED'):
+        if pay.get('status') in ('succeeded', 'paid'):
+            return {"status": "ok"}
+        now = datetime.datetime.utcnow()
+        await db_mod.db.payments.update_one({"_id": pay['_id']}, {"$set": {"status": "succeeded", "paid_at": now, "meta.webhook": body}})
+        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+        return {"status": "ok"}
+    return {"status": "ignored"}
+
+
+@router.post('/{payment_id}/confirm')
+async def confirm_manual_payment(payment_id: str, current_user=Depends(require_admin)):
+    """Manually confirm a bank transfer (Wero) payment. Admins only.
+
+    Marks the payment as succeeded and the registration as paid.
+    """
+    try:
+        oid = ObjectId(payment_id)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail='Invalid payment id')
+    pay = await db_mod.db.payments.find_one({"_id": oid})
+    if not pay:
+        raise HTTPException(status_code=404, detail='Payment not found')
+    now = datetime.datetime.utcnow()
+    await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now}})
+    await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+    return {"status": "paid"}
+
+
+@router.get('/providers')
+async def list_providers():
+    """List available payment providers based on environment configuration and defaults."""
+    providers = []
+    if os.getenv('PAYPAL_CLIENT_ID') and os.getenv('PAYPAL_CLIENT_SECRET'):
+        providers.append('paypal')
+    if os.getenv('STRIPE_API_KEY'):
+        providers.append('stripe')
+    # Wero is always available as manual SEPA transfer
+    providers.append('wero')
+    default = 'paypal' if 'paypal' in providers else ('stripe' if 'stripe' in providers else 'wero')
+    return {"providers": providers, "default": default}

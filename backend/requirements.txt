@@ -10,3 +10,4 @@ pymongo
 stripe
 cryptography
 python-multipart
+httpx

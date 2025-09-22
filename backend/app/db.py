@@ -14,7 +14,8 @@ class MongoDB:
         """Connect to MongoDB and create necessary indexes."""
         # establish client/db if not already
         if not self.client:
-            mongo_url = os.getenv('MONGO_URL', 'mongodb://mongo:27017')
+            # Prefer MONGO_URI if provided (common env name), fallback to MONGO_URL, then default
+            mongo_url = os.getenv('MONGO_URI') or os.getenv('MONGO_URL') or 'mongodb://mongo:27017/dinnerhopping'
             self.client = AsyncIOMotorClient(mongo_url)
             # default database name
             db_name = os.getenv('MONGO_DB', 'dinnerhopping')

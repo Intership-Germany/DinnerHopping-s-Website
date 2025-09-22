@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Request, Response
+from fastapi import APIRouter, HTTPException, status, Depends, Request, Response, Form
 import os
-from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
-from ..auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
-from ..utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair
-from .. import db as db_mod
+from app.auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
+from app.utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair
+from app import db as db_mod
+
+######### Router / Endpoints #########
 
 router = APIRouter()
 
@@ -51,15 +52,11 @@ async def register(u: UserCreate):
     # newly created users are not verified until they confirm their email
     # preferred schema field name: email_verified
     user_doc['email_verified'] = False
-    # maintain backward compatibility if other code still checks is_verified
-    user_doc['is_verified'] = False
-    # roles handling: ensure non-empty list with 'user' at minimum
-    roles = user_doc.get('roles') or ['user']
-    if isinstance(roles, str):
-        roles = [roles]
-    if 'user' not in roles:
-        roles.append('user')
-    user_doc['roles'] = sorted(set(roles))
+    # roles handling: DO NOT trust client input for roles.
+    # Always assign the minimal 'user' role on self-service registration.
+    # Any privileged role (e.g. 'admin') must be provisioned separately by
+    # an existing administrator via a protected admin interface or migration.
+    user_doc['roles'] = ['user']
     # store encrypted address and public anonymised address
     if user_doc.get('address'):
         user_doc['address_encrypted'] = encrypt_address(user_doc['address'])
@@ -90,30 +87,46 @@ class LoginIn(BaseModel):
     password: str
 
 @router.post('/login', response_model=TokenOut, responses={401: {"description": "Unauthorized - invalid credentials or email not verified"}, 422: {"description": "Validation error"}})
-async def login(request: Request):
+async def login(request: Request, username: EmailStr | None = Form(None), password: str | None = Form(None), payload_form: str | None = Form(None)):
     """Login accepting either JSON body {username,password} or form data.
 
     This maintains compatibility with OAuth2PasswordRequestForm clients and
     test clients that send JSON. Email must be verified.
     """
-    username = None
-    password = None
-    # Try form first (OAuth2 style)
-    ctype = request.headers.get('content-type', '')
-    if 'application/x-www-form-urlencoded' in ctype or 'multipart/form-data' in ctype:
+    # Accept credentials from multiple client types: form-data (OAuth2 clients),
+    # optional `payload_form` (a JSON string or empty string), or a raw JSON body.
+    import json
+    payload = None
+    # 1) payload_form (form field) — some clients send payload="" or payload="{...}"
+    if payload_form is not None:
         try:
-            form = await request.form()
-            username = form.get('username')
-            password = form.get('password')
+            payload = json.loads(payload_form) if payload_form else {}
         except Exception:
-            pass
-    if username is None or password is None:
-        # Fallback to JSON
+            payload = {}
+
+    # 2) if no payload yet, attempt to read JSON body (best-effort; will raise if body is form-encoded)
+    if payload is None:
         try:
             data = await request.json()
-            username = data.get('username') or data.get('email')
-            password = data.get('password')
+            if isinstance(data, dict):
+                payload = data
         except Exception:
+            # not JSON or empty body — ignore
+            payload = None
+
+    # If we were given a payload (dict), extract username/password from it
+    if isinstance(payload, dict):
+        username = username or payload.get('username') or payload.get('email')
+        password = password or payload.get('password')
+
+    # 3) finally fallback to explicit form fields
+    if not username or not password:
+        try:
+            form = await request.form()
+            username = username or form.get('username')
+            password = password or form.get('password')
+        except Exception:
+            # ignore if body cannot be parsed as form
             pass
 
     if not username or not password:
@@ -128,7 +141,10 @@ async def login(request: Request):
     user = await authenticate_user(username, password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    token = create_access_token({"sub": user['email']})
+    try:
+        token = create_access_token({"sub": user['email']})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail='Failed to create access token') from exc
     # Issue refresh token (HttpOnly cookie) and store hashed refresh token server-side
     refresh_plain, refresh_hash = generate_token_pair(32)
     now = __import__('datetime').datetime.utcnow()
@@ -147,21 +163,27 @@ async def login(request: Request):
     # create CSRF token to return to client for double-submit protection
     csrf_token = generate_token_pair(16)[0]
 
-    # attach refresh_token cookie
-    response = Response()
-    secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
-    response.set_cookie('refresh_token', refresh_plain, httponly=True, secure=secure_flag, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')))
-    # also set access token cookie for convenience (shorter lifetime)
-    response.set_cookie('access_token', token, httponly=True, secure=secure_flag, samesite='lax', max_age=60*15)
-    # set CSRF token cookie (not HttpOnly) for double-submit protection
-    response.set_cookie('csrf_token', csrf_token, httponly=False, secure=secure_flag, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')))
+    # Build JSON response body and attach cookies using response.set_cookie
+    from fastapi.responses import JSONResponse
 
-    # Return access_token in body and CSRF token (client must store the CSRF token in-memory)
-    body = {"access_token": token, "csrf_token": csrf_token, "token_type": "bearer"}
-    response.media_type = 'application/json'
-    import json
-    response.body = json.dumps(body).encode('utf8')
-    return response
+    secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
+    use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
+    max_refresh = 60 * 60 * 24 * int(os.getenv('REFRESH_TOKEN_DAYS', '30'))
+
+    resp = JSONResponse(content={"access_token": token, "csrf_token": csrf_token, "token_type": "bearer"})
+    # Cookie names and attributes
+    if use_host_prefix:
+        # __Host- cookies require Secure and Path=/ and no Domain
+        resp.set_cookie('__Host-refresh_token', refresh_plain, httponly=True, secure=True, samesite='lax', max_age=max_refresh, path='/')
+        resp.set_cookie('__Host-access_token', token, httponly=True, secure=True, samesite='lax', max_age=60*15, path='/')
+        resp.set_cookie('__Host-csrf_token', csrf_token, httponly=False, secure=True, samesite='lax', max_age=max_refresh, path='/')
+    else:
+        # Dev fallback over http
+        resp.set_cookie('refresh_token', refresh_plain, httponly=True, secure=False, samesite='lax', max_age=max_refresh, path='/')
+        resp.set_cookie('access_token', token, httponly=True, secure=False, samesite='lax', max_age=60*15, path='/')
+        resp.set_cookie('csrf_token', csrf_token, httponly=False, secure=False, samesite='lax', max_age=max_refresh, path='/')
+
+    return resp
 
 
 @router.post('/logout')
@@ -171,9 +193,12 @@ async def logout(response: Response, current_user=Depends(get_current_user)):
         await db_mod.db.refresh_tokens.delete_many({'user_email': current_user['email']})
     except Exception:
         pass
-    response.delete_cookie('access_token')
-    response.delete_cookie('refresh_token')
-    response.delete_cookie('csrf_token')
+    # delete both dev and __Host- variants
+    for name in ('access_token','refresh_token','csrf_token','__Host-access_token','__Host-refresh_token','__Host-csrf_token'):
+        try:
+            response.delete_cookie(name, path='/')
+        except Exception:
+            pass
     return {"status": "logged_out"}
 
 
@@ -183,11 +208,11 @@ async def refresh(request: Request, response: Response):
     """Exchange a refresh cookie for a new access token. Rotates refresh token by default."""
     # validate CSRF: require X-CSRF-Token header match cookie value
     header_csrf = request.headers.get('x-csrf-token')
-    cookie_csrf = request.cookies.get('csrf_token')
+    cookie_csrf = request.cookies.get('__Host-csrf_token') or request.cookies.get('csrf_token')
     if not header_csrf or not cookie_csrf or header_csrf != cookie_csrf:
         raise HTTPException(status_code=403, detail='Missing or invalid CSRF token')
 
-    refresh_cookie = request.cookies.get('refresh_token')
+    refresh_cookie = request.cookies.get('__Host-refresh_token') or request.cookies.get('refresh_token')
     if not refresh_cookie:
         raise HTTPException(status_code=401, detail='Missing refresh token')
     # lookup hashed refresh token
@@ -212,13 +237,19 @@ async def refresh(request: Request, response: Response):
         pass
 
     secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
-    response.set_cookie('refresh_token', new_plain, httponly=True, secure=secure_flag, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')))
-    response.set_cookie('access_token', new_access, httponly=True, secure=secure_flag, samesite='lax', max_age=60*15)
+    use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
+    if use_host_prefix:
+        response.set_cookie('__Host-refresh_token', new_plain, httponly=True, secure=True, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')), path='/')
+        response.set_cookie('__Host-access_token', new_access, httponly=True, secure=True, samesite='lax', max_age=60*15, path='/')
+    else:
+        response.set_cookie('refresh_token', new_plain, httponly=True, secure=False, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')), path='/')
+        response.set_cookie('access_token', new_access, httponly=True, secure=False, samesite='lax', max_age=60*15, path='/')
     return {"access_token": new_access}
 
 
 class ProfileUpdate(BaseModel):
     name: str | None = None
+    email: EmailStr | None = None
     address: str | None = None
     lat: float | None = None
     lon: float | None = None
@@ -243,6 +274,24 @@ async def update_profile_alias(payload: ProfileUpdate, current_user=Depends(get_
         # migrating update: accept 'password' input, store as password_hash
         update_data['password_hash'] = hash_password(update_data['password'])
         update_data.pop('password', None)
+    # handle email change: require uniqueness and mark unverified
+    if 'email' in update_data:
+        new_email = update_data.get('email')
+        if new_email:
+            new_email = new_email.lower()
+            existing = await db_mod.db.users.find_one({'email': new_email})
+            if existing and existing.get('_id') != current_user.get('_id'):
+                raise HTTPException(status_code=400, detail='Email already in use')
+            # mark unverified and send verification email
+            update_data['email'] = new_email
+            update_data['email_verified'] = False
+            try:
+                _token, _ = await generate_and_send_verification(new_email)
+            except Exception:
+                pass
+        else:
+            # empty/invalid email not allowed
+            raise HTTPException(status_code=400, detail='Invalid email')
     # handle address encryption/publicization when address provided
     if 'address' in update_data:
         update_data['address_encrypted'] = encrypt_address(update_data.get('address'))
@@ -251,6 +300,9 @@ async def update_profile_alias(payload: ProfileUpdate, current_user=Depends(get_
     update_data['updated_at'] = __import__('datetime').datetime.utcnow()
     await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": update_data})
     u = await db_mod.db.users.find_one({"email": current_user['email']})
+    # If email changed, lookup by new email
+    if update_data.get('email'):
+        u = await db_mod.db.users.find_one({"email": update_data.get('email')})
     return UserOut(id=str(u.get('_id', '')), name=u.get('name'), email=u.get('email'), address=u.get('address_public'), preferences=u.get('preferences', {}), roles=u.get('roles', []))
 
 @router.get('/verify-email')
@@ -276,7 +328,7 @@ async def verify_email(token: str | None = None):
         pass
 
     # mark user as verified
-    await db_mod.db.users.update_one({"email": rec['email']}, {"$set": {"email_verified": True, "is_verified": True, "updated_at": __import__('datetime').datetime.utcnow()}})
+    await db_mod.db.users.update_one({"email": rec['email']}, {"$set": {"email_verified": True, "updated_at": __import__('datetime').datetime.utcnow()}})
     # delete the token for one-time use
     await db_mod.db.email_verifications.delete_one({"_id": rec['_id']})
     return {"status": "verified"}

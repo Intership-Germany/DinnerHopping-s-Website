@@ -5,7 +5,6 @@ from typing import Optional, List, Any, Dict
 from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime
 
-
 class EventStatus(str, Enum):
     draft = 'draft'
     published = 'published'
@@ -65,7 +64,6 @@ class EventBase(BaseModel):
     start_at: Optional[datetime] = None
     capacity: Optional[int] = None
     fee_cents: Optional[int] = 0
-    location: Optional[Location] = None
     registration_deadline: Optional[datetime] = None
     payment_deadline: Optional[datetime] = None
     after_party_location: Optional[Location] = None
