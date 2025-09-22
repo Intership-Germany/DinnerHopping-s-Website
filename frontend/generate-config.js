@@ -26,12 +26,21 @@ if (!fs.existsSync(envPath)) {
 
 const envVars = parseEnv(fs.readFileSync(envPath, 'utf8'));
 let js = '';
-// Dynamically export all env variables as window.VAR_NAME_URL if they end with _BASE
+// Dynamically export all env variables
+// 1) Keys ending with _BASE -> window.<KEY>_URL
+// 2) DEBUG_BANNER -> window.DEBUG_BANNER (boolean)
 for (const [key, value] of Object.entries(envVars)) {
   if (key.endsWith('_BASE')) {
     const windowVar = `window.${key.replace(/_BASE$/, '_BASE_URL')}`;
     js += `${windowVar} = "${value}";\n`;
+  } else if (key === 'DEBUG_BANNER') {
+    // Accept true/false/1/0/yes/no (case-insensitive)
+    const v = String(value).trim().toLowerCase();
+    const truthy = ['1','true','yes','on'].includes(v);
+    js += `window.DEBUG_BANNER = ${truthy};\n`;
   }
 }
+// Always ensure FRONTEND_BASE_URL defaults to the visitor's origin when not provided via .env
+js += 'if (typeof window !== "undefined") { window.FRONTEND_BASE_URL = window.FRONTEND_BASE_URL || window.location.origin; }\n';
 fs.writeFileSync(outputPath, js, 'utf8');
 console.log('Generated public/config.js from .env with variables:', Object.keys(envVars).filter(k => k.endsWith('_BASE')).map(k => k.replace(/_BASE$/, '_BASE_URL')).join(', '));

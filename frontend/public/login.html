@@ -8,6 +8,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <!-- Config variables (auto-generated) -->
     <script src="config.js"></script>
+    <script src="auth.js"></script>
+    <script src="debug-banner.js"></script>
+    <script src="includes.js" defer></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -26,11 +29,7 @@
  <body class="text-[#172a3a] flex flex-col min-h-screen">
      <div id="app" class="flex flex-col flex-grow">
          <!-- Site Header -->
-         <header class="w-full bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 sticky top-0 z-30 shadow-sm">
-             <div class="absolute top-6 left-6">
-                 <a href="index.html" class="text-2xl font-bold tracking-tight">Dinnerhopping</a>
-             </div>
-         </header>
+         <div data-include="partials/header.html"></div>
 
          <main class="flex-grow w-full px-6 pt-10 pb-20 mt-16">
              <!-- Login/Sign-up Section -->
@@ -85,18 +84,7 @@
          </main>
 
          <!-- Footer -->
-         <footer class="bg-[#172a3a] text-white p-8 rounded-t-3xl shadow-xl mt-auto">
-             <div class="text-center mb-6">
-                 <h4 class="text-xl font-bold">Dinnerhopping</h4>
-                 <p class="text-sm font-light opacity-80">Student Events</p>
-             </div>
-             <div class="flex justify-center space-x-6 mb-4">
-                 <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">About</a>
-                 <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">Contact</a>
-                 <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">FAQ</a>
-             </div>
-             <p class="text-center text-[11px] opacity-60">© 2025 Dinnerhopping. All rights reserved.</p>
-         </footer>
+         <div data-include="partials/footer.html"></div>
      </div>
 
     <script>
@@ -136,7 +124,7 @@
                 showLoginBtn.classList.add('text-[#4c4c4c]', 'hover:bg-white');
             });
 
-            // Backend base URL (change if your backend is elsewhere)
+            // Using token-based auth for now (no CSRF/cookies) until backend exposes /csrf & /refresh
             const BACKEND_BASE = window.BACKEND_BASE_URL || 'http://localhost:8000';
             
             // Helper to show a temporary message under the forms
@@ -202,13 +190,21 @@
                         }
                         return;
                     }
+                    // Store access token (JWT) in a cookie for subsequent API calls
                     const token = data.access_token || data.token || data.accessToken;
                     if (!token) {
                         showMessage('Login did not return a token', 'error');
                         return;
                     }
-                    // store token and show success
-                    localStorage.setItem('dh_token', token);
+                    // Use shared auth helper to set a Strict cookie, secure on HTTPS
+                    if (window.auth && typeof window.auth.setCookie === 'function') {
+                        window.auth.setCookie('dh_token', token, 7);
+                    } else {
+                        // Fallback, Strict + Secure on HTTPS
+                        const maxAge = `; Max-Age=${7*86400}`;
+                        const attrs = `Path=/; SameSite=Strict${location.protocol==='https:'?'; Secure':''}${maxAge}`;
+                        document.cookie = `dh_token=${encodeURIComponent(token)}; ${attrs}`;
+                    }
                     showMessage('Logged in successfully');
                     // redirect to profile page if exists
                     window.location.href = 'profile.html';

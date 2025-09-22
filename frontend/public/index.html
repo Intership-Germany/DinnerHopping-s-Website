@@ -6,6 +6,9 @@
     <title>Dinnerhopping - Your Student Dinner Event</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="config.js"></script>
+    <script src="debug-banner.js"></script>
+    <script src="includes.js" defer></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -42,7 +45,7 @@
             <h1 class="text-2xl font-bold tracking-tight">Dinnerhopping</h1>
         </div>
         <div class="absolute top-6 right-6">
-            <a href="login.html" class="px-4 py-2 bg-white text-[#172a3a] font-semibold rounded-full shadow-lg transition-all duration-300 transform hover:scale-105">Log In</a>
+            <a href="profile.html" class="px-4 py-2 bg-white text-[#172a3a] font-semibold rounded-full shadow-lg transition-all duration-300 transform hover:scale-105">Log In</a>
         </div>
         <div class="mt-16">
             <h2 class="text-4xl font-bold mb-4 tracking-tight leading-tight">Hop your way to new friendships.</h2>
@@ -131,16 +134,6 @@
     </section>
 
     <!-- Footer -->
-    <footer class="bg-[#172a3a] text-white p-8 rounded-t-3xl shadow-xl">
-        <div class="text-center mb-6">
-            <h4 class="text-xl font-bold">Dinnerhopping</h4>
-            <p class="text-sm font-light opacity-80">Student Events</p>
-        </div>
-        <div class="flex justify-center space-x-6 mb-6">
-            <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">About</a>
-            <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">Contact</a>
-            <a href="#" class="text-sm font-semibold opacity-80 hover:opacity-100 transition-opacity">FAQ</a>
-        </div>
-    </footer>
+    <div data-include="partials/footer.html"></div>
 </body>
 </html>
