@@ -142,6 +142,7 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
             description=e.get('description'),
             date=e.get('date') or '',
             capacity=e.get('capacity'),
+            fee_cents=e.get('fee_cents', 0),
             attendee_count=e.get('attendee_count', 0),
             status=e.get('status'),
             organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
@@ -157,7 +158,7 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
 async def create_event(payload: EventCreate, current_user=Depends(require_admin)):
     # admin-only: only admins can create events
     now = __import__('datetime').datetime.utcnow()
-    doc = payload.dict()
+    doc = payload.model_dump()
     # build after_party_location subdocument if provided (accept legacy 'location')
     loc_in = doc.pop('after_party_location', None)
     if loc_in is None:
@@ -194,7 +195,7 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
 
     # default fields per schema
     doc['attendee_count'] = 0
-    doc['fee_cents'] = doc.get('fee_cents', 0)
+    doc['fee_cents'] = int(doc.get('fee_cents', 0)) if doc.get('fee_cents') is not None else 0
     doc['registration_deadline'] = doc.get('registration_deadline')
     doc['payment_deadline'] = doc.get('payment_deadline')
     doc['matching_status'] = doc.get('matching_status', 'not_started')
@@ -228,6 +229,8 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
     serialized = _serialize(e)
     # ensure id is present as string
     serialized['id'] = str(e.get('_id'))
+    # ensure fee_cents is always present (default 0)
+    serialized['fee_cents'] = e.get('fee_cents', 0)
     # anonymise after_party_location info (fallback to legacy 'location')
     loc = None
     if isinstance(e.get('after_party_location'), dict):
@@ -258,7 +261,9 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
 
 @router.put('/{event_id}', response_model=EventOut)
 async def update_event(event_id: str, payload: EventCreate, _=Depends(require_admin)):
-    update = payload.dict()
+    # Use model_dump (exclude_unset) instead of deprecated dict()
+    update = payload.model_dump(exclude_unset=True)
+
     # handle after_party_location update (accept legacy 'location')
     loc_in = update.pop('after_party_location', None)
     if loc_in is None:
@@ -284,23 +289,37 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         update['after_party_location'] = after_party_location
 
     # convert organizer_id if provided
-    if update.get('organizer_id'):
+    if 'organizer_id' in update and update.get('organizer_id') is not None:
         try:
             update['organizer_id'] = ObjectId(update['organizer_id'])
         except (InvalidId, TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail='invalid organizer_id') from exc
 
-    update['updated_at'] = __import__('datetime').datetime.utcnow()
-    # allow updating new fields if provided
-    if payload.dict().get('fee_cents') is not None:
-        update['fee_cents'] = payload.dict().get('fee_cents')
-    if payload.dict().get('registration_deadline') is not None:
-        update['registration_deadline'] = payload.dict().get('registration_deadline')
-    if payload.dict().get('payment_deadline') is not None:
-        update['payment_deadline'] = payload.dict().get('payment_deadline')
+    # set updated_at
+    update['updated_at'] = datetime.datetime.utcnow()
+
+    # Persist changes (model_dump with exclude_unset ensures we only touch provided fields)
     await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": update})
     e = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
-    return EventOut(id=str(e['_id']), title=e.get('title') or e.get('name'), description=e.get('description'), date=e.get('date'), start_at=e.get('start_at'), capacity=e.get('capacity'), fee_cents=e.get('fee_cents', 0), registration_deadline=e.get('registration_deadline'), payment_deadline=e.get('payment_deadline'), after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')), attendee_count=e.get('attendee_count', 0), status=e.get('status'), matching_status=e.get('matching_status', 'not_started'), organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None, created_by=str(e.get('created_by')) if e.get('created_by') is not None else None, created_at=e.get('created_at'), updated_at=e.get('updated_at'))
+    return EventOut(
+        id=str(e['_id']),
+        title=e.get('title') or e.get('name'),
+        description=e.get('description'),
+        date=e.get('date'),
+        start_at=e.get('start_at'),
+        capacity=e.get('capacity'),
+        fee_cents=e.get('fee_cents', None),
+        registration_deadline=e.get('registration_deadline'),
+        payment_deadline=e.get('payment_deadline'),
+        after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
+        attendee_count=e.get('attendee_count', 0),
+        status=e.get('status'),
+        matching_status=e.get('matching_status', 'not_started'),
+        organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
+        created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
+        created_at=e.get('created_at'),
+        updated_at=e.get('updated_at')
+    )
 
 
 @router.post('/{event_id}/publish')
