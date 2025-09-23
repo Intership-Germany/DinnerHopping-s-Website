@@ -176,12 +176,12 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
     if use_host_prefix:
         # __Host- cookies require Secure and Path=/ and no Domain
         resp.set_cookie('__Host-refresh_token', refresh_plain, httponly=True, secure=True, samesite='lax', max_age=max_refresh, path='/')
-        resp.set_cookie('__Host-access_token', token, httponly=True, secure=True, samesite='lax', max_age=60*15, path='/')
+        resp.set_cookie('__Host-access_token', token, httponly=True, secure=True, samesite='lax', max_age=60*60*24, path='/')
         resp.set_cookie('__Host-csrf_token', csrf_token, httponly=False, secure=True, samesite='lax', max_age=max_refresh, path='/')
     else:
         # Dev fallback over http
         resp.set_cookie('refresh_token', refresh_plain, httponly=True, secure=False, samesite='lax', max_age=max_refresh, path='/')
-        resp.set_cookie('access_token', token, httponly=True, secure=False, samesite='lax', max_age=60*15, path='/')
+        resp.set_cookie('access_token', token, httponly=True, secure=False, samesite='lax', max_age=60*60*24, path='/')
         resp.set_cookie('csrf_token', csrf_token, httponly=False, secure=False, samesite='lax', max_age=max_refresh, path='/')
 
     return resp
@@ -241,10 +241,10 @@ async def refresh(request: Request, response: Response):
     use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
     if use_host_prefix:
         response.set_cookie('__Host-refresh_token', new_plain, httponly=True, secure=True, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')), path='/')
-        response.set_cookie('__Host-access_token', new_access, httponly=True, secure=True, samesite='lax', max_age=60*15, path='/')
+        response.set_cookie('__Host-access_token', new_access, httponly=True, secure=True, samesite='lax', max_age=60*60*24, path='/')
     else:
         response.set_cookie('refresh_token', new_plain, httponly=True, secure=False, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')), path='/')
-        response.set_cookie('access_token', new_access, httponly=True, secure=False, samesite='lax', max_age=60*15, path='/')
+        response.set_cookie('access_token', new_access, httponly=True, secure=False, samesite='lax', max_age=60*60*24, path='/')
     return {"access_token": new_access}
 
 
