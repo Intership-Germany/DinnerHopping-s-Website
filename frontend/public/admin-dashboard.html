@@ -4,28 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Dashboard | DinnerHopping</title>
+  <script src="js/auth-guard.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="config.js"></script>
-  <script src="auth.js"></script>
-  <script src="debug-banner.js"></script>
-  <script src="includes.js" defer></script>
+  <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/debug-banner.js"></script>
+  <script src="js/includes.js" defer></script>
   <style>
     body { font-family: 'Inter', sans-serif; }
   </style>
 </head>
 <body class="text-[#172a3a] min-h-screen flex flex-col" style="background-color: #f0f4f7;">
-  <script>
-    // Protect admin page via cookie-based gate
-    if (window.auth && window.auth.enforceLogin) {
-      window.auth.enforceLogin('login.html');
-    } else {
-      (function(){
-        const hasToken = document.cookie.split('; ').some(c => c.startsWith('dh_token='));
-        if (!hasToken) window.location.href = 'login.html';
-      })();
-    }
-  </script>
+  
   <!-- Navigation Bar -->
   <div data-include="partials/header.html"></div>
 

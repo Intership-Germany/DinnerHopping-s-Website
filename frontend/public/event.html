@@ -5,15 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dinnerhopping - My Event Dashboard</title>
+    <script src="js/auth-guard.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <script src="config.js"></script>
-    <script src="auth.js"></script>
-    <script src="debug-banner.js"></script>
-    <script src="includes.js" defer></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/debug-banner.js"></script>
+    <script src="js/includes.js" defer></script>
     <!-- Leaflet CSS & JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="event-page.js" defer></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -21,8 +23,6 @@
             -moz-osx-font-smoothing: grayscale;
             background: linear-gradient(120deg, #f0f4f7 60%, #ffe5d0 100%);
         }
-
-        /* Remove old map placeholder styles, Leaflet will handle map display */
     </style>
 </head>
 
@@ -143,36 +143,7 @@
         <!-- Footer -->
         <div data-include="partials/footer.html"></div>
 </div>
-<script>
-    // Gate access to authenticated users via Strict cookie
-    if (window.auth && window.auth.enforceLogin) {
-        window.auth.enforceLogin('login.html');
-    } else {
-        (function(){
-            const hasToken = document.cookie.split('; ').some(c => c.startsWith('dh_token='));
-            if (!hasToken) window.location.href = 'login.html';
-        })();
-    }
-    document.addEventListener('DOMContentLoaded', function () {
-        // Starter course: Weender Landstraße (Göttingen) - approximate coordinates
-        var entreeMap = L.map('map-entree', { zoomControl: true, attributionControl: false });
-        entreeMap.setView([51.5413, 9.9345], 14);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            minZoom: 13, maxZoom: 18
-        }).addTo(entreeMap);
-        L.circle([51.5413, 9.9345], { radius: 500, color: '#008080', fillColor: '#008080', fillOpacity: 0.08, weight: 2, dashArray: '6 6' }).addTo(entreeMap);
-        L.marker([51.5413, 9.9345], { icon: L.icon({ iconUrl: 'https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-red.png', iconSize: [25, 41], iconAnchor: [12, 41] }) }).addTo(entreeMap);
-
-        // Dessert: Goßlerstraße (Göttingen) - approx. coords
-        var dessertMap = L.map('map-dessert', { zoomControl: true, attributionControl: false });
-        dessertMap.setView([51.5432, 9.9367], 14);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            minZoom: 13, maxZoom: 18
-        }).addTo(dessertMap);
-        L.circle([51.5432, 9.9367], { radius: 500, color: '#ffc241', fillColor: '#ffc241', fillOpacity: 0.08, weight: 2, dashArray: '6 6' }).addTo(dessertMap);
-        L.marker([51.5432, 9.9367], { icon: L.icon({ iconUrl: 'https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-yellow.png', iconSize: [25, 41], iconAnchor: [12, 41] }) }).addTo(dessertMap);
-    });
-</script>
+    
     </div>
 </body>
 
