@@ -109,6 +109,13 @@ Payments
 	- The implementation uses a DB atomic upsert to avoid duplicate-key races and supports
 		an optional `idempotency_key` to deduplicate client retries.
 
+PayPal Standard Checkout (Orders API)
+- GET /payments/paypal/config — returns `{ clientId, currency, env }` for initializing the JS SDK.
+- POST /payments/paypal/orders — body `{ registration_id, amount_cents?, idempotency_key?, currency? }` creates a PayPal order and returns `{ id }`.
+- POST /payments/paypal/orders/{order_id}/capture — captures an order; marks the linked registration as paid if completed.
+- GET /payments/paypal/orders/{order_id} — returns raw order details from PayPal (useful for debugging).
+- GET /payments/paypal/return?payment_id=...&token=... — alternative redirect-based capture flow (already supported).
+
 	Note: The payment amount is authoritative from the event settings (`events.fee_cents`). The backend ignores client-supplied amounts and will return an error if a mismatched amount is provided. If an event has no fee (`fee_cents` == 0) the API returns {"status":"no_payment_required"}.
 
 - GET /payments/{id}/pay

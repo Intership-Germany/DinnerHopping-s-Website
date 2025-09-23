@@ -154,7 +154,7 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
                     "amount": float(fee_cents) / 100.0,
                     "currency": 'EUR',
                     "status": "pending",
-                    "provider": 'dev-local',
+                    "provider": 'N/A',
                     "meta": {"reason": "invite_accepted"},
                     "created_at": datetime.datetime.utcnow()
                 }
