@@ -13,14 +13,34 @@ import datetime
 ######### Helpers #########
 
 def _serialize(obj):
-    from bson import ObjectId as _OID
     if isinstance(obj, dict):
         return {k: _serialize(v) for k, v in obj.items()}
+
     if isinstance(obj, list):
         return [_serialize(v) for v in obj]
-    if isinstance(obj, _OID):
+
+    if isinstance(obj, ObjectId):
         return str(obj)
+
+    if isinstance(obj, (datetime.datetime, datetime.date)):
+        try:
+            # prefer isoformat for datetimes; ensure timezone-naive datetimes are treated as UTC
+            if isinstance(obj, datetime.datetime):
+                return obj.isoformat()
+            return obj.isoformat()
+        except Exception:
+            return str(obj)
     return obj
+
+
+def _fmt_date(v):
+    """Return ISO string for date/datetime, otherwise return value unchanged."""
+    if isinstance(v, (datetime.datetime, datetime.date)):
+        try:
+            return v.isoformat()
+        except Exception:
+            return str(v)
+    return v
 
 ######### Router / Endpoints #########
 
@@ -136,12 +156,17 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
 
     events_resp = []
     async for e in db_mod.db.events.find(query):
+        # format date-like fields as strings to match EventOut typing
+        date_val = _fmt_date(e.get('date')) or ''
+        start_val = _fmt_date(e.get('start_at'))
         events_resp.append(EventOut(
             id=str(e.get('_id')),
             title=e.get('title') or e.get('name') or 'Untitled',
             description=e.get('description'),
-            date=e.get('date') or '',
+            date=date_val,
+            start_at=start_val,
             capacity=e.get('capacity'),
+            fee_cents=e.get('fee_cents', 0),
             attendee_count=e.get('attendee_count', 0),
             status=e.get('status'),
             organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
@@ -157,7 +182,7 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
 async def create_event(payload: EventCreate, current_user=Depends(require_admin)):
     # admin-only: only admins can create events
     now = __import__('datetime').datetime.utcnow()
-    doc = payload.dict()
+    doc = payload.model_dump()
     # build after_party_location subdocument if provided (accept legacy 'location')
     loc_in = doc.pop('after_party_location', None)
     if loc_in is None:
@@ -194,7 +219,7 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
 
     # default fields per schema
     doc['attendee_count'] = 0
-    doc['fee_cents'] = doc.get('fee_cents', 0)
+    doc['fee_cents'] = int(doc.get('fee_cents', 0)) if doc.get('fee_cents') is not None else 0
     doc['registration_deadline'] = doc.get('registration_deadline')
     doc['payment_deadline'] = doc.get('payment_deadline')
     doc['matching_status'] = doc.get('matching_status', 'not_started')
@@ -208,7 +233,7 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         doc['status'] = 'draft'
 
     res = await db_mod.db.events.insert_one(doc)
-    return EventOut(id=str(res.inserted_id), title=doc.get('title'), description=doc.get('description'), date=doc.get('date'), start_at=doc.get('start_at'), capacity=doc.get('capacity'), fee_cents=doc.get('fee_cents', 0), registration_deadline=doc.get('registration_deadline'), payment_deadline=doc.get('payment_deadline'), after_party_location=doc.get('after_party_location'), attendee_count=0, status=doc.get('status'), matching_status=doc.get('matching_status'), organizer_id=str(doc['organizer_id']) if doc.get('organizer_id') is not None else None, created_by=str(doc['created_by']) if doc.get('created_by') is not None else None, created_at=doc.get('created_at'), updated_at=doc.get('updated_at'))
+    return EventOut(id=str(res.inserted_id), title=doc.get('title'), description=doc.get('description'), date=_fmt_date(doc.get('date')) or '', start_at=_fmt_date(doc.get('start_at')), capacity=doc.get('capacity'), fee_cents=doc.get('fee_cents', 0), registration_deadline=_fmt_date(doc.get('registration_deadline')), payment_deadline=_fmt_date(doc.get('payment_deadline')), after_party_location=doc.get('after_party_location'), attendee_count=0, status=doc.get('status'), matching_status=doc.get('matching_status'), organizer_id=str(doc['organizer_id']) if doc.get('organizer_id') is not None else None, created_by=str(doc['created_by']) if doc.get('created_by') is not None else None, created_at=doc.get('created_at'), updated_at=doc.get('updated_at'))
 
 
 @router.get('/{event_id}')
@@ -228,6 +253,8 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
     serialized = _serialize(e)
     # ensure id is present as string
     serialized['id'] = str(e.get('_id'))
+    # ensure fee_cents is always present (default 0)
+    serialized['fee_cents'] = e.get('fee_cents', 0)
     # anonymise after_party_location info (fallback to legacy 'location')
     loc = None
     if isinstance(e.get('after_party_location'), dict):
@@ -258,7 +285,9 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
 
 @router.put('/{event_id}', response_model=EventOut)
 async def update_event(event_id: str, payload: EventCreate, _=Depends(require_admin)):
-    update = payload.dict()
+    # Use model_dump (exclude_unset) instead of deprecated dict()
+    update = payload.model_dump(exclude_unset=True)
+
     # handle after_party_location update (accept legacy 'location')
     loc_in = update.pop('after_party_location', None)
     if loc_in is None:
@@ -284,23 +313,37 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         update['after_party_location'] = after_party_location
 
     # convert organizer_id if provided
-    if update.get('organizer_id'):
+    if 'organizer_id' in update and update.get('organizer_id') is not None:
         try:
             update['organizer_id'] = ObjectId(update['organizer_id'])
         except (InvalidId, TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail='invalid organizer_id') from exc
 
-    update['updated_at'] = __import__('datetime').datetime.utcnow()
-    # allow updating new fields if provided
-    if payload.dict().get('fee_cents') is not None:
-        update['fee_cents'] = payload.dict().get('fee_cents')
-    if payload.dict().get('registration_deadline') is not None:
-        update['registration_deadline'] = payload.dict().get('registration_deadline')
-    if payload.dict().get('payment_deadline') is not None:
-        update['payment_deadline'] = payload.dict().get('payment_deadline')
+    # set updated_at
+    update['updated_at'] = datetime.datetime.now()
+
+    # Persist changes (model_dump with exclude_unset ensures we only touch provided fields)
     await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": update})
     e = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
-    return EventOut(id=str(e['_id']), title=e.get('title') or e.get('name'), description=e.get('description'), date=e.get('date'), start_at=e.get('start_at'), capacity=e.get('capacity'), fee_cents=e.get('fee_cents', 0), registration_deadline=e.get('registration_deadline'), payment_deadline=e.get('payment_deadline'), after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')), attendee_count=e.get('attendee_count', 0), status=e.get('status'), matching_status=e.get('matching_status', 'not_started'), organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None, created_by=str(e.get('created_by')) if e.get('created_by') is not None else None, created_at=e.get('created_at'), updated_at=e.get('updated_at'))
+    return EventOut(
+        id=str(e['_id']),
+        title=e.get('title') or e.get('name'),
+        description=e.get('description'),
+    date=_fmt_date(e.get('date')),
+    start_at=_fmt_date(e.get('start_at')),
+        capacity=e.get('capacity'),
+        fee_cents=e.get('fee_cents', None),
+    registration_deadline=_fmt_date(e.get('registration_deadline')),
+    payment_deadline=_fmt_date(e.get('payment_deadline')),
+        after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
+        attendee_count=e.get('attendee_count', 0),
+        status=e.get('status'),
+        matching_status=e.get('matching_status', 'not_started'),
+        organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
+        created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
+        created_at=e.get('created_at'),
+        updated_at=e.get('updated_at')
+    )
 
 
 @router.post('/{event_id}/publish')
@@ -394,13 +437,13 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
     # Optionally create a payment link if event has a fee
     payment_link = None
     if event.get('fee_cents', 0) > 0:
-        # create a simple payment record and a fake link (replace with real provider integration later)
+        # create a simple payment record
         pay = {
             "registration_id": res.inserted_id,
             "amount": event.get('fee_cents', 0) / 100.0,
             "currency": 'EUR',
             "status": "pending",
-            "provider": 'dev-local',
+            "provider": 'N/A',
             "meta": {},
             "created_at": __import__('datetime').datetime.utcnow()
         }

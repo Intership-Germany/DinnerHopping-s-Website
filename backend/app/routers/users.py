@@ -3,6 +3,7 @@ import os
 from pydantic import BaseModel, EmailStr, Field
 from app.auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
 from app.utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair
+from app.utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair, send_email
 from app import db as db_mod
 
 ######### Router / Endpoints #########
@@ -175,12 +176,12 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
     if use_host_prefix:
         # __Host- cookies require Secure and Path=/ and no Domain
         resp.set_cookie('__Host-refresh_token', refresh_plain, httponly=True, secure=True, samesite='lax', max_age=max_refresh, path='/')
-        resp.set_cookie('__Host-access_token', token, httponly=True, secure=True, samesite='lax', max_age=60*15, path='/')
+        resp.set_cookie('__Host-access_token', token, httponly=True, secure=True, samesite='lax', max_age=60*60*24, path='/')
         resp.set_cookie('__Host-csrf_token', csrf_token, httponly=False, secure=True, samesite='lax', max_age=max_refresh, path='/')
     else:
         # Dev fallback over http
         resp.set_cookie('refresh_token', refresh_plain, httponly=True, secure=False, samesite='lax', max_age=max_refresh, path='/')
-        resp.set_cookie('access_token', token, httponly=True, secure=False, samesite='lax', max_age=60*15, path='/')
+        resp.set_cookie('access_token', token, httponly=True, secure=False, samesite='lax', max_age=60*60*24, path='/')
         resp.set_cookie('csrf_token', csrf_token, httponly=False, secure=False, samesite='lax', max_age=max_refresh, path='/')
 
     return resp
@@ -240,10 +241,10 @@ async def refresh(request: Request, response: Response):
     use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
     if use_host_prefix:
         response.set_cookie('__Host-refresh_token', new_plain, httponly=True, secure=True, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')), path='/')
-        response.set_cookie('__Host-access_token', new_access, httponly=True, secure=True, samesite='lax', max_age=60*15, path='/')
+        response.set_cookie('__Host-access_token', new_access, httponly=True, secure=True, samesite='lax', max_age=60*60*24, path='/')
     else:
         response.set_cookie('refresh_token', new_plain, httponly=True, secure=False, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')), path='/')
-        response.set_cookie('access_token', new_access, httponly=True, secure=False, samesite='lax', max_age=60*15, path='/')
+        response.set_cookie('access_token', new_access, httponly=True, secure=False, samesite='lax', max_age=60*60*24, path='/')
     return {"access_token": new_access}
 
 
@@ -354,3 +355,106 @@ async def resend_verification(payload: ResendVerificationIn):
         except Exception:
             email_sent = False
     return {"message": "If the account exists and is not verified, a new verification email has been sent.", "email_sent": email_sent}
+
+
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@router.put('/password')
+async def change_password(payload: ChangePasswordIn, current_user=Depends(get_current_user)):
+    """Authenticated password change. Requires old_password and validates new_password under policy."""
+    # verify old password
+    user = await get_user_by_email(current_user['email'])
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+    auth = await authenticate_user(current_user['email'], payload.old_password)
+    if not auth:
+        raise HTTPException(status_code=403, detail='Old password is incorrect')
+    # validate new password
+    validate_password(payload.new_password)
+    # set new password hash
+    await db_mod.db.users.update_one({'email': current_user['email']}, {'$set': {'password_hash': hash_password(payload.new_password), 'updated_at': __import__('datetime').datetime.utcnow()}})
+    return {"status": "password_changed"}
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+@router.post('/forgot-password')
+async def forgot_password(payload: ForgotPasswordIn):
+    """Initiate password reset: create a single-use reset token and email the reset link.
+
+    Response is intentionally generic to avoid revealing account existence.
+    """
+    email = payload.email.lower()
+    user = await db_mod.db.users.find_one({'email': email})
+    email_sent = False
+    # Always respond success; if user exists, create reset token and send email
+    if user:
+        # remove old tokens for this email
+        try:
+            await db_mod.db.password_resets.delete_many({'email': email})
+        except Exception:
+            pass
+        token, token_hash = generate_token_pair(32)
+        now = __import__('datetime').datetime.utcnow()
+        try:
+            ttl_hours = int(os.getenv('PASSWORD_RESET_EXPIRES_HOURS', '4'))
+        except Exception:
+            ttl_hours = 4
+        expires_at = now + __import__('datetime').timedelta(hours=ttl_hours)
+        doc = {'email': email, 'token_hash': token_hash, 'created_at': now, 'expires_at': expires_at}
+        try:
+            await db_mod.db.password_resets.insert_one(doc)
+        except Exception:
+            # best-effort
+            pass
+        # send email with reset link
+        try:
+            base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+            reset_link = f"{base}/reset-password?token={token}"
+            subject = 'Reset your DinnerHopping password'
+            body = f"Hi,\n\nTo reset your password, click the link below:\n{reset_link}\n\nIf you didn't request this, ignore this message.\n\nThanks,\nDinnerHopping Team"
+            email_sent = await send_email(to=email, subject=subject, body=body, category='password_reset')
+        except Exception:
+            email_sent = False
+
+    return {"message": "If an account exists for this email, a password reset link has been sent.", "email_sent": email_sent}
+
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post('/reset-password')
+async def reset_password(payload: ResetPasswordIn):
+    """Complete password reset using token from email. Token is single-use and expires."""
+    if not payload.token or not payload.new_password:
+        raise HTTPException(status_code=400, detail='token and new_password required')
+    th = hash_token(payload.token)
+    rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+    if not rec:
+        raise HTTPException(status_code=404, detail='Reset token not found')
+    # check expiry
+    expires_at = rec.get('expires_at')
+    now = __import__('datetime').datetime.utcnow()
+    try:
+        if expires_at and isinstance(expires_at, __import__('datetime').datetime) and expires_at < now:
+            await db_mod.db.password_resets.update_one({'_id': rec['_id']}, {'$set': {'status': 'expired', 'expired_at': now}})
+            raise HTTPException(status_code=400, detail='Reset token expired')
+    except Exception:
+        pass
+    # validate password policy
+    validate_password(payload.new_password)
+    # update user's password
+    await db_mod.db.users.update_one({'email': rec['email']}, {'$set': {'password_hash': hash_password(payload.new_password), 'updated_at': __import__('datetime').datetime.utcnow()}})
+    # delete/reset token
+    try:
+        await db_mod.db.password_resets.delete_one({'_id': rec['_id']})
+    except Exception:
+        pass
+    return {"status": "password_reset"}
