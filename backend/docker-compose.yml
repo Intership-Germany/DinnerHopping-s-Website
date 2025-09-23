@@ -5,7 +5,8 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      - mongo-data:/data/db
+      # Persist MongoDB data inside the repo under backend/app/data
+      - ./app/data/mongo:/data/db
   backend:
     build: .
     ports:
@@ -17,11 +18,10 @@ services:
 
   mongo-init:
     build: .
-    command: ["/bin/sh", "-c", "python3 scripts/import_csv_to_mongo.py --apply --mongo-uri=mongodb://mongo:27017/dinnerhopping"]
+    command: ["/bin/sh", "-c", "python3 scripts/mongo_init.py --mongo-uri=mongodb://mongo:27017/dinnerhopping"]
     environment:
       - MONGO_URI=mongodb://mongo:27017/dinnerhopping
     depends_on:
       - mongo
     restart: "no"
-volumes:
-  mongo-data:
+# Using host bind mounts for persistent data. No named volumes required.

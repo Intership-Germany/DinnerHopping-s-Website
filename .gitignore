@@ -2,7 +2,7 @@
 .github
 
 # Local env files
-/backend/.env
+/backend/app/.env
 .env
 # Created by https://www.toptal.com/developers/gitignore/api/macos,windows,node,python
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,windows,node,python
@@ -49,6 +49,13 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
+
+### PyCharm ###
+# JetBrains IDE (PyCharm, IntelliJ) project files
+.idea/
+# To keep shared settings, comment the line above and whitelist specific subdirs:
+# !.idea/codeStyles/
+# !.idea/inspectionProfiles/
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json

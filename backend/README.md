@@ -3,7 +3,7 @@
 
 This service is a minimal FastAPI backend with MongoDB for the DinnerHopping proof-of-concept.
 It exposes user authentication, event management, registrations/invitations and a payments flow
-(Stripe integration plus a dev-local fallback).
+(Stripe integration plus PayPal and a manual SEPA (Wero) option, with a dev-local fallback).
 
 This README explains how the API works, how to run it locally, environment variables, and
 how to run the included end-to-end tests.
@@ -27,11 +27,13 @@ An example file `backend/.env.example` is provided; copy it to `.env` and fill i
 
 - `MONGO_URI` — MongoDB connection string (default: `mongodb://localhost:27017/dinnerhopping`).
 - `JWT_SECRET` — secret key for JWT signing (default: `change-me`).
-- `ADMIN_TOKEN` — token used for protecting admin endpoints (set to something secret in prod).
 - `BACKEND_BASE_URL` — base URL used in generated links (default: `http://localhost:8000`).
 - `ALLOWED_ORIGINS` — comma-separated CORS origins (default: `*`).
+- `TOKEN_PEPPER` — application-wide secret used to HMAC-token values (recommended, set to a long random string). When set, verification and invitation tokens are stored as a non-reversible hash in the database.
 - `STRIPE_API_KEY` — optional; when set the payments flow will create Stripe Checkout Sessions.
 - `STRIPE_WEBHOOK_SECRET` — optional; when set webhook requests will be verified.
+ - PayPal (optional): set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `PAYPAL_ENV` (`sandbox`|`live`).
+ - Wero (SEPA transfer): configure `WERO_IBAN`, `WERO_BIC`, `WERO_BENEFICIARY`, `WERO_PURPOSE_PREFIX`.
 - `SMTP_HOST` — optional; hostname of SMTP server (e.g. `ssl0.ovh.net` for OVH mail).
 - `SMTP_PORT` — optional; SMTP port (587 for STARTTLS, 465 for SSL). Default: 587 when `SMTP_HOST` set.
 - `SMTP_USER` — SMTP username (usually the full email address).
@@ -94,20 +96,38 @@ Registrations & Invitations
 
 Payments
 - POST /payments/create
-	- Body: { registration_id, amount_cents, idempotency_key? }
+	- Body: { registration_id, amount_cents, idempotency_key?, provider? }
 	- Behaviour:
-		- If `STRIPE_API_KEY` is set: creates (or returns) a payment record in DB and opens a
-			Stripe Checkout Session. The code stores our DB payment id in Stripe session metadata
-			so webhooks can map back reliably.
+		- If provider is 'paypal' (and PayPal env vars set): creates an Order and returns the
+			approval URL; redirects back to /payments/paypal/return which captures the order and
+			marks the registration as paid.
+		- If provider is 'stripe' (and `STRIPE_API_KEY` is set): creates (or returns) a payment record in DB and opens a
+			Stripe Checkout Session. The code stores our DB payment id in Stripe session metadata so webhooks can map back reliably.
+		- If provider is 'wero': returns bank transfer instructions including an EPC QR payload the app can render; an admin can confirm with POST /payments/{id}/confirm.
 		- If `STRIPE_API_KEY` is not set (dev mode): creates a dev-local payment document and
 			returns a local `/payments/{id}/pay` link which marks the payment as paid when visited.
 	- The implementation uses a DB atomic upsert to avoid duplicate-key races and supports
 		an optional `idempotency_key` to deduplicate client retries.
 
+PayPal Standard Checkout (Orders API)
+- GET /payments/paypal/config — returns `{ clientId, currency, env }` for initializing the JS SDK.
+- POST /payments/paypal/orders — body `{ registration_id, amount_cents?, idempotency_key?, currency? }` creates a PayPal order and returns `{ id }`.
+- POST /payments/paypal/orders/{order_id}/capture — captures an order; marks the linked registration as paid if completed.
+- GET /payments/paypal/orders/{order_id} — returns raw order details from PayPal (useful for debugging).
+- GET /payments/paypal/return?payment_id=...&token=... — alternative redirect-based capture flow (already supported).
+
+	Note: The payment amount is authoritative from the event settings (`events.fee_cents`). The backend ignores client-supplied amounts and will return an error if a mismatched amount is provided. If an event has no fee (`fee_cents` == 0) the API returns {"status":"no_payment_required"}.
+
 - GET /payments/{id}/pay
 	- Dev-only: marks the payment as paid and updates the linked registration.
 
 - POST /payments/webhooks/stripe
+ - GET /payments/providers — Lists enabled providers and default selection.
+ - GET /payments/paypal/return?payment_id=...&token=... — Captures PayPal order and marks paid.
+ - POST /payments/{id}/confirm — Admin-only manual confirmation for bank transfers (Wero).
+
+Invited users and payments
+- When an invitation is accepted, a Registration with status "invited" is created for the invited email. Invited participants must pay to be confirmed. The frontend can call POST /payments/create with that registration_id and present either PayPal, Stripe, or Wero options. On success, the Registration status becomes "paid".
 	- Receives Stripe webhooks. If `STRIPE_WEBHOOK_SECRET` is set it will verify signatures.
 	- Processes `checkout.session.completed` events and marks the DB payment as paid.
 	- The handler is resilient: it first looks up payments by provider id, and falls back to
@@ -156,7 +176,7 @@ curl "http://localhost:8000/verify-email?token=<token>"
 # Login
 curl -X POST http://localhost:8000/login -H "Content-Type: application/json" -d '{"username":"t@example.com","password":"Testpass1"}'
 
-# Create an event (may be admin-only depending on deployment)
+# Create an event (admin role required)
 curl -X POST http://localhost:8000/events/ -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"title":"My Event","date":"2025-09-20T19:00:00Z","location":{"name":"Venue"},"capacity":10}'
 
 # Register for an event
