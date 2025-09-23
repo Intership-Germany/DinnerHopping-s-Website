@@ -5,8 +5,7 @@ from app import db as db_mod
 from bson.objectid import ObjectId
 from pymongo import ReturnDocument
 import datetime
-from typing import Optional, Dict, Any
-import base64
+from typing import Optional
 
 from app.auth import get_current_user, require_admin
 from app.utils import require_event_published, require_registration_owner_or_admin, require_event_payment_open
@@ -301,7 +300,7 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
             await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
         except Exception:
             pass
-        return {"payment_id": str(payment_id), "payment_link": session.url, "status": "pending"}
+        return {"payment_id": str(payment_id), "payment_link": session.get('url'), "status": "pending"}
 
     # WERO: provide bank transfer instructions (EPC QR)
     if provider == 'wero':
@@ -599,7 +598,7 @@ async def paypal_webhook(request: Request):
 
 
 @router.post('/{payment_id}/confirm')
-async def confirm_manual_payment(payment_id: str, current_user=Depends(require_admin)):
+async def confirm_manual_payment(payment_id: str, _current_user=Depends(require_admin)):
     """Manually confirm a bank transfer (Wero) payment. Admins only.
 
     Marks the payment as succeeded and the registration as paid.

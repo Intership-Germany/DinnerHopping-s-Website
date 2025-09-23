@@ -21,17 +21,17 @@ import uuid
 from email.message import EmailMessage
 from typing import Mapping, Optional, Sequence
 import base64
-import os
 import re
 import hmac
 import hashlib
 
 try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-except Exception:  # pragma: no cover - optional dependency in lightweight dev setups
+except ImportError:  # pragma: no cover - optional dependency in lightweight dev setups
     AESGCM = None
 
 from . import db as db_mod
+from pymongo.errors import PyMongoError
 
 # Simple approach: quantize lat/lon to ~500m grid using Haversine-based degrees approximation
 # For typical latitudes, 0.0045 deg ~ 500m (varies). We'll use 0.0045 to approximate 500m.
@@ -76,7 +76,7 @@ def _load_address_key() -> bytes | None:
         if len(key) not in (16, 24, 32):
             raise ValueError('invalid key length')
         return key
-    except Exception:
+    except (TypeError, ValueError, base64.binascii.Error):
         # invalid configuration; treat as unset
         return None
 
@@ -112,7 +112,7 @@ def decrypt_address(b64: str) -> str:
         aesgcm = AESGCM(key)
         pt = aesgcm.decrypt(nonce, ct, None)
         return pt.decode('utf8')
-    except Exception:
+    except (TypeError, ValueError, base64.binascii.Error):
         # on any error, return original value to avoid breaking callers
         return b64
 
@@ -276,20 +276,21 @@ async def generate_and_send_verification(recipient: str) -> tuple[str, bool]:
         the email was actually sent (or printed in dev fallback). False means all
         SMTP attempts failed when SMTP was configured.
     """
-    token, token_hash = generate_token_pair(32)
+    token, token_hash = generate_token_pair()
     created_at = datetime.datetime.now(datetime.timezone.utc)
     # TTL for verification tokens (hours)
     try:
-        ttl_hours = int(os.getenv('EMAIL_VERIFICATION_EXPIRES_HOURS', '1'))
-    except Exception:
-        ttl_hours = 1
+        ttl_hours = int(os.getenv('EMAIL_VERIFICATION_EXPIRES_HOURS', os.getenv('EMAIL_VERIFICATION_EXPIRES', '48')))
+    except (TypeError, ValueError):
+        ttl_hours = 48
     expires_at = created_at + datetime.timedelta(hours=ttl_hours)
     # store a non-reversible hash of the token instead of the plaintext token
     doc = {"email": recipient, "token_hash": token_hash, "created_at": created_at, "expires_at": expires_at}
     try:
         await db_mod.db.email_verifications.insert_one(doc)
         logger.info("Stored verification token for %s", recipient)
-    except Exception as e:  # broad except to avoid dependency on db.errors in tests
+    except PyMongoError as e:
+        # Best-effort: log a warning and continue on DB insertion failures
         logger.warning("Could not persist verification token for %s: %s", recipient, e)
 
     base = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
@@ -322,12 +323,21 @@ def hash_token(token: str) -> str:
     return hmac.new(pepper_bytes, token.encode('utf8'), hashlib.sha256).hexdigest()
 
 
-def generate_token_pair(bytes_entropy: int = 32) -> tuple[str, str]:
+def _default_token_bytes() -> int:
+    try:
+        return int(os.getenv('ACCESS_TOKEN_BYTES', os.getenv('TOKEN_BYTES', '32')))
+    except (TypeError, ValueError):
+        return 32
+
+
+def generate_token_pair(bytes_entropy: int | None = None) -> tuple[str, str]:
     """Generate a secure random token and its stored hash.
 
     Returns (token, token_hash) where token is safe to send to the user and
     token_hash is the HMAC-SHA256 hex digest for storage.
     """
+    if bytes_entropy is None:
+        bytes_entropy = _default_token_bytes()
     t = secrets.token_urlsafe(bytes_entropy)
     return t, hash_token(t)
 
@@ -335,7 +345,7 @@ def generate_token_pair(bytes_entropy: int = 32) -> tuple[str, str]:
 ######### Event / Registration helpers #########
 from fastapi import HTTPException
 from bson.objectid import ObjectId
-from typing import Optional
+from bson.errors import InvalidId
 
 
 async def get_event(event_id) -> Optional[dict]:
@@ -347,7 +357,7 @@ async def get_event(event_id) -> Optional[dict]:
         return None
     try:
         oid = event_id if isinstance(event_id, ObjectId) else ObjectId(event_id)
-    except Exception:
+    except (InvalidId, TypeError, ValueError):
         return None
     return await db_mod.db.events.find_one({'_id': oid})
 
@@ -369,7 +379,7 @@ async def user_registered_or_organizer(user: dict, event_id) -> bool:
         return False
     try:
         is_organizer = str(ev.get('organizer_id')) == str(user.get('_id'))
-    except Exception:
+    except (TypeError, ValueError):
         is_organizer = False
     reg = await db_mod.db.registrations.find_one({'event_id': ev.get('_id'), 'user_email_snapshot': user.get('email')})
     return bool(reg) or bool(is_organizer)

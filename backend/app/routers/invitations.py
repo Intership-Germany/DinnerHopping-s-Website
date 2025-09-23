@@ -243,8 +243,12 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
             user_created = False
 
     # generate token and insert invitation (retry on token collision)
+    try:
+        invite_bytes = int(os.getenv('INVITE_TOKEN_BYTES', os.getenv('TOKEN_BYTES', '18')))
+    except (TypeError, ValueError):
+        invite_bytes = 18
     for _ in range(3):
-        token, token_hash_val = generate_token_pair(18)
+        token, token_hash_val = generate_token_pair(invite_bytes)
         inv = {
             "registration_id": reg_oid,
             "event_id": event_id,
