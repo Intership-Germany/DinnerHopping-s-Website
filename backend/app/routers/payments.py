@@ -34,6 +34,10 @@ class CapturePaymentIn(BaseModel):
 
 # Provider-specific logic delegated to app.payments_providers
 
+    # Idempotency: return existing order for this registration if present
+    existing = await db_mod.db.payments.find_one({"registration_id": reg_obj, "provider": "paypal"})
+    if existing and existing.get('provider_payment_id'):
+        return {"id": existing.get('provider_payment_id')}
 
 @router.get('/paypal/config')
 async def paypal_config():
@@ -88,7 +92,6 @@ async def paypal_create_order(payload: CreatePaymentIn, current_user=Depends(get
     existing = await db_mod.db.payments.find_one({"registration_id": reg_obj, "provider": "paypal"})
     if existing and existing.get('provider_payment_id'):
         return {"id": existing.get('provider_payment_id')}
-
     # Upsert payment doc
     initial_doc = {
         "registration_id": reg_obj,
@@ -292,6 +295,7 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
         # create stripe checkout session via provider helper
         try:
             session = stripe_provider.create_checkout_session(canonical_amount_cents, payment_id, payload.idempotency_key)
+
         except Exception as e:  # keeping broad due to provider SDK variability
             try:
                 await db_mod.db.payments.delete_one({"_id": payment_id, "provider_payment_id": {"$exists": False}})

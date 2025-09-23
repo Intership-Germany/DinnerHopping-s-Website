@@ -73,7 +73,6 @@ def custom_swagger_ui_html(*, openapi_url: str, title: str):
     headers = dict(resp.headers)
     return HTMLResponse(content=content, status_code=resp.status_code, headers=headers)
 
-
 @app.get('/docs', include_in_schema=False)
 async def overridden_swagger():
     openapi_url = app.openapi_url

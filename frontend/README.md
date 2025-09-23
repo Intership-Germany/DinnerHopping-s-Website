@@ -59,6 +59,7 @@ The frontend will be available at http://localhost
 
 - `public/` — All static assets (HTML, images, etc.)
 - `public/partials/` — Shared HTML partials like `header.html` and `footer.html`
+- `public/*.js` — Page-specific scripts extracted from inline JS (e.g., `profile.js`, `login-page.js`, `event-page.js`, `hero-scroll.js`) and shared helpers (`auth-guard.js`, `header.js`, `includes.js`).
 - `*.html` — Main HTML pages (home, login, profile, etc.)
 - `nginx.conf` — Nginx configuration for serving the static site
 - `Dockerfile` — Container build instructions
@@ -84,6 +85,17 @@ Usage inside a page:
 Notes:
 - The special hero header on `index.html` stays custom. You can still include the shared footer there.
 - The include loader also highlights the active link based on the current filename.
+
+### JavaScript placement convention
+
+- Avoid inline `<script>` tags in HTML pages. Put page logic into a dedicated JS file under `public/`.
+- For protected pages (require auth), include `auth-guard.js` early in `<head>` to avoid content flashes.
+- The header partial's behavior is in `public/header.js` and is automatically run when the partial loads.
+- Example per-page files:
+  - `profile.html` → `public/profile.js`
+  - `login.html` → `public/login-page.js`
+  - `event.html` → `public/event-page.js`
+  - `index.html` → `public/hero-scroll.js`
 
 ## Deployment
 

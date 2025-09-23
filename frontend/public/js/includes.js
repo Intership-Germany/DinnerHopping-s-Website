@@ -1,6 +1,6 @@
 // Simple HTML partials loader. Usage:
 // <div data-include="partials/header.html"></div>
-// <script src="includes.js" defer></script>
+// <script src="js/includes.js" defer></script>
 (function(){
   function runScripts(container){
     const scripts = container.querySelectorAll('script');

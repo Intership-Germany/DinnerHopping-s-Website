@@ -94,7 +94,10 @@
   async function apiFetch(path, opts){
     const options = Object.assign({ method: 'GET' }, opts || {});
     options.method = (options.method || 'GET').toUpperCase();
-    options.credentials = 'include';
+    // Respect caller-provided credentials; default to 'include' for session-based flows
+    if (typeof options.credentials === 'undefined') {
+      options.credentials = 'include';
+    }
     options.headers = Object.assign({}, options.headers || {});
 
     // Attach CSRF for mutating verbs
@@ -105,21 +108,11 @@
     readCsrfFromResponse(res);
 
     if (res.status === 401 || res.status === 419){
-      // Attempt one refresh then retry once
       try {
-        await doRefresh();
-      } catch {
-        return res; // propagate original 401/419
-      }
-
-      // Ensure CSRF again in case it rotated
-      if (['POST','PUT','PATCH','DELETE'].includes(options.method)){
-        if (!csrfToken) await fetchCsrf();
-        if (csrfToken) options.headers[CSRF_HEADER] = csrfToken;
-      }
-
-      res = await fetch(`${BASE}${path}`, options);
-      readCsrfFromResponse(res);
+        if (typeof window !== 'undefined' && typeof window.handleUnauthorized === 'function') {
+          window.handleUnauthorized({ autoRedirect: true, delayMs: 1200 });
+        }
+      } catch {}
     }
     return res;
   }
