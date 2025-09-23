@@ -3,12 +3,14 @@ from pydantic import BaseModel
 import os
 from app import db as db_mod
 from bson.objectid import ObjectId
+from bson.errors import InvalidId
 from pymongo import ReturnDocument
+from pymongo.errors import PyMongoError
 import datetime
 from typing import Optional
 
 from app.auth import get_current_user, require_admin
-from app.utils import require_event_published, require_registration_owner_or_admin, require_event_payment_open
+from app.utils import require_event_published, require_registration_owner_or_admin, require_event_payment_open, send_payment_confirmation
 from app.payments_providers import paypal as paypal_provider
 from app.payments_providers import stripe as stripe_provider
 from app.payments_providers import wero as wero_provider
@@ -58,7 +60,7 @@ async def paypal_create_order(payload: CreatePaymentIn, current_user=Depends(get
     # Validate registration and permissions
     try:
         reg_obj = ObjectId(payload.registration_id)
-    except Exception as exc:  # noqa: BLE001
+    except InvalidId as exc:
         raise HTTPException(status_code=400, detail='Invalid registration_id') from exc
     reg = await require_registration_owner_or_admin(current_user, reg_obj)
     if not reg:
@@ -68,17 +70,19 @@ async def paypal_create_order(payload: CreatePaymentIn, current_user=Depends(get
     ev = None
     try:
         ev = await db_mod.db.events.find_one({"_id": reg.get('event_id')}) if reg and reg.get('event_id') else None
-    except Exception:  # noqa: BLE001
+    except PyMongoError:
         ev = None
     if ev:
         await require_event_published(ev.get('_id'))
         require_event_payment_open(ev)
     event_fee_cents = int((ev or {}).get('fee_cents') or 0)
-    if event_fee_cents <= 0:
+    # multiply by team_size (default 1)
+    team_size = int((reg or {}).get('team_size') or 1)
+    canonical_amount_cents = event_fee_cents * max(team_size, 1)
+    if canonical_amount_cents <= 0:
         return {"status": "no_payment_required", "amount_cents": 0}
-    if payload.amount_cents and payload.amount_cents != event_fee_cents:
+    if payload.amount_cents and payload.amount_cents != canonical_amount_cents:
         raise HTTPException(status_code=400, detail='Amount must match event fee configured by organizer')
-    canonical_amount_cents = event_fee_cents
 
     # Idempotency: return existing order for this registration if present
     existing = await db_mod.db.payments.find_one({"registration_id": reg_obj, "provider": "paypal"})
@@ -111,7 +115,7 @@ async def paypal_create_order(payload: CreatePaymentIn, current_user=Depends(get
     await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"provider_payment_id": order_id, "payment_link": approval, "meta.create_order": order}})
     try:
         await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
-    except Exception:
+    except PyMongoError:
         pass
     return {"id": order_id}
 
@@ -133,6 +137,7 @@ async def paypal_capture_order(order_id: str):
     if status == 'COMPLETED':
         await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "succeeded", "paid_at": now, "meta.capture": capture}})
         await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+        await send_payment_confirmation(pay.get('registration_id'))
         return {"status": "COMPLETED"}
     else:
         await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "failed", "meta.capture": capture}})
@@ -146,7 +151,7 @@ async def paypal_get_order(order_id: str):
         raise HTTPException(status_code=400, detail='order_id required')
     try:
         details = await paypal_provider.get_order(order_id)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # keeping broad due to provider SDK variability
         raise HTTPException(status_code=502, detail=f'PayPal error: {str(e)}') from e
     return details
 
@@ -164,7 +169,7 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
     # ensure registration exists
     try:
         reg_obj = ObjectId(payload.registration_id)
-    except Exception as exc:  # noqa: BLE001 - validate ObjectId format only
+    except InvalidId as exc:
         raise HTTPException(status_code=400, detail='Invalid registration_id') from exc
 
     # Enforce owner-or-admin for payment creation
@@ -189,7 +194,7 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
     ev = None
     try:
         ev = await db_mod.db.events.find_one({"_id": reg.get('event_id')}) if reg and reg.get('event_id') else None
-    except Exception:
+    except PyMongoError:
         ev = None
     # Do not allow payment creation for events that aren't published
     if ev:
@@ -197,16 +202,16 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
         # Ensure payment window is still open
         require_event_payment_open(ev)
     event_fee_cents = int((ev or {}).get('fee_cents') or 0)
-    if event_fee_cents <= 0:
+    team_size = int((reg or {}).get('team_size') or 1)
+    canonical_amount_cents = event_fee_cents * max(team_size, 1)
+    if canonical_amount_cents <= 0:
         # No payment required for this registration/event
         return {"status": "no_payment_required", "amount_cents": 0}
 
     # If client passed an explicit amount, ensure it matches the admin-configured fee
-    if payload.amount_cents and payload.amount_cents != event_fee_cents:
+    if payload.amount_cents and payload.amount_cents != canonical_amount_cents:
         raise HTTPException(status_code=400, detail='Amount must match event fee configured by organizer')
-
-    # Use event_fee_cents as the canonical amount for all providers
-    canonical_amount_cents = event_fee_cents
+    # canonical_amount_cents computed above includes team_size
 
     # Handle PayPal
     if provider == 'paypal':
@@ -245,7 +250,7 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
         await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"provider_payment_id": order_id, "payment_link": approval, "meta": {"create_order": order}}})
         try:
             await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
-        except Exception:
+        except PyMongoError:
             pass
         return {"payment_id": str(payment_id), "payment_link": approval, "status": "pending"}
 
@@ -287,18 +292,18 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
         # create stripe checkout session via provider helper
         try:
             session = stripe_provider.create_checkout_session(canonical_amount_cents, payment_id, payload.idempotency_key)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # keeping broad due to provider SDK variability
             try:
                 await db_mod.db.payments.delete_one({"_id": payment_id, "provider_payment_id": {"$exists": False}})
-            except Exception:  # noqa: BLE001
+            except PyMongoError:
                 pass
-            raise HTTPException(status_code=500, detail=f'Stripe error: {str(e)}')
+            raise HTTPException(status_code=500, detail=f'Stripe error: {str(e)}') from e
 
         # update payment with provider details
         await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"provider_payment_id": session.get('id'), "payment_link": session.get('url')}})
         try:
             await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
-        except Exception:
+        except PyMongoError:
             pass
         return {"payment_id": str(payment_id), "payment_link": session.get('url'), "status": "pending"}
 
@@ -328,7 +333,7 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
         await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"meta.instructions": instructions}})
         try:
             await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
-        except Exception:
+        except PyMongoError:
             pass
         return {"payment_id": str(payment_id), "status": "pending", "instructions": instructions}
 
@@ -345,8 +350,8 @@ async def payment_cancel(payment_id: str):
     """Generic cancel landing endpoint for providers. Marks payment as failed (non-destructive)."""
     try:
         oid = ObjectId(payment_id)
-    except Exception:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail='Invalid payment id')
+    except InvalidId as exc:
+        raise HTTPException(status_code=400, detail='Invalid payment id') from exc
     p = await db_mod.db.payments.find_one({"_id": oid})
     if not p:
         raise HTTPException(status_code=404, detail='Payment not found')
@@ -359,8 +364,8 @@ async def payment_success(payment_id: str):
     """Generic success landing endpoint for providers that redirect. Does not mark paid by itself (Stripe uses webhook)."""
     try:
         oid = ObjectId(payment_id)
-    except Exception:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail='Invalid payment id')
+    except InvalidId as exc:
+        raise HTTPException(status_code=400, detail='Invalid payment id') from exc
     p = await db_mod.db.payments.find_one({"_id": oid})
     if not p:
         raise HTTPException(status_code=404, detail='Payment not found')
@@ -375,8 +380,8 @@ async def payment_details(payment_id: str, current_user=Depends(get_current_user
     """
     try:
         oid = ObjectId(payment_id)
-    except Exception:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail='Invalid payment id')
+    except InvalidId as exc:
+        raise HTTPException(status_code=400, detail='Invalid payment id') from exc
     pay = await db_mod.db.payments.find_one({"_id": oid})
     if not pay:
         raise HTTPException(status_code=404, detail='Payment not found')
@@ -439,8 +444,8 @@ async def paypal_return(payment_id: str, token: Optional[str] = None):
     """Return URL for PayPal. Captures the order and marks payment as paid if completed."""
     try:
         oid = ObjectId(payment_id)
-    except Exception:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail='Invalid payment id')
+    except InvalidId as exc:
+        raise HTTPException(status_code=400, detail='Invalid payment id') from exc
     pay = await db_mod.db.payments.find_one({"_id": oid})
     if not pay:
         raise HTTPException(status_code=404, detail='Payment not found')
@@ -454,6 +459,7 @@ async def paypal_return(payment_id: str, token: Optional[str] = None):
     if status == 'COMPLETED':
         await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now, "meta.capture": capture}})
         await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+        await send_payment_confirmation(pay.get('registration_id'))
         return {"status": "paid"}
     else:
         await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
@@ -471,8 +477,8 @@ async def capture_payment(payment_id: str, payload: CapturePaymentIn, current_us
     """
     try:
         oid = ObjectId(payment_id)
-    except Exception:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail='Invalid payment id')
+    except InvalidId as exc:
+        raise HTTPException(status_code=400, detail='Invalid payment id') from exc
     pay = await db_mod.db.payments.find_one({"_id": oid})
     if not pay:
         raise HTTPException(status_code=404, detail='Payment not found')
@@ -503,6 +509,7 @@ async def capture_payment(payment_id: str, payload: CapturePaymentIn, current_us
         now = datetime.datetime.utcnow()
         await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now}})
         await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+        await send_payment_confirmation(pay.get('registration_id'))
         return {"status": "paid"}
     elif provider == 'wero':
         # Wero manual confirmation stays admin-only via /{payment_id}/confirm
@@ -524,15 +531,15 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
         import stripe
         try:
             event = stripe.Webhook.construct_event(payload, stripe_signature, webhook_secret)
-        except Exception as e:  # noqa: BLE001
-            raise HTTPException(status_code=400, detail=f'Invalid signature: {str(e)}')
+        except Exception as e:  # keep broad due to stripe lib
+            raise HTTPException(status_code=400, detail=f'Invalid signature: {str(e)}') from e
     else:
         # If no webhook secret, trust the payload (dev only). Parse as JSON.
         import json
         try:
             event = json.loads(payload)
-        except Exception:  # noqa: BLE001
-            raise HTTPException(status_code=400, detail='Invalid payload')
+        except Exception as exc:  # malformed JSON
+            raise HTTPException(status_code=400, detail='Invalid payload') from exc
 
     # handle checkout.session.completed
     typ = event.get('type') if isinstance(event, dict) else getattr(event, 'type', None)
@@ -552,7 +559,7 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
                 try:
                     meta_obj = ObjectId(meta_payment_id)
                     pay = await db_mod.db.payments.find_one({"_id": meta_obj})
-                except Exception:  # noqa: BLE001
+                except (InvalidId, PyMongoError):
                     pay = None
             if not pay:
                 # still not found; ignore
@@ -563,6 +570,7 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
         now = datetime.datetime.utcnow()
         await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "succeeded", "paid_at": now}})
         await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+        await send_payment_confirmation(pay.get('registration_id'))
         return {"status": "ok"}
 
     return {"status": "ignored"}
@@ -576,8 +584,8 @@ async def paypal_webhook(request: Request):
     """
     try:
         body = await request.json()
-    except Exception:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail='Invalid payload')
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail='Invalid payload') from exc
     typ = body.get('event_type') or body.get('type')
     resource = body.get('resource') or {}
     order_id = resource.get('id') or resource.get('supplementary_data', {}).get('related_ids', {}).get('order_id')
@@ -593,6 +601,7 @@ async def paypal_webhook(request: Request):
         now = datetime.datetime.utcnow()
         await db_mod.db.payments.update_one({"_id": pay['_id']}, {"$set": {"status": "succeeded", "paid_at": now, "meta.webhook": body}})
         await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+        await send_payment_confirmation(pay.get('registration_id'))
         return {"status": "ok"}
     return {"status": "ignored"}
 
@@ -605,14 +614,15 @@ async def confirm_manual_payment(payment_id: str, _current_user=Depends(require_
     """
     try:
         oid = ObjectId(payment_id)
-    except Exception:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail='Invalid payment id')
+    except InvalidId as exc:
+        raise HTTPException(status_code=400, detail='Invalid payment id') from exc
     pay = await db_mod.db.payments.find_one({"_id": oid})
     if not pay:
         raise HTTPException(status_code=404, detail='Payment not found')
     now = datetime.datetime.utcnow()
     await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now}})
     await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+    await send_payment_confirmation(pay.get('registration_id'))
     return {"status": "paid"}
 
 

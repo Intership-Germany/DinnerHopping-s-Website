@@ -38,6 +38,13 @@ class UserOut(BaseModel):
     address: str | None = None
     preferences: dict | None = {}
     roles: list[str] | None = []
+    # Optional profile fields
+    kitchen_available: Optional[bool] = None
+    main_course_possible: Optional[bool] = None
+    default_dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    field_of_study: Optional[str] = None
+    optional_profile_completed: bool = False
+    profile_prompt_pending: bool = False
 
 class TokenOut(BaseModel):
     access_token: str
@@ -294,13 +301,35 @@ class ProfileUpdate(BaseModel):
     lat: float | None = None
     lon: float | None = None
     preferences: dict | None = None
+    # Optional profile fields (user-editable)
+    kitchen_available: Optional[bool] = None
+    main_course_possible: Optional[bool] = None
+    default_dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    field_of_study: Optional[str] = None
+    # allow skipping optional profile prompt via this endpoint
+    skip_optional_profile: Optional[bool] = False
 
 @router.get('/profile', response_model=UserOut)
 async def get_profile_alias(current_user=Depends(get_current_user)):
     u = await db_mod.db.users.find_one({"email": current_user['email']})
     if not u:
         raise HTTPException(status_code=404, detail='User not found')
-    return UserOut(id=str(u.get('_id', '')), name=u.get('name'), email=u.get('email'), address=u.get('address_public'), preferences=u.get('preferences', {}), roles=u.get('roles', []))
+    return UserOut(
+        id=str(u.get('_id', '')),
+        name=u.get('name'),
+        first_name=u.get('first_name'),
+        last_name=u.get('last_name'),
+        email=u.get('email'),
+        address=u.get('address_public'),
+        preferences=u.get('preferences', {}),
+        roles=u.get('roles', []),
+        kitchen_available=u.get('kitchen_available'),
+        main_course_possible=u.get('main_course_possible'),
+        default_dietary_preference=u.get('default_dietary_preference'),
+        field_of_study=u.get('field_of_study'),
+        optional_profile_completed=bool(u.get('optional_profile_completed')),
+        profile_prompt_pending=bool(u.get('profile_prompt_pending')),
+    )
 
 @router.put('/profile', response_model=UserOut)
 async def update_profile_alias(payload: ProfileUpdate, current_user=Depends(get_current_user)):
@@ -360,6 +389,22 @@ async def update_profile_alias(payload: ProfileUpdate, current_user=Depends(get_
         update_data['address_encrypted'] = encrypt_address(update_data.get('address'))
         update_data['address_public'] = anonymize_public_address(update_data.get('address'))
         update_data.pop('address', None)
+    # handle optional profile fields provided via the main profile endpoint
+    if any(k in update_data for k in ('kitchen_available','main_course_possible','default_dietary_preference','field_of_study','skip_optional_profile')):
+        # map skip flag
+        if update_data.get('skip_optional_profile'):
+            update_data['profile_prompt_pending'] = False
+            # don't mark optional_profile_completed when user skips
+            update_data.pop('skip_optional_profile', None)
+        else:
+            # if user provided optional profile fields, consider prompt completed
+            # ensure logical consistency: if kitchen_available is False, main_course_possible must be False
+            if 'kitchen_available' in update_data and update_data.get('kitchen_available') is False:
+                update_data['main_course_possible'] = False
+            # mark optional profile completed when any optional field is supplied
+            update_data['optional_profile_completed'] = True
+            update_data['profile_prompt_pending'] = False
+            update_data.pop('skip_optional_profile', None)
     update_data['updated_at'] = __import__('datetime').datetime.utcnow()
     await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": update_data})
     u = await db_mod.db.users.find_one({"email": current_user['email']})
@@ -514,7 +559,7 @@ async def reset_password(request: Request):
             form = await request.form()
             token = token or form.get('token')
             new_password = new_password or form.get('new_password')
-        except Exception:
+        except (RuntimeError, TypeError):
             # give up and validate below
             pass
 
@@ -545,30 +590,27 @@ async def reset_password(request: Request):
 
 @router.get('/reset-password')
 async def reset_password_form(token: str | None = None):
-        """Return a minimal HTML form to allow browsers or curl to open the reset page.
+    """Validate a password-reset token and return a JSON hint for clients.
 
-        The form posts to POST /reset-password with fields `token` and `new_password`.
-        This GET endpoint is CSRF-exempt by design (safe, idempotent GET) and simply helps
-        with manual debugging and UI integration.
-        """
-        if not token:
-                raise HTTPException(status_code=400, detail='Missing token')
-        html = f"""
-        <!doctype html>
-        <html>
-            <head><meta charset="utf-8"><title>Reset password</title></head>
-            <body>
-                <h1>Reset your password</h1>
-                <form method="post" action="/reset-password">
-                    <input type="hidden" name="token" value="{token}" />
-                    <label>New password: <input type="password" name="new_password"/></label>
-                    <button type="submit">Reset password</button>
-                </form>
-            </body>
-        </html>
-        """
-        from fastapi.responses import HTMLResponse
-        return HTMLResponse(content=html, status_code=200)
+    This endpoint does not return HTML. It only checks the token exists and is not expired,
+    and returns a minimal JSON response instructing the client to POST the new password.
+    """
+    if not token:
+        raise HTTPException(status_code=400, detail='Missing token')
+    th = hash_token(token)
+    rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+    if not rec:
+        raise HTTPException(status_code=404, detail='Reset token not found')
+    # check expiry
+    expires_at = rec.get('expires_at')
+    now = __import__('datetime').datetime.utcnow()
+    try:
+        if expires_at and isinstance(expires_at, __import__('datetime').datetime) and expires_at < now:
+            await db_mod.db.password_resets.update_one({'_id': rec['_id']}, {'$set': {'status': 'expired', 'expired_at': now}})
+            raise HTTPException(status_code=400, detail='Reset token expired')
+    except TypeError:
+        pass
+    return {"status": "valid", "message": "Token valid. Submit new password to POST /reset-password with fields 'token' and 'new_password'."}
 
 
 # -------- Optional profile (first-login prompt) --------

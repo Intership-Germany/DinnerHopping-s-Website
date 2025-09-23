@@ -32,6 +32,8 @@ except ImportError:  # pragma: no cover - optional dependency in lightweight dev
 
 from . import db as db_mod
 from pymongo.errors import PyMongoError
+from bson.errors import InvalidId
+from bson.objectid import ObjectId
 
 # Simple approach: quantize lat/lon to ~500m grid using Haversine-based degrees approximation
 # For typical latitudes, 0.0045 deg ~ 500m (varies). We'll use 0.0045 to approximate 500m.
@@ -344,8 +346,6 @@ def generate_token_pair(bytes_entropy: int | None = None) -> tuple[str, str]:
 
 ######### Event / Registration helpers #########
 from fastapi import HTTPException
-from bson.objectid import ObjectId
-from bson.errors import InvalidId
 
 
 async def get_event(event_id) -> Optional[dict]:
@@ -401,7 +401,8 @@ async def require_user_registered_or_organizer(user: dict, event_id) -> dict:
 
 ######### Authorization helpers (owner/admin, deadlines) #########
 
-from fastapi import HTTPException as _HTTPException
+# reuse HTTPException imported earlier in this module to avoid duplicate imports
+_HTTPException = HTTPException
 
 
 def _is_admin(user: dict) -> bool:
@@ -462,3 +463,67 @@ async def send_notification(recipient: str, title: str, message_lines: Sequence[
     """Generic plaintext notification helper."""
     body = "\n".join(message_lines) + "\n"
     return await send_email(to=recipient, subject=title, body=body, category="notification")
+
+
+# ---- Team helpers ----
+
+def compute_team_diet(*diets: str | None) -> str:
+    """Return the resulting team diet given member diets with precedence Vegan > Vegetarian > Omnivore.
+
+    Accepts any casings and ignores unknown/None values by treating them as omnivore.
+    Returns one of: 'vegan', 'vegetarian', 'omnivore'.
+    """
+    norm = [str(d).strip().lower() for d in diets if d]
+    if 'vegan' in norm:
+        return 'vegan'
+    if 'vegetarian' in norm:
+        return 'vegetarian'
+    return 'omnivore'
+
+
+async def send_payment_confirmation(registration_id) -> bool:
+    """Send confirmation email(s) after successful payment for a registration.
+
+    - If the registration is part of a team (team_size==2), notify both creator and partner (if registered)
+    - Otherwise, notify the single registrant
+    Returns True if at least one email was attempted (best-effort).
+    """
+    try:
+        oid = registration_id if isinstance(registration_id, ObjectId) else ObjectId(registration_id)
+    except InvalidId:
+        return False
+    reg = await db_mod.db.registrations.find_one({'_id': oid})
+    if not reg:
+        return False
+    # Load event for context
+    ev = None
+    try:
+        ev = await db_mod.db.events.find_one({'_id': reg.get('event_id')}) if reg.get('event_id') else None
+    except PyMongoError:
+        ev = None
+    title = (ev or {}).get('title') or 'DinnerHopping Event'
+    date = (ev or {}).get('date') or ''
+    # Build recipient list
+    recipients = set()
+    if reg.get('user_email_snapshot'):
+        recipients.add(reg['user_email_snapshot'])
+    if reg.get('team_id'):
+        async for other in db_mod.db.registrations.find({'team_id': reg['team_id']}):
+            em = other.get('user_email_snapshot')
+            if em:
+                recipients.add(em)
+    if not recipients:
+        return False
+    subject = f"Registration confirmed for {title}"
+    lines = [
+        f"Thanks for your payment! Your registration for '{title}' on {date} is now confirmed.",
+        "You'll receive more information and your schedule closer to the event.",
+        "",
+        "Have a great time!",
+        "— DinnerHopping Team",
+    ]
+    ok_any = False
+    for to in recipients:
+        ok = await send_email(to=to, subject=subject, body="\n".join(lines), category='payment_confirmation')
+        ok_any = ok_any or ok
+    return ok_any
