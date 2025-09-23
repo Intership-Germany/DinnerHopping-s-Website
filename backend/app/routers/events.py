@@ -9,6 +9,7 @@ from bson.objectid import ObjectId
 from bson.errors import InvalidId
 from pymongo.errors import PyMongoError
 import datetime
+import os
 
 ######### Helpers #########
 
@@ -28,7 +29,7 @@ def _serialize(obj):
             if isinstance(obj, datetime.datetime):
                 return obj.isoformat()
             return obj.isoformat()
-        except Exception:
+        except (TypeError, ValueError):
             return str(obj)
     return obj
 
@@ -38,7 +39,7 @@ def _fmt_date(v):
     if isinstance(v, (datetime.datetime, datetime.date)):
         try:
             return v.isoformat()
-        except Exception:
+        except (TypeError, ValueError):
             return str(v)
     return v
 
@@ -55,15 +56,19 @@ class LocationIn(BaseModel):
 class EventCreate(BaseModel):
     title: str
     description: Optional[str] = None
+    extra_info: Optional[str] = None  # optional free text for additional info
     date: Optional[str] = None  # ISO date string (compat)
     start_at: Optional[str] = None  # ISO datetime string (preferred)
     capacity: Optional[int] = None
     fee_cents: Optional[int] = 0
+    city: Optional[str] = None
     registration_deadline: Optional[str] = None
     payment_deadline: Optional[str] = None
     after_party_location: Optional[LocationIn] = None
     organizer_id: Optional[str] = None  # user id (ObjectId as str)
     status: Optional[Literal['draft', 'published', 'closed', 'cancelled']] = 'draft'
+    refund_on_cancellation: Optional[bool] = None
+    chat_enabled: Optional[bool] = None
 
 class LocationOut(BaseModel):
     address_public: Optional[str] = None
@@ -74,10 +79,12 @@ class EventOut(BaseModel):
     id: str
     title: str
     description: Optional[str] = None
+    extra_info: Optional[str] = None
     date: Optional[str] = None
     start_at: Optional[str] = None
     capacity: Optional[int] = None
     fee_cents: Optional[int] = 0
+    city: Optional[str] = None
     registration_deadline: Optional[str] = None
     payment_deadline: Optional[str] = None
     after_party_location: Optional[LocationOut] = None
@@ -88,6 +95,8 @@ class EventOut(BaseModel):
     created_by: Optional[str] = None
     created_at: Optional[datetime.datetime] = None
     updated_at: Optional[datetime.datetime] = None
+    refund_on_cancellation: Optional[bool] = None
+    chat_enabled: Optional[bool] = None
 
 @router.get("/", response_model=list[EventOut])
 async def list_events(date: Optional[str] = None, status: Optional[Literal['draft', 'published', 'closed', 'cancelled']] = None, lat: Optional[float] = None, lon: Optional[float] = None, radius_m: Optional[int] = None, participant: Optional[str] = None, current_user=Depends(get_current_user)):
@@ -123,7 +132,7 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
             else:
                 try:
                     target_user_id = ObjectId(participant)
-                except Exception:
+                except (InvalidId, TypeError, ValueError):
                     # fallback: treat as email snapshot
                     target_email = participant.lower()
 
@@ -163,17 +172,21 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
             id=str(e.get('_id')),
             title=e.get('title') or e.get('name') or 'Untitled',
             description=e.get('description'),
+            extra_info=e.get('extra_info'),
             date=date_val,
             start_at=start_val,
             capacity=e.get('capacity'),
             fee_cents=e.get('fee_cents', 0),
+            city=e.get('city'),
             attendee_count=e.get('attendee_count', 0),
             status=e.get('status'),
             organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
             created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
             after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
             created_at=e.get('created_at'),
-            updated_at=e.get('updated_at')
+            updated_at=e.get('updated_at'),
+            refund_on_cancellation=e.get('refund_on_cancellation'),
+            chat_enabled=e.get('chat_enabled'),
         ))
     return events_resp
 
@@ -233,7 +246,29 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         doc['status'] = 'draft'
 
     res = await db_mod.db.events.insert_one(doc)
-    return EventOut(id=str(res.inserted_id), title=doc.get('title'), description=doc.get('description'), date=_fmt_date(doc.get('date')) or '', start_at=_fmt_date(doc.get('start_at')), capacity=doc.get('capacity'), fee_cents=doc.get('fee_cents', 0), registration_deadline=_fmt_date(doc.get('registration_deadline')), payment_deadline=_fmt_date(doc.get('payment_deadline')), after_party_location=doc.get('after_party_location'), attendee_count=0, status=doc.get('status'), matching_status=doc.get('matching_status'), organizer_id=str(doc['organizer_id']) if doc.get('organizer_id') is not None else None, created_by=str(doc['created_by']) if doc.get('created_by') is not None else None, created_at=doc.get('created_at'), updated_at=doc.get('updated_at'))
+    return EventOut(
+        id=str(res.inserted_id),
+        title=doc.get('title'),
+        description=doc.get('description'),
+        extra_info=doc.get('extra_info'),
+        date=_fmt_date(doc.get('date')) or '',
+        start_at=_fmt_date(doc.get('start_at')),
+        capacity=doc.get('capacity'),
+        fee_cents=doc.get('fee_cents', 0),
+        city=doc.get('city'),
+        registration_deadline=_fmt_date(doc.get('registration_deadline')),
+        payment_deadline=_fmt_date(doc.get('payment_deadline')),
+        after_party_location=doc.get('after_party_location'),
+        attendee_count=0,
+        status=doc.get('status'),
+        matching_status=doc.get('matching_status'),
+        organizer_id=str(doc['organizer_id']) if doc.get('organizer_id') is not None else None,
+        created_by=str(doc['created_by']) if doc.get('created_by') is not None else None,
+        created_at=doc.get('created_at'),
+        updated_at=doc.get('updated_at'),
+        refund_on_cancellation=doc.get('refund_on_cancellation'),
+        chat_enabled=doc.get('chat_enabled'),
+    )
 
 
 @router.get('/{event_id}')
@@ -280,6 +315,11 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
         serialized['organizer_id'] = str(e.get('organizer_id'))
     if e.get('created_by') is not None:
         serialized['created_by'] = str(e.get('created_by'))
+    # include optional admin fields if present
+    serialized['extra_info'] = e.get('extra_info')
+    serialized['city'] = e.get('city')
+    serialized['refund_on_cancellation'] = e.get('refund_on_cancellation')
+    serialized['chat_enabled'] = e.get('chat_enabled')
     return serialized
 
 
@@ -329,10 +369,12 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         id=str(e['_id']),
         title=e.get('title') or e.get('name'),
         description=e.get('description'),
+        extra_info=e.get('extra_info'),
     date=_fmt_date(e.get('date')),
     start_at=_fmt_date(e.get('start_at')),
         capacity=e.get('capacity'),
         fee_cents=e.get('fee_cents', None),
+        city=e.get('city'),
     registration_deadline=_fmt_date(e.get('registration_deadline')),
     payment_deadline=_fmt_date(e.get('payment_deadline')),
         after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
@@ -342,7 +384,9 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
         created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
         created_at=e.get('created_at'),
-        updated_at=e.get('updated_at')
+        updated_at=e.get('updated_at'),
+        refund_on_cancellation=e.get('refund_on_cancellation'),
+        chat_enabled=e.get('chat_enabled'),
     )
 
 
@@ -413,10 +457,13 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
     # handle invited_emails: create invitation records per email
     invited = payload.get('invited_emails') or []
     sent_invitations = []
-    import secrets
     from app.utils import generate_token_pair
     for em in invited:
-        token, token_hash_val = generate_token_pair(18)
+        try:
+            invite_bytes = int(os.getenv('INVITE_TOKEN_BYTES', os.getenv('TOKEN_BYTES', '18')))
+        except (TypeError, ValueError):
+            invite_bytes = 18
+        token, token_hash_val = generate_token_pair(invite_bytes)
         inv = {
             "registration_id": res.inserted_id,
             "token_hash": token_hash_val,

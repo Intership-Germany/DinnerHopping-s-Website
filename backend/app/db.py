@@ -39,10 +39,11 @@ class MongoDB:
             await self.db.events.create_index('fee_cents')
             await self.db.events.create_index('matching_status')
             # geospatial location index (GeoJSON Point)
+            # create geospatial index best-effort; ignore validation issues from legacy docs
             try:
                 await self.db.events.create_index([('location.point', '2dsphere')])
-            except Exception:
-                pass  # ignore if invalid existing docs
+            except PyMongoError:
+                pass
 
             # REGISTRATIONS
             await self.db.registrations.create_index('event_id')
@@ -62,6 +63,11 @@ class MongoDB:
             await self.db.email_verifications.create_index('token_hash', unique=True)
             await self.db.email_verifications.create_index('email')
             await self.db.email_verifications.create_index('expires_at', expireAfterSeconds=0)
+
+            # PASSWORD RESETS (TTL on expires_at)
+            await self.db.password_resets.create_index('token_hash', unique=True)
+            await self.db.password_resets.create_index('email')
+            await self.db.password_resets.create_index('expires_at', expireAfterSeconds=0)
 
             # PAYMENTS
             await self.db.payments.create_index('registration_id', unique=True)

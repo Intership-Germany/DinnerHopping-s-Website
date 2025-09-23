@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request, Response, Form
 import os
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr
+from typing import Optional, Literal
+from contextlib import suppress
 from app.auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
-from app.utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair
 from app.utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair, send_email
 from app import db as db_mod
 
@@ -11,22 +12,39 @@ from app import db as db_mod
 router = APIRouter()
 
 class UserCreate(BaseModel):
-    name: str = Field(...)
+    # Required at registration
     email: EmailStr
     password: str
-    address: str | None = None
+    password_confirm: str
+    first_name: str
+    last_name: str
+    # Full address components
+    street: str
+    street_no: str
+    postal_code: str
+    city: str
+    gender: Literal['female','male','diverse','prefer_not_to_say']
+    # Optional extras
     lat: float | None = None
     lon: float | None = None
     preferences: dict | None = {}
-    roles: list[str] | None = Field(default_factory=lambda: ['user'], description="List of role strings e.g. ['user','admin']")
 
 class UserOut(BaseModel):
     id: str
-    name: str
+    name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     email: EmailStr
     address: str | None = None
     preferences: dict | None = {}
     roles: list[str] | None = []
+    # Optional profile fields
+    kitchen_available: Optional[bool] = None
+    main_course_possible: Optional[bool] = None
+    default_dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    field_of_study: Optional[str] = None
+    optional_profile_completed: bool = False
+    profile_prompt_pending: bool = False
 
 class TokenOut(BaseModel):
     access_token: str
@@ -40,31 +58,47 @@ async def register(u: UserCreate):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     # validate password under policy
+    if u.password != u.password_confirm:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
     validate_password(u.password)
-    user_doc = u.dict()
-    # enforce lowercase email
-    user_doc['email'] = user_doc['email'].lower()
-    # store hashed password under password_hash (new schema) and remove legacy key
+    # Build user document explicitly (do not trust arbitrary fields)
+    user_doc = {
+        'email': u.email.lower(),
+        'first_name': u.first_name.strip(),
+        'last_name': u.last_name.strip(),
+        'name': f"{u.first_name.strip()} {u.last_name.strip()}",
+        'gender': (u.gender or 'prefer_not_to_say').lower(),
+        'address_struct': {
+            'street': u.street,
+            'street_no': u.street_no,
+            'postal_code': u.postal_code,
+            'city': u.city,
+        },
+        'lat': u.lat,
+        'lon': u.lon,
+        'preferences': u.preferences or {},
+    }
+    # store hashed password under password_hash (new schema)
     user_doc['password_hash'] = hash_password(u.password)
-    user_doc.pop('password', None)
     # initialize failed login counters/lockout
     user_doc['failed_login_attempts'] = 0
     user_doc['lockout_until'] = None
     # newly created users are not verified until they confirm their email
     # preferred schema field name: email_verified
     user_doc['email_verified'] = False
+    # first-login prompt flags for optional profile
+    user_doc['profile_prompt_pending'] = True
+    user_doc['optional_profile_completed'] = False
     # roles handling: DO NOT trust client input for roles.
     # Always assign the minimal 'user' role on self-service registration.
     # Any privileged role (e.g. 'admin') must be provisioned separately by
     # an existing administrator via a protected admin interface or migration.
     user_doc['roles'] = ['user']
     # store encrypted address and public anonymised address
-    if user_doc.get('address'):
-        user_doc['address_encrypted'] = encrypt_address(user_doc['address'])
-        user_doc['address_public'] = anonymize_public_address(user_doc['address'])
-        # keep lat/lon as-is for proximity features (but only used internally)
-    # remove plain address to avoid accidental storage
-    user_doc.pop('address', None)
+    # Create a combined line for encryption/anonymization
+    addr_line = f"{u.street} {u.street_no}, {u.postal_code} {u.city}"
+    user_doc['address_encrypted'] = encrypt_address(addr_line)
+    user_doc['address_public'] = anonymize_public_address(addr_line)
     now = __import__('datetime').datetime.utcnow()
     user_doc['created_at'] = now
     user_doc['updated_at'] = now
@@ -72,11 +106,9 @@ async def register(u: UserCreate):
     res = await db_mod.db.users.insert_one(user_doc)
     user_doc['id'] = str(res.inserted_id)
     # send verification email (prints link in dev)
-    email_sent = True
-    try:
+    email_sent = False
+    with suppress(Exception):
         _token, email_sent = await generate_and_send_verification(u.email)
-    except Exception:
-        email_sent = False
     # Respond to client that the user was created successfully, include email_sent flag & message if failed
     resp = {"message": "Utilisateur créé avec succès", "id": user_doc['id'], "email_sent": email_sent}
     if not email_sent:
@@ -102,18 +134,15 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
     if payload_form is not None:
         try:
             payload = json.loads(payload_form) if payload_form else {}
-        except Exception:
+        except (ValueError, TypeError):
             payload = {}
 
     # 2) if no payload yet, attempt to read JSON body (best-effort; will raise if body is form-encoded)
     if payload is None:
-        try:
+        with suppress(Exception):
             data = await request.json()
             if isinstance(data, dict):
                 payload = data
-        except Exception:
-            # not JSON or empty body — ignore
-            payload = None
 
     # If we were given a payload (dict), extract username/password from it
     if isinstance(payload, dict):
@@ -122,13 +151,10 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
 
     # 3) finally fallback to explicit form fields
     if not username or not password:
-        try:
+        with suppress(Exception):
             form = await request.form()
             username = username or form.get('username')
             password = password or form.get('password')
-        except Exception:
-            # ignore if body cannot be parsed as form
-            pass
 
     if not username or not password:
         raise HTTPException(status_code=422, detail='username and password required')
@@ -146,23 +172,34 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
         token = create_access_token({"sub": user['email']})
     except Exception as exc:
         raise HTTPException(status_code=500, detail='Failed to create access token') from exc
-    # Issue refresh token (HttpOnly cookie) and store hashed refresh token server-side
-    refresh_plain, refresh_hash = generate_token_pair(32)
+    # first login timestamp and profile prompt
     now = __import__('datetime').datetime.utcnow()
+    if not user.get('first_login_at'):
+        with suppress(Exception):
+            await db_mod.db.users.update_one({'email': user['email']}, {'$set': {'first_login_at': now}})
+            user['first_login_at'] = now
+    # Issue refresh token (HttpOnly cookie) and store hashed refresh token server-side
+    # use configured refresh token size
+    try:
+        refresh_bytes = int(os.getenv('REFRESH_TOKEN_BYTES', os.getenv('REFRESH_TOKEN_SIZE', '32')))
+    except (TypeError, ValueError):
+        refresh_bytes = 32
+    refresh_plain, refresh_hash = generate_token_pair(refresh_bytes)
     refresh_doc = {
         'user_email': user['email'],
         'token_hash': refresh_hash,
         'created_at': now,
         'expires_at': now + __import__('datetime').timedelta(days=int(os.getenv('REFRESH_TOKEN_DAYS', '30'))),
     }
-    try:
+    with suppress(Exception):
         await db_mod.db.refresh_tokens.insert_one(refresh_doc)
-    except Exception:
-        # best-effort: still continue
-        pass
 
     # create CSRF token to return to client for double-submit protection
-    csrf_token = generate_token_pair(16)[0]
+    try:
+        csrf_bytes = int(os.getenv('CSRF_TOKEN_BYTES', '16'))
+    except (TypeError, ValueError):
+        csrf_bytes = 16
+    csrf_token = generate_token_pair(csrf_bytes)[0]
 
     # Build JSON response body and attach cookies using response.set_cookie
     from fastapi.responses import JSONResponse
@@ -171,7 +208,8 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
     use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
     max_refresh = 60 * 60 * 24 * int(os.getenv('REFRESH_TOKEN_DAYS', '30'))
 
-    resp = JSONResponse(content={"access_token": token, "csrf_token": csrf_token, "token_type": "bearer"})
+    needs_profile_completion = bool((user.get('profile_prompt_pending', True)) and (not user.get('optional_profile_completed')))
+    resp = JSONResponse(content={"access_token": token, "csrf_token": csrf_token, "token_type": "bearer", "needs_profile_completion": needs_profile_completion})
     # Cookie names and attributes
     if use_host_prefix:
         # __Host- cookies require Secure and Path=/ and no Domain
@@ -190,16 +228,12 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
 @router.post('/logout')
 async def logout(response: Response, current_user=Depends(get_current_user)):
     # Clear cookies and remove refresh token(s) associated with user
-    try:
+    with suppress(Exception):
         await db_mod.db.refresh_tokens.delete_many({'user_email': current_user['email']})
-    except Exception:
-        pass
     # delete both dev and __Host- variants
     for name in ('access_token','refresh_token','csrf_token','__Host-access_token','__Host-refresh_token','__Host-csrf_token'):
-        try:
+        with suppress(Exception):
             response.delete_cookie(name, path='/')
-        except Exception:
-            pass
     return {"status": "logged_out"}
 
 
@@ -230,12 +264,14 @@ async def refresh(request: Request, response: Response):
     # issue new access token and rotate refresh token
     new_access = create_access_token({"sub": rec['user_email']})
     # rotate refresh
-    new_plain, new_hash = generate_token_pair(32)
-    now = __import__('datetime').datetime.utcnow()
     try:
+        refresh_bytes = int(os.getenv('REFRESH_TOKEN_BYTES', os.getenv('REFRESH_TOKEN_SIZE', '32')))
+    except (TypeError, ValueError):
+        refresh_bytes = 32
+    new_plain, new_hash = generate_token_pair(refresh_bytes)
+    now = __import__('datetime').datetime.utcnow()
+    with suppress(Exception):
         await db_mod.db.refresh_tokens.update_one({'_id': rec['_id']}, {'$set': {'token_hash': new_hash, 'created_at': now, 'expires_at': now + __import__('datetime').timedelta(days=int(os.getenv('REFRESH_TOKEN_DAYS', '30')))}})
-    except Exception:
-        pass
 
     secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
     use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
@@ -249,19 +285,51 @@ async def refresh(request: Request, response: Response):
 
 
 class ProfileUpdate(BaseModel):
+    # legacy combined name (admin-only)
     name: str | None = None
+    # explicit fields
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    gender: Optional[Literal['female','male','diverse','prefer_not_to_say']] = None
     email: EmailStr | None = None
+    # either provide a single-line address or structured parts
     address: str | None = None
+    street: Optional[str] = None
+    street_no: Optional[str] = None
+    postal_code: Optional[str] = None
+    city: Optional[str] = None
     lat: float | None = None
     lon: float | None = None
     preferences: dict | None = None
+    # Optional profile fields (user-editable)
+    kitchen_available: Optional[bool] = None
+    main_course_possible: Optional[bool] = None
+    default_dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    field_of_study: Optional[str] = None
+    # allow skipping optional profile prompt via this endpoint
+    skip_optional_profile: Optional[bool] = False
 
 @router.get('/profile', response_model=UserOut)
 async def get_profile_alias(current_user=Depends(get_current_user)):
     u = await db_mod.db.users.find_one({"email": current_user['email']})
     if not u:
         raise HTTPException(status_code=404, detail='User not found')
-    return UserOut(id=str(u.get('_id', '')), name=u.get('name'), email=u.get('email'), address=u.get('address_public'), preferences=u.get('preferences', {}), roles=u.get('roles', []))
+    return UserOut(
+        id=str(u.get('_id', '')),
+        name=u.get('name'),
+        first_name=u.get('first_name'),
+        last_name=u.get('last_name'),
+        email=u.get('email'),
+        address=u.get('address_public'),
+        preferences=u.get('preferences', {}),
+        roles=u.get('roles', []),
+        kitchen_available=u.get('kitchen_available'),
+        main_course_possible=u.get('main_course_possible'),
+        default_dietary_preference=u.get('default_dietary_preference'),
+        field_of_study=u.get('field_of_study'),
+        optional_profile_completed=bool(u.get('optional_profile_completed')),
+        profile_prompt_pending=bool(u.get('profile_prompt_pending')),
+    )
 
 @router.put('/profile', response_model=UserOut)
 async def update_profile_alias(payload: ProfileUpdate, current_user=Depends(get_current_user)):
@@ -286,25 +354,73 @@ async def update_profile_alias(payload: ProfileUpdate, current_user=Depends(get_
             # mark unverified and send verification email
             update_data['email'] = new_email
             update_data['email_verified'] = False
-            try:
+            with suppress(Exception):
                 _token, _ = await generate_and_send_verification(new_email)
-            except Exception:
-                pass
         else:
             # empty/invalid email not allowed
             raise HTTPException(status_code=400, detail='Invalid email')
-    # handle address encryption/publicization when address provided
+    # handle first/last name synchronization with legacy 'name'
+    if 'first_name' in update_data or 'last_name' in update_data:
+        first_name = update_data.get('first_name', current_user.get('first_name'))
+        last_name = update_data.get('last_name', current_user.get('last_name'))
+        if first_name and last_name:
+            update_data['name'] = f"{first_name.strip()} {last_name.strip()}"
+    # normalize gender
+    if 'gender' in update_data and isinstance(update_data.get('gender'), str):
+        update_data['gender'] = update_data['gender'].lower()
+    # handle structured address updates
+    if any(k in update_data for k in ('street','street_no','postal_code','city')):
+        existing = current_user.get('address_struct') or {}
+        struct = {
+            'street': update_data.get('street', existing.get('street')),
+            'street_no': update_data.get('street_no', existing.get('street_no')),
+            'postal_code': update_data.get('postal_code', existing.get('postal_code')),
+            'city': update_data.get('city', existing.get('city')),
+        }
+        update_data['address_struct'] = struct
+        left = " ".join([p for p in [struct.get('street'), struct.get('street_no')] if p])
+        right = " ".join([p for p in [struct.get('postal_code'), struct.get('city')] if p])
+        full_line = f"{left}, {right}" if left or right else None
+        if full_line:
+            update_data['address_encrypted'] = encrypt_address(full_line)
+            update_data['address_public'] = anonymize_public_address(full_line)
+    # handle single-line address
     if 'address' in update_data:
         update_data['address_encrypted'] = encrypt_address(update_data.get('address'))
         update_data['address_public'] = anonymize_public_address(update_data.get('address'))
         update_data.pop('address', None)
+    # handle optional profile fields provided via the main profile endpoint
+    if any(k in update_data for k in ('kitchen_available','main_course_possible','default_dietary_preference','field_of_study','skip_optional_profile')):
+        # map skip flag
+        if update_data.get('skip_optional_profile'):
+            update_data['profile_prompt_pending'] = False
+            # don't mark optional_profile_completed when user skips
+            update_data.pop('skip_optional_profile', None)
+        else:
+            # if user provided optional profile fields, consider prompt completed
+            # ensure logical consistency: if kitchen_available is False, main_course_possible must be False
+            if 'kitchen_available' in update_data and update_data.get('kitchen_available') is False:
+                update_data['main_course_possible'] = False
+            # mark optional profile completed when any optional field is supplied
+            update_data['optional_profile_completed'] = True
+            update_data['profile_prompt_pending'] = False
+            update_data.pop('skip_optional_profile', None)
     update_data['updated_at'] = __import__('datetime').datetime.utcnow()
     await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": update_data})
     u = await db_mod.db.users.find_one({"email": current_user['email']})
     # If email changed, lookup by new email
     if update_data.get('email'):
         u = await db_mod.db.users.find_one({"email": update_data.get('email')})
-    return UserOut(id=str(u.get('_id', '')), name=u.get('name'), email=u.get('email'), address=u.get('address_public'), preferences=u.get('preferences', {}), roles=u.get('roles', []))
+    return UserOut(
+        id=str(u.get('_id', '')),
+        name=u.get('name'),
+        first_name=u.get('first_name'),
+        last_name=u.get('last_name'),
+        email=u.get('email'),
+        address=u.get('address_public'),
+        preferences=u.get('preferences', {}),
+        roles=u.get('roles', []),
+    )
 
 @router.get('/verify-email')
 async def verify_email(token: str | None = None):
@@ -324,7 +440,7 @@ async def verify_email(token: str | None = None):
             # mark expired and inform caller
             await db_mod.db.email_verifications.update_one({"_id": rec['_id']}, {"$set": {"expired_at": now, "status": "expired"}})
             raise HTTPException(status_code=400, detail='Verification token expired')
-    except Exception:
+    except TypeError:
         # if comparison fails, continue conservatively
         pass
 
@@ -346,14 +462,10 @@ async def resend_verification(payload: ResendVerificationIn):
     user = await db_mod.db.users.find_one({"email": payload.email})
     email_sent = False
     if user and not (user.get('email_verified') or user.get('is_verified')):
-        try:
+        with suppress(Exception):
             await db_mod.db.email_verifications.delete_many({"email": payload.email})
-        except Exception:
-            pass
-        try:
+        with suppress(Exception):
             _token, email_sent = await generate_and_send_verification(payload.email)
-        except Exception:
-            email_sent = False
     return {"message": "If the account exists and is not verified, a new verification email has been sent.", "email_sent": email_sent}
 
 
@@ -395,32 +507,30 @@ async def forgot_password(payload: ForgotPasswordIn):
     # Always respond success; if user exists, create reset token and send email
     if user:
         # remove old tokens for this email
-        try:
+        with suppress(Exception):
             await db_mod.db.password_resets.delete_many({'email': email})
-        except Exception:
-            pass
-        token, token_hash = generate_token_pair(32)
+        # use configured token size for password reset tokens (falls back to utils default)
+        try:
+            reset_bytes = int(os.getenv('PASSWORD_RESET_TOKEN_BYTES', os.getenv('TOKEN_BYTES', '32')))
+        except (TypeError, ValueError):
+            reset_bytes = None
+        token, token_hash = generate_token_pair(reset_bytes)
         now = __import__('datetime').datetime.utcnow()
         try:
             ttl_hours = int(os.getenv('PASSWORD_RESET_EXPIRES_HOURS', '4'))
-        except Exception:
+        except (TypeError, ValueError):
             ttl_hours = 4
         expires_at = now + __import__('datetime').timedelta(hours=ttl_hours)
         doc = {'email': email, 'token_hash': token_hash, 'created_at': now, 'expires_at': expires_at}
-        try:
+        with suppress(Exception):
             await db_mod.db.password_resets.insert_one(doc)
-        except Exception:
-            # best-effort
-            pass
         # send email with reset link
-        try:
+        with suppress(Exception):
             base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
             reset_link = f"{base}/reset-password?token={token}"
             subject = 'Reset your DinnerHopping password'
             body = f"Hi,\n\nTo reset your password, click the link below:\n{reset_link}\n\nIf you didn't request this, ignore this message.\n\nThanks,\nDinnerHopping Team"
             email_sent = await send_email(to=email, subject=subject, body=body, category='password_reset')
-        except Exception:
-            email_sent = False
 
     return {"message": "If an account exists for this email, a password reset link has been sent.", "email_sent": email_sent}
 
@@ -431,11 +541,31 @@ class ResetPasswordIn(BaseModel):
 
 
 @router.post('/reset-password')
-async def reset_password(payload: ResetPasswordIn):
-    """Complete password reset using token from email. Token is single-use and expires."""
-    if not payload.token or not payload.new_password:
+async def reset_password(request: Request):
+    """Complete password reset using token from email. Accepts either JSON {token,new_password}
+    or form-encoded submissions from the HTML form.
+    """
+    token = None
+    new_password = None
+    # Try JSON body first
+    try:
+        data = await request.json()
+        if isinstance(data, dict):
+            token = data.get('token')
+            new_password = data.get('new_password')
+    except (ValueError, TypeError):
+        # not JSON, try form-encoded
+        try:
+            form = await request.form()
+            token = token or form.get('token')
+            new_password = new_password or form.get('new_password')
+        except (RuntimeError, TypeError):
+            # give up and validate below
+            pass
+
+    if not token or not new_password:
         raise HTTPException(status_code=400, detail='token and new_password required')
-    th = hash_token(payload.token)
+    th = hash_token(token)
     rec = await db_mod.db.password_resets.find_one({'token_hash': th})
     if not rec:
         raise HTTPException(status_code=404, detail='Reset token not found')
@@ -446,15 +576,107 @@ async def reset_password(payload: ResetPasswordIn):
         if expires_at and isinstance(expires_at, __import__('datetime').datetime) and expires_at < now:
             await db_mod.db.password_resets.update_one({'_id': rec['_id']}, {'$set': {'status': 'expired', 'expired_at': now}})
             raise HTTPException(status_code=400, detail='Reset token expired')
-    except Exception:
+    except TypeError:
         pass
     # validate password policy
-    validate_password(payload.new_password)
+    validate_password(new_password)
     # update user's password
-    await db_mod.db.users.update_one({'email': rec['email']}, {'$set': {'password_hash': hash_password(payload.new_password), 'updated_at': __import__('datetime').datetime.utcnow()}})
+    await db_mod.db.users.update_one({'email': rec['email']}, {'$set': {'password_hash': hash_password(new_password), 'updated_at': __import__('datetime').datetime.utcnow()}})
     # delete/reset token
-    try:
+    with suppress(Exception):
         await db_mod.db.password_resets.delete_one({'_id': rec['_id']})
-    except Exception:
-        pass
     return {"status": "password_reset"}
+
+
+@router.get('/reset-password')
+async def reset_password_form(token: str | None = None):
+    """Validate a password-reset token and return a JSON hint for clients.
+
+    This endpoint does not return HTML. It only checks the token exists and is not expired,
+    and returns a minimal JSON response instructing the client to POST the new password.
+    """
+    if not token:
+        raise HTTPException(status_code=400, detail='Missing token')
+    th = hash_token(token)
+    rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+    if not rec:
+        raise HTTPException(status_code=404, detail='Reset token not found')
+    # check expiry
+    expires_at = rec.get('expires_at')
+    now = __import__('datetime').datetime.utcnow()
+    try:
+        if expires_at and isinstance(expires_at, __import__('datetime').datetime) and expires_at < now:
+            await db_mod.db.password_resets.update_one({'_id': rec['_id']}, {'$set': {'status': 'expired', 'expired_at': now}})
+            raise HTTPException(status_code=400, detail='Reset token expired')
+    except TypeError:
+        pass
+    return {"status": "valid", "message": "Token valid. Submit new password to POST /reset-password with fields 'token' and 'new_password'."}
+
+
+# -------- Optional profile (first-login prompt) --------
+
+class OptionalProfileOut(BaseModel):
+    kitchen_available: Optional[bool] = None
+    main_course_possible: Optional[bool] = None
+    default_dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    field_of_study: Optional[str] = None
+    optional_profile_completed: bool = False
+    profile_prompt_pending: bool = False
+
+
+class OptionalProfileUpdate(BaseModel):
+    kitchen_available: Optional[bool] = None
+    main_course_possible: Optional[bool] = None
+    default_dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    field_of_study: Optional[str] = None
+    skip: Optional[bool] = False
+
+
+@router.get('/profile/optional', response_model=OptionalProfileOut)
+async def get_optional_profile(current_user=Depends(get_current_user)):
+    u = await db_mod.db.users.find_one({"email": current_user['email']})
+    if not u:
+        raise HTTPException(status_code=404, detail='User not found')
+    return OptionalProfileOut(
+        kitchen_available=u.get('kitchen_available'),
+        main_course_possible=u.get('main_course_possible'),
+        default_dietary_preference=u.get('default_dietary_preference'),
+        field_of_study=u.get('field_of_study'),
+        optional_profile_completed=bool(u.get('optional_profile_completed')),
+        profile_prompt_pending=bool(u.get('profile_prompt_pending')),
+    )
+
+
+@router.patch('/profile/optional')
+async def update_optional_profile(payload: OptionalProfileUpdate, current_user=Depends(get_current_user)):
+    u = await db_mod.db.users.find_one({"email": current_user['email']})
+    if not u:
+        raise HTTPException(status_code=404, detail='User not found')
+    set_fields: dict = {"updated_at": __import__('datetime').datetime.utcnow()}
+    if payload.skip:
+        set_fields['profile_prompt_pending'] = False
+        await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": set_fields})
+        return {"status": "skipped"}
+
+    provided = False
+    if payload.kitchen_available is not None:
+        set_fields['kitchen_available'] = payload.kitchen_available
+        provided = True
+        if payload.kitchen_available is False:
+            set_fields['main_course_possible'] = False
+    if payload.main_course_possible is not None:
+        set_fields['main_course_possible'] = payload.main_course_possible
+        provided = True
+    if payload.default_dietary_preference is not None:
+        set_fields['default_dietary_preference'] = payload.default_dietary_preference
+        provided = True
+    if payload.field_of_study is not None:
+        set_fields['field_of_study'] = payload.field_of_study
+        provided = True
+
+    if provided:
+        set_fields['optional_profile_completed'] = True
+        set_fields['profile_prompt_pending'] = False
+
+    await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": set_fields})
+    return {"status": "updated", "optional_profile_completed": bool(set_fields.get('optional_profile_completed', u.get('optional_profile_completed')))}

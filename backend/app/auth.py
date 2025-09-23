@@ -23,20 +23,48 @@ JWT_ISSUER = os.getenv('JWT_ISSUER')
 
 def _access_token_ttl_minutes() -> int:
     try:
-        return int(os.getenv('ACCESS_TOKEN_MINUTES', '15'))
-    except Exception:
-        return 15
+        # prefer ACCESS_TOKEN_EXPIRES_MINUTES to be explicit in .env
+        return int(os.getenv('ACCESS_TOKEN_EXPIRES_MINUTES', os.getenv('ACCESS_TOKEN_MINUTES', '60')))
+    except (TypeError, ValueError):
+        return 60
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
 def validate_password(password: str):
-    """Basic password policy: min 8 chars, contains letter and number."""
-    if not password or len(password) < 8:
-        raise HTTPException(status_code=400, detail='Password must be at least 8 characters long')
-    if not re.search(r"[A-Za-z]", password) or not re.search(r"[0-9]", password):
-        raise HTTPException(status_code=400, detail='Password must contain letters and numbers')
+    """Password policy configurable via environment variables.
+
+    Environment variables consulted (all optional):
+    - PASSWORD_MIN_LENGTH (int)
+    - PASSWORD_REQUIRE_NUMERIC (true/false)
+    - PASSWORD_REQUIRE_UPPER (true/false)
+    - PASSWORD_REQUIRE_LOWER (true/false)
+    - PASSWORD_REQUIRE_SPECIAL (true/false)
+    """
+    try:
+        minlen = int(os.getenv('PASSWORD_MIN_LENGTH', '8'))
+    except (TypeError, ValueError):
+        minlen = 8
+
+    def _bool_env(name: str, default: bool) -> bool:
+        return os.getenv(name, str(default)).lower() in ('1', 'true', 'yes')
+
+    require_numeric = _bool_env('PASSWORD_REQUIRE_NUMERIC', True)
+    require_upper = _bool_env('PASSWORD_REQUIRE_UPPER', False)
+    require_lower = _bool_env('PASSWORD_REQUIRE_LOWER', False)
+    require_special = _bool_env('PASSWORD_REQUIRE_SPECIAL', False)
+
+    if not password or len(password) < minlen:
+        raise HTTPException(status_code=400, detail=f'Password must be at least {minlen} characters long')
+    if require_numeric and not re.search(r"[0-9]", password):
+        raise HTTPException(status_code=400, detail='Password must contain a number')
+    if require_upper and not re.search(r"[A-Z]", password):
+        raise HTTPException(status_code=400, detail='Password must contain an uppercase letter')
+    if require_lower and not re.search(r"[a-z]", password):
+        raise HTTPException(status_code=400, detail='Password must contain a lowercase letter')
+    if require_special and not re.search(r"[!@#\$%\^&\*()_+\-=\[\]{};':\",.<>\/?\\|`~]", password):
+        raise HTTPException(status_code=400, detail='Password must contain a special character')
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)

@@ -3,13 +3,14 @@ FastAPI application for the DinnerHopping backend.
 """
 import os
 from fastapi import FastAPI, APIRouter, Depends
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .auth import get_current_user
 from .middleware.rate_limit import RateLimit
 from .middleware.security import SecurityHeadersMiddleware, CSRFMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from .db import close as close_mongo, connect as connect_to_mongo
-from .routers import admin, events, invitations, payments, users, matching, chats
+from .routers import admin, events, invitations, payments, users, matching, chats, registrations
 
 # Compatibility shim: some bcrypt distributions expose `__version__` but not
 # `__about__.__version__`. passlib sometimes attempts to read
@@ -34,45 +35,48 @@ app = FastAPI(title="DinnerHopping Backend")
 # (cookies) and automatically injects the X-CSRF-Token header read from the
 # CSRF cookie. This allows testing CSRF-protected endpoints from /docs.
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.openapi.utils import get_openapi
-
 
 def custom_swagger_ui_html(*, openapi_url: str, title: str):
-        swagger_js = """
-        window.onload = function() {
-            const ui = SwaggerUIBundle({
-                url: '%s',
-                dom_id: '#swagger-ui',
-                presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
-                layout: 'StandaloneLayout',
-                requestInterceptor: (req) => {
-                    // include credentials so cookies are sent
-                    req.credentials = 'include';
-                    try {
-                        // read csrf cookie (attempt __Host- first then fallback)
-                        const getCookie = (name) => document.cookie.split('; ').reduce((r, v) => {
-                            const parts = v.split('='); return parts[0] === name ? decodeURIComponent(parts[1]) : r
-                        }, '')
-                        const csrf = getCookie('__Host-csrf_token') || getCookie('csrf_token');
-                        if (csrf && ['POST','PUT','PATCH','DELETE'].includes(req.method)) {
-                            req.headers['X-CSRF-Token'] = csrf;
-                        }
-                    } catch (e) {
-                        // ignore
+    swagger_js = """
+    window.onload = function() {
+        const ui = SwaggerUIBundle({
+            url: '%s',
+            dom_id: '#swagger-ui',
+            presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+            layout: 'StandaloneLayout',
+            requestInterceptor: (req) => {
+                // include credentials so cookies are sent
+                req.credentials = 'include';
+                try {
+                    // read csrf cookie (attempt __Host- first then fallback)
+                    const getCookie = (name) => document.cookie.split('; ').reduce((r, v) => {
+                        const parts = v.split('='); return parts[0] === name ? decodeURIComponent(parts[1]) : r
+                    }, '')
+                    const csrf = getCookie('__Host-csrf_token') || getCookie('csrf_token');
+                    if (csrf && ['POST','PUT','PATCH','DELETE'].includes(req.method)) {
+                        req.headers['X-CSRF-Token'] = csrf;
                     }
-                    return req;
+                } catch (e) {
+                    // ignore
                 }
-            })
-            window.ui = ui
-        }
-        """ % openapi_url
-        return get_swagger_ui_html(openapi_url=openapi_url, title=title, swagger_js=swagger_js)
-
+                return req;
+            }
+        })
+        window.ui = ui
+    }
+    """ % openapi_url
+    # generate the standard Swagger UI HTML and inject our custom script before </body>
+    resp = get_swagger_ui_html(openapi_url=openapi_url, title=title)
+    content = resp.body.decode(errors="ignore")
+    content = content.replace("</body>", f"<script>{swagger_js}</script></body>")
+    # Convert headers to a plain dict for HTMLResponse
+    headers = dict(resp.headers)
+    return HTMLResponse(content=content, status_code=resp.status_code, headers=headers)
 
 @app.get('/docs', include_in_schema=False)
 async def overridden_swagger():
-        openapi_url = app.openapi_url
-        return custom_swagger_ui_html(openapi_url=openapi_url, title=app.title + ' - Swagger UI')
+    openapi_url = app.openapi_url
+    return custom_swagger_ui_html(openapi_url=openapi_url, title=app.title + ' - Swagger UI')
 
 ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', '*')
 if ALLOWED_ORIGINS == '*':
@@ -120,6 +124,7 @@ app.include_router(invitations.router, prefix="/invitations", tags=["invitations
 app.include_router(payments.router, prefix="/payments", tags=["payments"])
 app.include_router(matching.router, prefix="/matching", tags=["matching"])
 app.include_router(chats.router, prefix="/chats", tags=["chats"])
+app.include_router(registrations.router, prefix="/registrations", tags=["registrations"])
 
 api_router = APIRouter()
 

@@ -34,6 +34,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             '/login', '/logout', '/refresh', '/docs', '/openapi.json',
             '/payments/webhooks', '/payments/paypal/return', '/webhooks',
             '/verify-email', '/users/verify-email', '/resend-verification', '/invitations/',
+            '/forgot-password', '/reset-password', '/resend-verification',
         )
 
     async def dispatch(self, request: Request, call_next):

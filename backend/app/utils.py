@@ -21,17 +21,19 @@ import uuid
 from email.message import EmailMessage
 from typing import Mapping, Optional, Sequence
 import base64
-import os
 import re
 import hmac
 import hashlib
 
 try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-except Exception:  # pragma: no cover - optional dependency in lightweight dev setups
+except ImportError:  # pragma: no cover - optional dependency in lightweight dev setups
     AESGCM = None
 
 from . import db as db_mod
+from pymongo.errors import PyMongoError
+from bson.errors import InvalidId
+from bson.objectid import ObjectId
 
 # Simple approach: quantize lat/lon to ~500m grid using Haversine-based degrees approximation
 # For typical latitudes, 0.0045 deg ~ 500m (varies). We'll use 0.0045 to approximate 500m.
@@ -76,7 +78,7 @@ def _load_address_key() -> bytes | None:
         if len(key) not in (16, 24, 32):
             raise ValueError('invalid key length')
         return key
-    except Exception:
+    except (TypeError, ValueError, base64.binascii.Error):
         # invalid configuration; treat as unset
         return None
 
@@ -112,7 +114,7 @@ def decrypt_address(b64: str) -> str:
         aesgcm = AESGCM(key)
         pt = aesgcm.decrypt(nonce, ct, None)
         return pt.decode('utf8')
-    except Exception:
+    except (TypeError, ValueError, base64.binascii.Error):
         # on any error, return original value to avoid breaking callers
         return b64
 
@@ -276,20 +278,21 @@ async def generate_and_send_verification(recipient: str) -> tuple[str, bool]:
         the email was actually sent (or printed in dev fallback). False means all
         SMTP attempts failed when SMTP was configured.
     """
-    token, token_hash = generate_token_pair(32)
+    token, token_hash = generate_token_pair()
     created_at = datetime.datetime.now(datetime.timezone.utc)
     # TTL for verification tokens (hours)
     try:
-        ttl_hours = int(os.getenv('EMAIL_VERIFICATION_EXPIRES_HOURS', '1'))
-    except Exception:
-        ttl_hours = 1
+        ttl_hours = int(os.getenv('EMAIL_VERIFICATION_EXPIRES_HOURS', os.getenv('EMAIL_VERIFICATION_EXPIRES', '48')))
+    except (TypeError, ValueError):
+        ttl_hours = 48
     expires_at = created_at + datetime.timedelta(hours=ttl_hours)
     # store a non-reversible hash of the token instead of the plaintext token
     doc = {"email": recipient, "token_hash": token_hash, "created_at": created_at, "expires_at": expires_at}
     try:
         await db_mod.db.email_verifications.insert_one(doc)
         logger.info("Stored verification token for %s", recipient)
-    except Exception as e:  # broad except to avoid dependency on db.errors in tests
+    except PyMongoError as e:
+        # Best-effort: log a warning and continue on DB insertion failures
         logger.warning("Could not persist verification token for %s: %s", recipient, e)
 
     base = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
@@ -322,20 +325,27 @@ def hash_token(token: str) -> str:
     return hmac.new(pepper_bytes, token.encode('utf8'), hashlib.sha256).hexdigest()
 
 
-def generate_token_pair(bytes_entropy: int = 32) -> tuple[str, str]:
+def _default_token_bytes() -> int:
+    try:
+        return int(os.getenv('ACCESS_TOKEN_BYTES', os.getenv('TOKEN_BYTES', '32')))
+    except (TypeError, ValueError):
+        return 32
+
+
+def generate_token_pair(bytes_entropy: int | None = None) -> tuple[str, str]:
     """Generate a secure random token and its stored hash.
 
     Returns (token, token_hash) where token is safe to send to the user and
     token_hash is the HMAC-SHA256 hex digest for storage.
     """
+    if bytes_entropy is None:
+        bytes_entropy = _default_token_bytes()
     t = secrets.token_urlsafe(bytes_entropy)
     return t, hash_token(t)
 
 
 ######### Event / Registration helpers #########
 from fastapi import HTTPException
-from bson.objectid import ObjectId
-from typing import Optional
 
 
 async def get_event(event_id) -> Optional[dict]:
@@ -347,7 +357,7 @@ async def get_event(event_id) -> Optional[dict]:
         return None
     try:
         oid = event_id if isinstance(event_id, ObjectId) else ObjectId(event_id)
-    except Exception:
+    except (InvalidId, TypeError, ValueError):
         return None
     return await db_mod.db.events.find_one({'_id': oid})
 
@@ -369,7 +379,7 @@ async def user_registered_or_organizer(user: dict, event_id) -> bool:
         return False
     try:
         is_organizer = str(ev.get('organizer_id')) == str(user.get('_id'))
-    except Exception:
+    except (TypeError, ValueError):
         is_organizer = False
     reg = await db_mod.db.registrations.find_one({'event_id': ev.get('_id'), 'user_email_snapshot': user.get('email')})
     return bool(reg) or bool(is_organizer)
@@ -391,7 +401,8 @@ async def require_user_registered_or_organizer(user: dict, event_id) -> dict:
 
 ######### Authorization helpers (owner/admin, deadlines) #########
 
-from fastapi import HTTPException as _HTTPException
+# reuse HTTPException imported earlier in this module to avoid duplicate imports
+_HTTPException = HTTPException
 
 
 def _is_admin(user: dict) -> bool:
@@ -452,3 +463,67 @@ async def send_notification(recipient: str, title: str, message_lines: Sequence[
     """Generic plaintext notification helper."""
     body = "\n".join(message_lines) + "\n"
     return await send_email(to=recipient, subject=title, body=body, category="notification")
+
+
+# ---- Team helpers ----
+
+def compute_team_diet(*diets: str | None) -> str:
+    """Return the resulting team diet given member diets with precedence Vegan > Vegetarian > Omnivore.
+
+    Accepts any casings and ignores unknown/None values by treating them as omnivore.
+    Returns one of: 'vegan', 'vegetarian', 'omnivore'.
+    """
+    norm = [str(d).strip().lower() for d in diets if d]
+    if 'vegan' in norm:
+        return 'vegan'
+    if 'vegetarian' in norm:
+        return 'vegetarian'
+    return 'omnivore'
+
+
+async def send_payment_confirmation(registration_id) -> bool:
+    """Send confirmation email(s) after successful payment for a registration.
+
+    - If the registration is part of a team (team_size==2), notify both creator and partner (if registered)
+    - Otherwise, notify the single registrant
+    Returns True if at least one email was attempted (best-effort).
+    """
+    try:
+        oid = registration_id if isinstance(registration_id, ObjectId) else ObjectId(registration_id)
+    except InvalidId:
+        return False
+    reg = await db_mod.db.registrations.find_one({'_id': oid})
+    if not reg:
+        return False
+    # Load event for context
+    ev = None
+    try:
+        ev = await db_mod.db.events.find_one({'_id': reg.get('event_id')}) if reg.get('event_id') else None
+    except PyMongoError:
+        ev = None
+    title = (ev or {}).get('title') or 'DinnerHopping Event'
+    date = (ev or {}).get('date') or ''
+    # Build recipient list
+    recipients = set()
+    if reg.get('user_email_snapshot'):
+        recipients.add(reg['user_email_snapshot'])
+    if reg.get('team_id'):
+        async for other in db_mod.db.registrations.find({'team_id': reg['team_id']}):
+            em = other.get('user_email_snapshot')
+            if em:
+                recipients.add(em)
+    if not recipients:
+        return False
+    subject = f"Registration confirmed for {title}"
+    lines = [
+        f"Thanks for your payment! Your registration for '{title}' on {date} is now confirmed.",
+        "You'll receive more information and your schedule closer to the event.",
+        "",
+        "Have a great time!",
+        "— DinnerHopping Team",
+    ]
+    ok_any = False
+    for to in recipients:
+        ok = await send_email(to=to, subject=subject, body="\n".join(lines), category='payment_confirmation')
+        ok_any = ok_any or ok
+    return ok_any
