@@ -7,7 +7,12 @@
     return typeof location !== 'undefined' && location.protocol === 'https:';
   }
   function setCookie(name, value, days){
-    const maxAge = days ? `; Max-Age=${Math.floor(days*86400)}` : '';
+    // Max-Age expects SECONDS; 
+    let maxAge = '';
+    if (typeof days === 'number' && isFinite(days) && days > 0) {
+      const secs = Math.max(1, Math.floor(days * 86400));
+      maxAge = `; Max-Age=${secs}`;
+    }
     const attrs = `Path=/; SameSite=Strict${isHttps()?'; Secure':''}${maxAge}`;
     document.cookie = `${name}=${encodeURIComponent(value)}; ${attrs}`;
   }

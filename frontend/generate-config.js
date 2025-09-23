@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const envPath = path.join(__dirname, '.env');
-const outputPath = path.join(__dirname, 'public', 'config.js');
+const outputPath = path.join(__dirname, 'public', 'js', 'config.js');
 
 function parseEnv(content) {
   const lines = content.split(/\r?\n/);
@@ -42,5 +42,6 @@ for (const [key, value] of Object.entries(envVars)) {
 }
 // Always ensure FRONTEND_BASE_URL defaults to the visitor's origin when not provided via .env
 js += 'if (typeof window !== "undefined") { window.FRONTEND_BASE_URL = window.FRONTEND_BASE_URL || window.location.origin; }\n';
+fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, js, 'utf8');
-console.log('Generated public/config.js from .env with variables:', Object.keys(envVars).filter(k => k.endsWith('_BASE')).map(k => k.replace(/_BASE$/, '_BASE_URL')).join(', '));
+console.log('Generated public/js/config.js from .env with variables:', Object.keys(envVars).filter(k => k.endsWith('_BASE')).map(k => k.replace(/_BASE$/, '_BASE_URL')).join(', '));
