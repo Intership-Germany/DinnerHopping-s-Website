@@ -110,8 +110,11 @@
                 if (!desc) descEl.classList.add('hidden');
             }
 
-            // Spots remaining (assuming 6 capacity for now)
-            const capacity = 6; // default to 6
+            // Spots remaining
+            const capacity = e.capacity && Number.isInteger(e.capacity) && e.capacity > 0 ? e.capacity : 6; // assume 6 if not set
+            spotsEl.textContent = 'Loading...';
+            spotsEl.className = 'event-spots text-sm font-semibold text-gray-600';
+            // Simple availability logic: capacity - attendee_count
             const placeLeft = capacity - (Number(e.attendee_count) || 0);
             if (placeLeft <= 0) {
                 spotsEl.textContent = 'Event Full';
@@ -565,7 +568,7 @@
     async function fetchPublishedEvents() {
         // Proactively include Bearer token on first request and use apiFetch helper.
         // Also normalize URL with trailing slash to avoid a 307 redirect.
-        const path = '/events/?status=published';
+        const path = '/events/?status=open';
         const token = (function () {
             try {
                 if (window.auth && typeof window.auth.getCookie === 'function') {

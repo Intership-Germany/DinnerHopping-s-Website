@@ -1,504 +1,531 @@
+/*
+	Profile page script
+	-------------------
+	Purpose: Manage viewing and editing of the user profile via backend endpoints (/profile, /profile/optional, /logout),
+	using apiFetch (cookie + CSRF) with a legacy dh_token (Bearer) fallback when present.
+
+	Highlights:
+	- Load profile data and populate the UI (structured address fields and preferences).
+	- Edit mode with unsaved-changes detection and a warning banner.
+	- Save changes (PUT /profile), optional onboarding (PATCH /profile/optional), and logout.
+	- Refactored to group helpers and avoid duplication (populate, banners, initial snapshot).
+
+*/
 (function(){
-  // Page script for profile.html extracted from inline <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    (async function(){
-      const BACKEND_BASE = window.BACKEND_BASE_URL || 'http://localhost:8000';
-      const token = (window.auth && window.auth.getCookie) ? window.auth.getCookie('dh_token') : (function(){
-        const m = document.cookie.match(/(?:^|; )dh_token=([^;]*)/); return m?decodeURIComponent(m[1]):null;
-      })();
+	document.addEventListener('DOMContentLoaded', () => {
+		(async function init(){
+			// DOM refs (centralized to avoid repeated selectors)
+			const el = {
+				headerName: document.getElementById('header-name'),
+				headerEmail: document.getElementById('header-email'),
+				firstName: document.getElementById('profile-firstname'),
+				lastName: document.getElementById('profile-lastname'),
+				email: document.getElementById('profile-email'),
+				address: document.getElementById('profile-address'),
+				fullNameView: document.getElementById('profile-fullname'),
+				// Name labels
+				firstNameLabel: document.querySelector('label[for="profile-firstname"]'),
+				lastNameLabel: document.querySelector('label[for="profile-lastname"]'),
+				fullNameLabel: document.querySelector('label[for="profile-fullname"]'),
+				// Address edit inputs
+				addressEditGroup: document.getElementById('address-edit-group'),
+				addrCity: document.getElementById('profile-city'),
+				addrPostal: document.getElementById('profile-postal'),
+				addrStreet: document.getElementById('profile-street'),
+				addrNumber: document.getElementById('profile-number'),
+				// Preferences
+				preferences: document.getElementById('profile-preferences'),
+				// Optional profile fields
+				kitchenAvailable: document.getElementById('kitchen-available'),
+				mainCoursePossible: document.getElementById('main-course-possible'),
+				defaultDietary: document.getElementById('default-dietary'),
+				fieldOfStudy: document.getElementById('field-of-study'),
+				mainCourseGroup: document.getElementById('main-course-group'),
+				// Actions / banners
+				editBtn: document.getElementById('edit-btn'),
+				saveBtn: document.getElementById('save-btn'),
+				cancelBtn: document.getElementById('cancel-btn'),
+				editActions: document.getElementById('edit-actions'),
+				incompleteBanner: document.getElementById('incomplete-banner'),
+				incompleteDetails: document.getElementById('incomplete-details'),
+				unsavedBanner: document.getElementById('unsaved-banner'),
+				// Skeletons vs content
+				skeletonHeader: document.getElementById('skeleton-header'),
+				skeletonMain: document.getElementById('skeleton-main'),
+				profileHeader: document.getElementById('profile-header'),
+				profileMain: document.getElementById('profile-main'),
+				// Onboarding modal
+				onboardingModal: document.getElementById('onboarding-modal'),
+				onboardingMissing: document.getElementById('onboarding-missing'),
+				onboardingSkip: document.getElementById('onboarding-skip'),
+				onboardingFill: document.getElementById('onboarding-fill'),
+				// Logout
+				logoutBtn: document.getElementById('logout-btn'),
+			};
 
-      const el = {
-        headerName: document.getElementById('header-name'),
-        headerEmail: document.getElementById('header-email'),
-        name: document.getElementById('profile-name'),
-        email: document.getElementById('profile-email'),
-        address: document.getElementById('profile-address'),
-  // Address edit inputs
-  addressEditGroup: document.getElementById('address-edit-group'),
-  addrCity: document.getElementById('profile-city'),
-  addrPostal: document.getElementById('profile-postal'),
-  addrStreet: document.getElementById('profile-street'),
-  addrNumber: document.getElementById('profile-number'),
-        preferences: document.getElementById('profile-preferences'),
-        kitchenAvailable: document.getElementById('kitchen-available'),
-        mainCoursePossible: document.getElementById('main-course-possible'),
-        dietary: document.getElementById('default-dietary'),
-        fieldOfStudy: document.getElementById('field-of-study'),
-        editBtn: document.getElementById('edit-btn'),
-        saveBtn: document.getElementById('save-btn'),
-        cancelBtn: document.getElementById('cancel-btn'),
-        editActions: document.getElementById('edit-actions'),
-        incompleteBanner: document.getElementById('incomplete-banner'),
-        incompleteDetails: document.getElementById('incomplete-details'),
-        unsavedBanner: document.getElementById('unsaved-banner'),
-        skeletonHeader: document.getElementById('skeleton-header'),
-        skeletonMain: document.getElementById('skeleton-main'),
-        profileHeader: document.getElementById('profile-header'),
-        profileMain: document.getElementById('profile-main'),
-        onboardingModal: document.getElementById('onboarding-modal'),
-        onboardingMissing: document.getElementById('onboarding-missing'),
-        onboardingSkip: document.getElementById('onboarding-skip'),
-        onboardingFill: document.getElementById('onboarding-fill'),
-        mainCourseGroup: document.getElementById('main-course-group'),
-      };
+			// Etat courant
+			let initial = null;   // snapshot des valeurs backend (sert pour l'annulation + détection de modifications)
+			let isEditing = false;
+			let hasUnsaved = false;
 
-      let initialData = null;
-      let isEditing = false;
-      let hasUnsaved = false;
+			// ---------- UI helpers ----------
+			/** Toggle visibility by adding/removing the 'hidden' class */
+			function setHidden(node, hidden){ if (!node) return; node.classList.toggle('hidden', !!hidden); }
 
-      function formatPreferences(pref){
-        try {
-          if (!pref) return '';
-          // Filter out optional-only keys so textarea shows only the user's food prefs
-          const OPTIONAL_KEYS = new Set(['kitchen_available','main_course_possible','default_dietary','field_of_study','onboarding_seen']);
-          if (typeof pref === 'object' && !Array.isArray(pref)) {
-            const filtered = {};
-            for (const [k,v] of Object.entries(pref)) {
-              if (!OPTIONAL_KEYS.has(k)) filtered[k] = v;
-            }
-            pref = filtered;
-          }
-          if (Array.isArray(pref)) return pref.join(', ');
-          if (typeof pref === 'string') return pref;
-          if (typeof pref === 'object') {
-            const keys = Object.keys(pref);
-            if (keys.length === 1 && keys[0] === 'tags') {
-              const v = pref.tags;
-              if (Array.isArray(v)) return v.join(', ');
-              if (typeof v === 'string') return v;
-            }
-            const parts = [];
-            for (const [k,v] of Object.entries(pref)){
-              if (v === true) parts.push(k);
-              else if (Array.isArray(v) && v.length) parts.push(`${k}: ${v.join(', ')}`);
-              else if (typeof v === 'string' && v.trim()) parts.push(`${k}: ${v}`);
-              else if (typeof v === 'number') parts.push(`${k}: ${v}`);
-            }
-            return parts.join(', ');
-          }
-          return String(pref);
-        } catch(e){
-          return '';
-        }
-      }
+			/** (Dis)able an input and sync a simple background style between view/edit */
+			function disableInput(inp, disabled){
+				if (!inp) return;
+				if (disabled){
+					inp.setAttribute('disabled','');
+					inp.classList.add('bg-gray-50');
+					inp.classList.remove('bg-white');
+				} else {
+					inp.removeAttribute('disabled');
+					inp.classList.remove('bg-gray-50');
+					inp.classList.add('bg-white');
+				}
+			}
 
-      function isEmptyPreferences(pref){
-        if (!pref) return true;
-        if (Array.isArray(pref)) return pref.length === 0;
-        if (typeof pref === 'string') return pref.trim().length === 0;
-        if (typeof pref === 'object') return Object.keys(pref).length === 0;
-        return true;
-      }
+			/** Join first+last name, fallback to name */
+			function fullNameOf(u){
+				return ((((u?.first_name||'') + ' ' + (u?.last_name||'')).trim()) || (u?.name || ''));
+			}
 
-      function getOptionalFromPrefs(prefs){
-        const p = prefs || {};
-        return {
-          kitchen_available: typeof p.kitchen_available === 'boolean' ? p.kitchen_available : null,
-          main_course_possible: typeof p.main_course_possible === 'boolean' ? p.main_course_possible : null,
-          default_dietary: (typeof p.default_dietary === 'string' && ['vegan','vegetarian','omnivore'].includes(p.default_dietary)) ? p.default_dietary : null,
-          field_of_study: (typeof p.field_of_study === 'string' && p.field_of_study.trim()) ? p.field_of_study.trim() : null,
-          onboarding_seen: !!p.onboarding_seen,
-        };
-      }
+			/** Human-readable preferences for the textarea */
+			function formatPreferences(pref){
+				try {
+					if (!pref) return '';
+					if (Array.isArray(pref)) return pref.join(', ');
+					if (typeof pref === 'string') return pref;
+					if (typeof pref === 'object') {
+						if (Array.isArray(pref.tags)) return pref.tags.join(', ');
+						const parts = [];
+						for (const [k,v] of Object.entries(pref)){
+							if (k === 'tags') continue;
+							if (v === true) parts.push(k);
+							else if (Array.isArray(v)) parts.push(`${k}: ${v.join(', ')}`);
+							else if (typeof v === 'string' && v.trim()) parts.push(`${k}: ${v}`);
+							else if (typeof v === 'number') parts.push(`${k}: ${v}`);
+						}
+						return parts.join(', ');
+					}
+					return String(pref);
+				} catch { return ''; }
+			}
 
-      function setOptionalInputs(vals){
-        if (!vals) vals = {};
-        if (el.kitchenAvailable) el.kitchenAvailable.value = vals.kitchen_available === true ? 'yes' : vals.kitchen_available === false ? 'no' : '';
-        if (el.mainCoursePossible) el.mainCoursePossible.value = vals.main_course_possible === true ? 'yes' : vals.main_course_possible === false ? 'no' : '';
-        if (el.dietary) el.dietary.value = vals.default_dietary || '';
-        if (el.fieldOfStudy) el.fieldOfStudy.value = vals.field_of_study || '';
-        // Show/hide main course group based on kitchen availability
-        if (el.mainCourseGroup) el.mainCourseGroup.classList.toggle('hidden', el.kitchenAvailable && el.kitchenAvailable.value !== 'yes');
-      }
+			/** Flexible parsing of preferences textarea -> object: JSON, array, or "a, b, c" -> { tags: [...] } */
+			function parsePreferencesInput(text){
+				if (!text || !text.trim()) return {};
+				try {
+					const parsed = JSON.parse(text);
+					if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+					if (Array.isArray(parsed)) return { tags: parsed };
+				} catch {}
+				const tags = text.split(',').map(s=>s.trim()).filter(Boolean);
+				return tags.length ? { tags } : {};
+			}
 
-      function collectOptionalToPrefs(){
-        const out = {};
-        const k = el.kitchenAvailable?.value || '';
-        const m = el.mainCoursePossible?.value || '';
-        const d = el.dietary?.value || '';
-        const f = el.fieldOfStudy?.value?.trim() || '';
-        if (k === 'yes') out.kitchen_available = true; else if (k === 'no') out.kitchen_available = false;
-        if (k === 'yes') { // only meaningful when kitchen is available
-          if (m === 'yes') out.main_course_possible = true; else if (m === 'no') out.main_course_possible = false;
-        }
-        if (['vegan','vegetarian','omnivore'].includes(d)) out.default_dietary = d;
-        if (f) out.field_of_study = f;
-        return out;
-      }
+			/** Format a structured address into a short readable string */
+			function formatAddressStruct(a){
+				if (!a || typeof a !== 'object') return typeof a === 'string' ? a : '';
+				const left = a.street ? (a.street + (a.street_no ? ` ${a.street_no}` : '')) : '';
+				const right = [a.postal_code, a.city].filter(Boolean).join(' ');
+				return [left, right].filter(Boolean).join(', ');
+			}
 
-      try {
-        if (!window.dbg) window.dbg = { logReq: (...a)=>console.log(...a) };
-        let res;
-        if (token) {
-          res = await fetch(`${BACKEND_BASE}/profile`, { headers: { 'Authorization': `Bearer ${token}` } });
-        } else {
-          res = await window.apiFetch(`/profile`, { method: 'GET' });
-        }
-        const data = await res.json();
-        dbg.logReq('GET /profile', { status: res.status, body: data });
-        if (!res.ok) {
-          window.location.href = 'login.html';
-          return;
-        }
+			/** Build the (view) address string from the edit inputs */
+			function computeViewAddress(){
+				const city = el.addrCity?.value?.trim() || '';
+				const postal = el.addrPostal?.value?.trim() || '';
+				const street = el.addrStreet?.value?.trim() || '';
+				const num = el.addrNumber?.value?.trim() || '';
+				const left = street ? (street + (num ? ` ${num}` : '')) : '';
+				const right = [postal, city].filter(Boolean).join(' ');
+				return [left, right].filter(Boolean).join(', ');
+			}
 
-        if (el.headerName) el.headerName.textContent = data.name || '';
-        if (el.headerEmail) el.headerEmail.textContent = data.email || '';
-        if (el.name) el.name.value = data.name || '';
-        if (el.email) el.email.value = data.email || '';
-        if (el.address) el.address.value = data.address || '';
+			/** Normalize preferences value for simple comparison (change detection) */
+			function canonicalizePrefs(p){
+				try {
+					if (!p) return '';
+					if (typeof p === 'string') return p.trim().toLowerCase();
+					if (Array.isArray(p)) return p.map(x=>String(x).trim().toLowerCase()).sort().join('|');
+					if (typeof p === 'object'){
+						const parts = [];
+						for (const [k,v] of Object.entries(p)){
+							if (v === true) parts.push(k);
+							else if (Array.isArray(v)) parts.push(`${k}:${v.map(x=>String(x).trim().toLowerCase()).join(',')}`);
+							else if (typeof v === 'string' && v.trim()) parts.push(`${k}:${v.trim().toLowerCase()}`);
+							else if (typeof v === 'number') parts.push(`${k}:${v}`);
+						}
+						return parts.sort().join('|');
+					}
+					return String(p);
+				} catch { return ''; }
+			}
 
-        const prefText = formatPreferences(data.preferences);
-        if (el.preferences) el.preferences.value = prefText || '';
+			/** Populate optional fields in the UI (selects/inputs) */
+			function setOptionalUI(from){
+				const d = from || {};
+				if (el.kitchenAvailable) el.kitchenAvailable.value = d.kitchen_available === true ? 'yes' : d.kitchen_available === false ? 'no' : '';
+				const kitchenYes = (el.kitchenAvailable && el.kitchenAvailable.value === 'yes');
+				if (el.mainCoursePossible) el.mainCoursePossible.value = d.main_course_possible === true ? 'yes' : d.main_course_possible === false ? 'no' : '';
+				setHidden(el.mainCourseGroup, !kitchenYes);
+				if (el.defaultDietary) el.defaultDietary.value = d.default_dietary_preference || '';
+				if (el.fieldOfStudy) el.fieldOfStudy.value = d.field_of_study || '';
+			}
 
-        // map optional fields from preferences
-        const opt = getOptionalFromPrefs(data.preferences);
-        setOptionalInputs(opt);
+			/** Read optional fields to build the request payload */
+			function collectOptionalPayload(){
+				const out = {};
+				const k = el.kitchenAvailable?.value || '';
+				const m = el.mainCoursePossible?.value || '';
+				const d = el.defaultDietary?.value || '';
+				const f = el.fieldOfStudy?.value?.trim() || '';
+				if (k === 'yes') out.kitchen_available = true; else if (k === 'no') out.kitchen_available = false;
+				if (k === 'yes') { if (m === 'yes') out.main_course_possible = true; else if (m === 'no') out.main_course_possible = false; }
+				if (['vegan','vegetarian','omnivore'].includes(d)) out.default_dietary_preference = d;
+				if (f) out.field_of_study = f;
+				return out;
+			}
 
-        initialData = {
-          name: data.name || '',
-          email: data.email || '',
-          address: data.address || '',
-          preferences: data.preferences ?? {}
-        };
+			/** List missing basic fields (for the banner) */
+			function getMissingBasics(data){
+				const missing = [];
+				if (!data.first_name) missing.push('first name');
+				if (!data.last_name) missing.push('last name');
+				if (!data.email) missing.push('email');
+				if (!data.address) missing.push('address');
+				if (!data.preferences || (typeof data.preferences === 'object' && Object.keys(data.preferences).length === 0)) missing.push('preferences');
+				return missing;
+			}
 
-        el.skeletonHeader?.classList.add('hidden');
-        el.skeletonMain?.classList.add('hidden');
-        el.profileHeader?.classList.remove('hidden');
-        el.profileMain?.classList.remove('hidden');
+			/** List missing optional fields (for the onboarding modal) */
+			function getMissingOptional(data){
+				const optMissing = [];
+				if (typeof data.kitchen_available !== 'boolean') optMissing.push('kitchen available');
+				if (data.kitchen_available === true && typeof data.main_course_possible !== 'boolean') optMissing.push('main course');
+				if (!data.default_dietary_preference) optMissing.push('dietary');
+				if (!data.field_of_study) optMissing.push('field of study');
+				return optMissing;
+			}
 
-        const missing = [];
-        if (!data.name) missing.push('name');
-        if (!data.email) missing.push('email');
-        if (!data.address) missing.push('address');
-        // Optional fields aren't required, but we can highlight if none set
-        const optMissing = [];
-        if (opt.kitchen_available == null) optMissing.push('kitchen');
-        if (opt.kitchen_available === true && opt.main_course_possible == null) optMissing.push('main course');
-        if (!opt.default_dietary) optMissing.push('dietary');
-        if (!opt.field_of_study) optMissing.push('field of study');
-        if (isEmptyPreferences(data.preferences)) missing.push('preferences');
-        if (missing.length && el.incompleteBanner){
-          el.incompleteBanner.classList.remove('hidden');
-          if (el.incompleteDetails) {
-            el.incompleteDetails.textContent = `Missing: ${missing.join(', ')}`;
-          }
-        }
+			/** Update banners based on current data */
+			function updateBanners(data){
+				const missing = getMissingBasics(data);
+				if (missing.length && el.incompleteBanner){
+					setHidden(el.incompleteBanner, false);
+					if (el.incompleteDetails) el.incompleteDetails.textContent = `Missing: ${missing.join(', ')}`;
+				} else {
+					setHidden(el.incompleteBanner, true);
+				}
 
-        // Show onboarding modal on first login (if not seen) with summary of optional gaps
-        if (el.onboardingModal) {
-          const shouldShow = !opt.onboarding_seen && (optMissing.length > 0);
-          if (shouldShow) {
-            if (el.onboardingMissing) el.onboardingMissing.textContent = optMissing.join(', ');
-            el.onboardingModal.classList.remove('hidden');
-          }
-        }
-      } catch (err) {
-        console.error(err);
-        window.location.href = 'login.html';
-      }
+				const showOnboarding = (data.profile_prompt_pending && !data.optional_profile_completed);
+				if (showOnboarding && el.onboardingModal){
+					const optMissing = getMissingOptional(data);
+					if (el.onboardingMissing) el.onboardingMissing.textContent = optMissing.join(', ');
+					setHidden(el.onboardingModal, false);
+				} else {
+					setHidden(el.onboardingModal, true);
+				}
+			}
 
-      function setEditMode(on){
-        isEditing = !!on;
-        const toggle = (inp) => {
-          if (!inp) return;
-          if (isEditing) {
-            inp.removeAttribute('disabled');
-            inp.classList.remove('bg-gray-50');
-            inp.classList.add('bg-white');
-          } else {
-            inp.setAttribute('disabled', '');
-            inp.classList.add('bg-gray-50');
-            inp.classList.remove('bg-white');
-          }
-        };
-        if (el.name) {
-          el.name.setAttribute('disabled', '');
-          el.name.classList.add('bg-gray-50');
-          el.name.classList.remove('bg-white');
-        }
-        toggle(el.email);
-        // Address: view vs edit group
-        if (el.addressEditGroup) el.addressEditGroup.classList.toggle('hidden', !isEditing);
-        if (el.address) el.address.classList.toggle('hidden', isEditing);
-        toggle(el.addrCity);
-        toggle(el.addrPostal);
-        toggle(el.addrStreet);
-        toggle(el.addrNumber);
-        // Do not allow editing the displayed anonymized address input
-        if (el.address && isEditing) el.address.setAttribute('disabled', '');
-        if (el.address && !isEditing) el.address.setAttribute('disabled', '');
-        
-        toggle(el.preferences);
-        toggle(el.kitchenAvailable);
-        toggle(el.mainCoursePossible);
-        toggle(el.dietary);
-        toggle(el.fieldOfStudy);
+			/** Apply profile data to the UI and initialize local state */
+			function handleProfileData(data){
+				// Header + identity
+				const fullName = fullNameOf(data);
+				if (el.headerName) el.headerName.textContent = fullName;
+				if (el.headerEmail) el.headerEmail.textContent = data.email || '';
+				if (el.firstName) el.firstName.value = data.first_name || '';
+				if (el.lastName) el.lastName.value = data.last_name || '';
+				if (el.email) el.email.value = data.email || '';
+				if (el.fullNameView) el.fullNameView.value = fullName;
 
-        if (el.editBtn) el.editBtn.classList.toggle('hidden', isEditing);
-        if (el.editActions) el.editActions.classList.toggle('hidden', !isEditing);
+				// Address (view + prefill edit fields when structured)
+				const addr = data.address && typeof data.address === 'object' ? data.address : null;
+				if (el.address) el.address.value = formatAddressStruct(addr || data.address);
+				if (addr){
+					if (el.addrStreet) el.addrStreet.value = addr.street || '';
+					if (el.addrNumber) el.addrNumber.value = addr.street_no || '';
+					if (el.addrPostal) el.addrPostal.value = addr.postal_code || '';
+					if (el.addrCity) el.addrCity.value = addr.city || '';
+				}
 
-        if (!isEditing && el.unsavedBanner) el.unsavedBanner.classList.add('hidden');
-        hasUnsaved = false;
-      }
+				// Preferences + optional fields
+				if (el.preferences) el.preferences.value = formatPreferences(data.preferences);
+				setOptionalUI({
+					kitchen_available: data.kitchen_available,
+					main_course_possible: data.main_course_possible,
+					default_dietary_preference: data.default_dietary_preference,
+					field_of_study: data.field_of_study,
+				});
 
-      function showUnsaved(on){
-        if (!el.unsavedBanner) return;
-        el.unsavedBanner.classList.toggle('hidden', !on);
-      }
+				// Banners (incomplete + onboarding)
+				updateBanners(data);
 
-      function parsePreferencesInput(text){
-        if (!text || !text.trim()) return {};
-        try {
-          const parsed = JSON.parse(text);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            // strip optional keys if present
-            const OPTIONAL_KEYS = new Set(['kitchen_available','main_course_possible','default_dietary','field_of_study','onboarding_seen']);
-            const out = {};
-            for (const [k,v] of Object.entries(parsed)) if (!OPTIONAL_KEYS.has(k)) out[k] = v;
-            return out;
-          }
-          if (Array.isArray(parsed)) {
-            return { tags: parsed };
-          }
-        } catch(e){}
-        const tags = text.split(',').map(s=>s.trim()).filter(Boolean);
-        return tags.length ? { tags } : {};
-      }
+				// Initial snapshot for change detection
+				initial = {
+					first_name: data.first_name || '',
+					last_name: data.last_name || '',
+					email: data.email || '',
+					address: data.address || '',
+					preferences: data.preferences || {},
+					optional: {
+						kitchen_available: data.kitchen_available,
+						main_course_possible: data.main_course_possible,
+						default_dietary_preference: data.default_dietary_preference,
+						field_of_study: data.field_of_study,
+					}
+				};
 
-      function canonicalizePreferences(p){
-        try{
-          if (p == null) return '';
-          if (typeof p === 'string'){
-            const t = p.trim();
-            if (!t) return '';
-            return t.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean).sort().join('|');
-          }
-          if (Array.isArray(p)){
-            return p.map(x=>String(x).trim().toLowerCase()).filter(Boolean).sort().join('|');
-          }
-          if (typeof p === 'object'){
-            const parts = [];
-            for (const [k,v] of Object.entries(p)){
-              if (v === true) parts.push(k);
-              else if (Array.isArray(v) && v.length) parts.push(`${k}:${v.map(x=>String(x).trim().toLowerCase()).join(',')}`);
-              else if (typeof v === 'string' && v.trim()) parts.push(`${k}:${v.trim().toLowerCase()}`);
-              else if (typeof v === 'number') parts.push(`${k}:${v}`);
-            }
-            return parts.map(s=>s.toLowerCase()).sort().join('|');
-          }
-          return String(p);
-        }catch{ return ''; }
-      }
+				// Show content once ready
+				setHidden(el.skeletonHeader, true);
+				setHidden(el.skeletonMain, true);
+				setHidden(el.profileHeader, false);
+				setHidden(el.profileMain, false);
+				setEditMode(false);
 
-      function computeHasUnsaved(){
-        if (!initialData) return false;
-        const current = {
-          name: el.name?.value ?? '',
-          email: el.email?.value ?? '',
-          address: (()=>{
-            // If edit inputs are visible, compute from them; otherwise treat as unchanged view
-            if (!el.addressEditGroup || el.addressEditGroup.classList.contains('hidden')) return initialData.address;
-            const city = el.addrCity?.value?.trim() || '';
-            const postal = el.addrPostal?.value?.trim() || '';
-            const street = el.addrStreet?.value?.trim() || '';
-            const num = el.addrNumber?.value?.trim() || '';
-            const parts = [];
-            if (street) parts.push(street + (num?` ${num}`:''));
-            if (postal || city) parts.push([postal, city].filter(Boolean).join(' '));
-            return parts.join(', ');
-          })(),
-          preferences: (()=>{
-            const base = parsePreferencesInput(el.preferences?.value ?? '');
-            const opt = collectOptionalToPrefs();
-            return { ...base, ...opt };
-          })()
-        };
-        const normalize = (v) => typeof v === 'string' ? v.trim() : v;
-        const prefEqual = canonicalizePreferences(current.preferences) === canonicalizePreferences(initialData.preferences);
-        return (
-          normalize(current.name) !== normalize(initialData.name) ||
-          normalize(current.email) !== normalize(initialData.email) ||
-          normalize(current.address) !== normalize(initialData.address) ||
-          !prefEqual
-        );
-      }
+				return data;
+			}
 
-  el.editBtn?.addEventListener('click', (e)=>{ e.preventDefault(); setEditMode(true); });
-      el.cancelBtn?.addEventListener('click', (e)=>{
-        e.preventDefault();
-        if (!initialData) return setEditMode(false);
-        if (el.name) el.name.value = initialData.name;
-        if (el.email) el.email.value = initialData.email;
-        if (el.address) el.address.value = initialData.address;
-        // clear edit address inputs
-        if (el.addrCity) el.addrCity.value = '';
-        if (el.addrPostal) el.addrPostal.value = '';
-        if (el.addrStreet) el.addrStreet.value = '';
-        if (el.addrNumber) el.addrNumber.value = '';
-        if (el.preferences) el.preferences.value = formatPreferences(initialData.preferences);
-        setEditMode(false);
-      });
+			/** Determine whether there are unsaved changes */
+			function computeUnsaved(){
+				if (!initial) return false;
+				const current = {
+					first_name: el.firstName?.value?.trim() || '',
+					last_name: el.lastName?.value?.trim() || '',
+					email: el.email?.value?.trim() || '',
+					address: el.addressEditGroup && !el.addressEditGroup.classList.contains('hidden') ? computeViewAddress() : formatAddressStruct(initial.address),
+					preferences: parsePreferencesInput(el.preferences?.value || ''),
+					optional: collectOptionalPayload(),
+				};
+				const sameFirst = (current.first_name || '') === (initial.first_name || '');
+				const sameLast = (current.last_name || '') === (initial.last_name || '');
+				const sameEmail = (current.email || '') === (initial.email || '');
+				const sameAddr = (current.address || '') === formatAddressStruct(initial.address || '');
+				const samePrefs = canonicalizePrefs(current.preferences) === canonicalizePrefs(initial.preferences);
+				const sameOpt = canonicalizePrefs(current.optional) === canonicalizePrefs(initial.optional || {});
+				return !(sameFirst && sameLast && sameEmail && sameAddr && samePrefs && sameOpt);
+			}
 
-      async function saveProfile(extraPrefs){
-        if (!isEditing) return;
-        const parsedPrefs = parsePreferencesInput(el.preferences?.value || '');
-        // Build full address from edit inputs if in edit mode
-        let fullAddress;
-        if (!el.addressEditGroup?.classList.contains('hidden')){
-          const city = el.addrCity?.value?.trim();
-          const postal = el.addrPostal?.value?.trim();
-          const street = el.addrStreet?.value?.trim();
-          const num = el.addrNumber?.value?.trim();
-          if (street || num || postal || city) {
-            // light validations similar to signup
-            if (!street || !num || !postal || !city) {
-              alert('Please provide your full address: street, number, postal code, and city.');
-              return;
-            }
-            if (!/^[0-9A-Za-z \-]{3,10}$/.test(postal)){
-              alert('Please enter a valid postal code.');
-              return;
-            }
-            fullAddress = `${street} ${num}, ${postal} ${city}`;
-          }
-        }
-        const payload = {
-          email: el.email?.value?.trim() || undefined,
-          address: fullAddress || undefined,
-          preferences: (()=>{
-            const combined = { ...parsedPrefs, ...collectOptionalToPrefs(), ...(extraPrefs||{}) };
-            return Object.keys(combined).length ? combined : undefined;
-          })()
-        };
-        try{
-          let res;
-          if (token) {
-            res = await fetch(`${BACKEND_BASE}/profile`, {
-              method: 'PUT',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(payload)
-            });
-          } else {
-            res = await window.apiFetch(`/profile`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-          }
-          const body = await res.json().catch(()=>({}));
-          dbg.logReq('PUT /profile', { status: res.status, body });
-          if (!res.ok) {
-            let msg = 'Failed to save';
-            if (typeof body?.detail === 'string') msg = body.detail;
-            else if (Array.isArray(body?.detail) && body.detail.length){
-              msg = body.detail.map(d => d.msg || JSON.stringify(d)).join('\n');
-            }
-            throw new Error(msg);
-          }
+			/** Toggle edit mode and prepare inputs accordingly */
+			function setEditMode(on){
+				isEditing = !!on;
+				// Email is not editable
+				disableInput(el.email, true);
+				// First/last name are editable in edit mode
+				disableInput(el.firstName, !isEditing);
+				disableInput(el.lastName, !isEditing);
+				// Show combined full name only in view mode
+				if (el.fullNameView) setHidden(el.fullNameView, isEditing);
+				if (el.fullNameLabel) setHidden(el.fullNameLabel, isEditing);
+				if (el.firstName) setHidden(el.firstName, !isEditing);
+				if (el.lastName) setHidden(el.lastName, !isEditing);
+				if (el.firstNameLabel) setHidden(el.firstNameLabel, !isEditing);
+				if (el.lastNameLabel) setHidden(el.lastNameLabel, !isEditing);
+				// Address: show edit inputs only in edit mode; view field always disabled
+				setHidden(el.address, !!isEditing);
+				setHidden(el.addressEditGroup, !isEditing);
+				// Prefill address inputs from initial snapshot when available
+				if (isEditing && initial && initial.address && typeof initial.address === 'object'){
+					if (el.addrStreet) el.addrStreet.value = initial.address.street || '';
+					if (el.addrNumber) el.addrNumber.value = initial.address.street_no || '';
+					if (el.addrPostal) el.addrPostal.value = initial.address.postal_code || '';
+					if (el.addrCity) el.addrCity.value = initial.address.city || '';
+				}
+				disableInput(el.addrCity, !isEditing);
+				disableInput(el.addrPostal, !isEditing);
+				disableInput(el.addrStreet, !isEditing);
+				disableInput(el.addrNumber, !isEditing);
+				disableInput(el.preferences, !isEditing);
+				disableInput(el.kitchenAvailable, !isEditing);
+				disableInput(el.mainCoursePossible, !isEditing);
+				disableInput(el.defaultDietary, !isEditing);
+				disableInput(el.fieldOfStudy, !isEditing);
+				setHidden(el.editBtn, isEditing);
+				setHidden(el.editActions, !isEditing);
+				setHidden(el.unsavedBanner, true);
+				hasUnsaved = false;
+			}
 
-          const d = body;
-          if (el.headerName) el.headerName.textContent = d.name || '';
-          if (el.headerEmail) el.headerEmail.textContent = d.email || '';
-          initialData = {
-            name: d.name || '',
-            email: d.email || '',
-            address: d.address || '',
-            preferences: d.preferences ?? {}
-          };
-          if (el.name) el.name.value = initialData.name;
-          if (el.email) el.email.value = initialData.email;
-          if (el.address) el.address.value = initialData.address;
-          // clear edit address inputs after save
-          if (el.addrCity) el.addrCity.value = '';
-          if (el.addrPostal) el.addrPostal.value = '';
-          if (el.addrStreet) el.addrStreet.value = '';
-          if (el.addrNumber) el.addrNumber.value = '';
-          if (el.preferences) el.preferences.value = formatPreferences(initialData.preferences);
-          setOptionalInputs(getOptionalFromPrefs(initialData.preferences));
+			/** Get the legacy dh_token if present (via helper or direct cookie) */
+			function getDhToken(){
+				try {
+					if (window.auth && typeof window.auth.getCookie === 'function') {
+						return window.auth.getCookie('dh_token');
+					}
+					const m = document.cookie.match(/(?:^|; )dh_token=([^;]*)/);
+					return m && m[1] ? decodeURIComponent(m[1]) : null;
+				} catch { return null; }
+			}
 
-          setEditMode(false);
+			/** Load the profile (cookie+CSRF by default, dh_token Bearer fallback) */
+			async function loadProfile(){
+				try { await (window.initCsrf ? window.initCsrf() : Promise.resolve()); } catch {}
 
-          const missing = [];
-          if (!d.name) missing.push('name');
-          if (!d.email) missing.push('email');
-          if (!d.address) missing.push('address');
-          if ((function(p){
-            if (!p) return true; if (Array.isArray(p)) return p.length===0; if (typeof p==='string') return p.trim().length===0; if (typeof p==='object') return Object.keys(p).length===0; return true;
-          })(d.preferences)) missing.push('preferences');
-          if (missing.length && el.incompleteBanner){
-            el.incompleteBanner.classList.remove('hidden');
-            el.incompleteDetails && (el.incompleteDetails.textContent = `Missing: ${missing.join(', ')}`);
-          } else if (el.incompleteBanner) {
-            el.incompleteBanner.classList.add('hidden');
-          }
+				const bearer = getDhToken();
+				const baseOpts = bearer ? { headers: { 'Authorization': `Bearer ${bearer}` }, credentials: 'omit' } : {};
+				let res = await window.apiFetch('/profile', baseOpts);
+				let data = await res.json().catch(()=>({}));
 
-          // Close onboarding modal if it was open
-          el.onboardingModal?.classList.add('hidden');
-        }catch(err){
-          console.error(err);
-          alert(err?.message || 'Could not save your changes.');
-        }
-      }
+				if (!res.ok){
+					// If we didn't send a bearer (cookie auth) but it exists, try again with Bearer
+					if (!bearer){
+						const b2 = getDhToken();
+						if (b2){
+							const res2 = await window.apiFetch('/profile', { headers: { 'Authorization': `Bearer ${b2}` }, credentials: 'omit' });
+							const d2 = await res2.json().catch(()=>({}));
+							if (res2.ok){
+								return handleProfileData(d2);
+							}
+						}
+					}
+					if (typeof window.handleUnauthorized === 'function') window.handleUnauthorized({ autoRedirect: true, delayMs: 1000 });
+					else window.location.href = 'login.html';
+					return null;
+				}
 
-  el.saveBtn?.addEventListener('click', (e)=>{ e.preventDefault(); saveProfile(); });
+				return handleProfileData(data);
+			}
 
-      ['input','change'].forEach(ev=>{
-        [el.email, el.preferences, el.kitchenAvailable, el.mainCoursePossible, el.dietary, el.fieldOfStudy, el.addrCity, el.addrPostal, el.addrStreet, el.addrNumber].forEach(inp=>{
-          inp?.addEventListener(ev, ()=>{
-            if (!isEditing) return;
-            hasUnsaved = computeHasUnsaved();
-            showUnsaved(hasUnsaved);
-            // dynamic: show/hide main course
-            if (inp === el.kitchenAvailable && el.mainCourseGroup) {
-              el.mainCourseGroup.classList.toggle('hidden', el.kitchenAvailable.value !== 'yes');
-            }
-          });
-        });
-      });
+			/** Build the payload from current fields (only what changed) */
+			function buildSavePayload(){
+				const payload = {};
+				const fName = el.firstName?.value?.trim();
+				const lName = el.lastName?.value?.trim();
+				if (typeof fName === 'string' && fName !== initial.first_name) payload.first_name = fName;
+				if (typeof lName === 'string' && lName !== initial.last_name) payload.last_name = lName;
 
-      window.addEventListener('beforeunload', (e)=>{
-        if (isEditing && hasUnsaved){
-          e.preventDefault();
-          e.returnValue = '';
-        }
-      });
+				const newEmail = el.email?.value?.trim();
+				if (newEmail && newEmail !== initial.email) payload.email = newEmail;
 
-      document.getElementById('logout-btn').addEventListener('click', async () => {
-        try {
-          await window.apiFetch(`/logout`, { method: 'POST' });
-        } catch {}
-        if (window.auth && window.auth.deleteCookie) {
-          window.auth.deleteCookie('dh_token');
-        } else {
-          document.cookie = `dh_token=; Path=/; SameSite=Strict${location.protocol==='https:'?'; Secure':''}; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
-        }
-        window.location.href = 'login.html';
-      });
+				// Structured address (require all fields if any is edited)
+				const city = el.addrCity?.value?.trim();
+				const postal = el.addrPostal?.value?.trim();
+				const street = el.addrStreet?.value?.trim();
+				const num = el.addrNumber?.value?.trim();
+				const anyAddrEdited = !!(city || postal || street || num);
+				if (anyAddrEdited){
+					if (!street || !num || !postal || !city){ throw new Error('Please provide your full address: street, number, postal code, and city.'); }
+					if (!/^[0-9A-Za-z \-]{3,10}$/.test(postal)){ throw new Error('Please enter a valid postal code.'); }
+					payload.street = street; payload.street_no = num; payload.postal_code = postal; payload.city = city;
+				}
 
-      // Onboarding modal actions
-      el.onboardingSkip?.addEventListener('click', async (e)=>{
-        e.preventDefault();
-        // Mark onboarding_seen in preferences and save silently
-        try {
-          // we don't need edit mode to save this flag
-          const res = await window.apiFetch(`/profile`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ preferences: { ...(initialData?.preferences||{}), onboarding_seen: true } })
-          });
-          const body = await res.json().catch(()=>({}));
-          dbg.logReq('PUT /profile (onboarding skip)', { status: res.status, body });
-        } catch {}
-        el.onboardingModal?.classList.add('hidden');
-      });
-      el.onboardingFill?.addEventListener('click', (e)=>{
-        e.preventDefault();
-        el.onboardingModal?.classList.add('hidden');
-        setEditMode(true);
-      });
-    })();
-  });
+				const prefs = parsePreferencesInput(el.preferences?.value || '');
+				if (prefs && Object.keys(prefs).length) payload.preferences = prefs;
+
+				const optional = collectOptionalPayload();
+				Object.assign(payload, optional);
+
+				return payload;
+			}
+
+			/** Send the update and reload the profile */
+			async function saveProfile(){
+				if (!isEditing) return;
+				try {
+					const payload = buildSavePayload();
+					const bearer = getDhToken();
+					const headers = { 'Content-Type': 'application/json' };
+					if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
+					const res = await window.apiFetch('/profile', {
+						method: 'PUT',
+						headers,
+						body: JSON.stringify(payload),
+						credentials: bearer ? 'omit' : undefined
+					});
+					const body = await res.json().catch(()=>({}));
+					if (!res.ok){
+						const msg = typeof body.detail === 'string' ? body.detail : (Array.isArray(body.detail) ? body.detail.map(d=>d.msg).join(' ') : 'Failed to save profile');
+						throw new Error(msg);
+					}
+					// Reload to reflect derived fields (address_public, etc.)
+					await loadProfile();
+					// Reset address edit inputs (avoid confusion)
+					if (el.addrCity) el.addrCity.value = '';
+					if (el.addrPostal) el.addrPostal.value = '';
+					if (el.addrStreet) el.addrStreet.value = '';
+					if (el.addrNumber) el.addrNumber.value = '';
+					setEditMode(false);
+				} catch (e){
+					console.error(e);
+					alert(e?.message || 'Could not save your changes.');
+				}
+			}
+
+			// ---------- Events ----------
+			// Edit/cancel/save buttons
+			el.editBtn && el.editBtn.addEventListener('click', (e)=>{ e.preventDefault(); setEditMode(true); });
+			el.cancelBtn && el.cancelBtn.addEventListener('click', (e)=>{
+				e.preventDefault();
+				// Restore fields from the initial snapshot
+				if (initial){
+					if (el.firstName) el.firstName.value = initial.first_name || '';
+					if (el.lastName) el.lastName.value = initial.last_name || '';
+					if (el.email) el.email.value = initial.email || '';
+					if (el.fullNameView) el.fullNameView.value = (((initial.first_name||'') + ' ' + (initial.last_name||''))).trim();
+					if (el.address) el.address.value = formatAddressStruct(initial.address);
+					if (el.preferences) el.preferences.value = formatPreferences(initial.preferences);
+					setOptionalUI(initial.optional);
+				}
+				if (initial && initial.address && typeof initial.address === 'object'){
+					if (el.addrStreet) el.addrStreet.value = initial.address.street || '';
+					if (el.addrNumber) el.addrNumber.value = initial.address.street_no || '';
+					if (el.addrPostal) el.addrPostal.value = initial.address.postal_code || '';
+					if (el.addrCity) el.addrCity.value = initial.address.city || '';
+				} else {
+					if (el.addrCity) el.addrCity.value = '';
+					if (el.addrPostal) el.addrPostal.value = '';
+					if (el.addrStreet) el.addrStreet.value = '';
+					if (el.addrNumber) el.addrNumber.value = '';
+				}
+				setEditMode(false);
+			});
+			el.saveBtn && el.saveBtn.addEventListener('click', (e)=>{ e.preventDefault(); saveProfile(); });
+
+			// Change detection + dynamic rules (main course <-> kitchen)
+			['input','change'].forEach(type => {
+				[el.firstName, el.lastName, el.email, el.preferences, el.kitchenAvailable, el.mainCoursePossible, el.defaultDietary, el.fieldOfStudy, el.addrCity, el.addrPostal, el.addrStreet, el.addrNumber].forEach(inp => {
+					inp && inp.addEventListener(type, () => {
+						if (!isEditing) return;
+						if (inp === el.kitchenAvailable) setHidden(el.mainCourseGroup, el.kitchenAvailable.value !== 'yes');
+						hasUnsaved = computeUnsaved();
+						setHidden(el.unsavedBanner, !hasUnsaved);
+					});
+				});
+			});
+
+			// Navigation warning if there are unsaved changes
+			window.addEventListener('beforeunload', (e)=>{ if (isEditing && hasUnsaved){ e.preventDefault(); e.returnValue = ''; } });
+
+			// Logout (supports cookie+CSRF or Bearer)
+			el.logoutBtn && el.logoutBtn.addEventListener('click', async () => {
+				try {
+					const bearer = getDhToken();
+					const headers = bearer ? { 'Authorization': `Bearer ${bearer}` } : {};
+					await window.apiFetch('/logout', { method: 'POST', headers, credentials: bearer ? 'omit' : undefined });
+				} catch {}
+				// Clear legacy guard cookie
+				try { if (window.auth && window.auth.deleteCookie) window.auth.deleteCookie('dh_token'); } catch {}
+				window.location.href = 'login.html';
+			});
+
+			// Onboarding (optional)
+			el.onboardingSkip && el.onboardingSkip.addEventListener('click', async (e)=>{
+				e.preventDefault();
+				try {
+					const bearer = getDhToken();
+					const headers = bearer ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${bearer}` } : { 'Content-Type': 'application/json' };
+					const r = await window.apiFetch('/profile/optional', { method: 'PATCH', headers, body: JSON.stringify({ skip: true }), credentials: bearer ? 'omit' : undefined });
+					await r.json().catch(()=>({}));
+				} catch {}
+				setHidden(el.onboardingModal, true);
+			});
+			el.onboardingFill && el.onboardingFill.addEventListener('click', (e)=>{ e.preventDefault(); setHidden(el.onboardingModal, true); setEditMode(true); });
+
+			// Initial load
+			await loadProfile();
+		})();
+	});
 })();
+
