@@ -13,56 +13,141 @@ import os
 
 ######### Helpers #########
 
-def _serialize(obj):
-    if isinstance(obj, dict):
-        return {k: _serialize(v) for k, v in obj.items()}
-
-    if isinstance(obj, list):
-        return [_serialize(v) for v in obj]
-
-    if isinstance(obj, ObjectId):
-        return str(obj)
-
-    if isinstance(obj, (datetime.datetime, datetime.date)):
-        try:
-            # prefer isoformat for datetimes; ensure timezone-naive datetimes are treated as UTC
-            if isinstance(obj, datetime.datetime):
-                return obj.isoformat()
-            return obj.isoformat()
-        except (TypeError, ValueError):
-            return str(obj)
-    return obj
-
-
-def _fmt_date(v):
-    """Return ISO string for date/datetime, otherwise return value unchanged."""
-    if isinstance(v, (datetime.datetime, datetime.date)):
-        try:
-            return v.isoformat()
-        except (TypeError, ValueError):
-            return str(v)
-    return v
-
-# Normalize legacy/unknown statuses to known set for response models
-_ALLOWED_STATUSES = {'draft', 'published', 'closed', 'cancelled'}
+_ALLOWED_STATUSES = {'draft','coming_soon','open','closed','matched','released','cancelled'}
+_LEGACY_MAP = { 'published': 'open' }
 
 def _normalize_status(v: Optional[str]) -> str:
     if not v:
         return 'draft'
     s = str(v).strip().lower()
-    if s == 'open':
-        return 'published'
+    s = _LEGACY_MAP.get(s, s)
     return s if s in _ALLOWED_STATUSES else 'draft'
 
-######### Router / Endpoints #########
-
 router = APIRouter()
+
+# --- Date/Datetime helpers (added to fix InvalidDocument for datetime.date) ---
+
+def _parse_incoming_date(name: str, value):
+    """Best-effort parse of incoming date/time strings.
+
+    Returns one of:
+    - None if value is falsy
+    - datetime.datetime for datetime-like fields (start_at, registration_deadline, payment_deadline)
+    - str (ISO date) for the 'date' field (kept as string for legacy compatibility)
+    - original value on failure
+    """
+    if value in (None, ''):
+        return None
+    # Already acceptable types
+    if isinstance(value, datetime.datetime):
+        return value
+    if isinstance(value, datetime.date):  # promote to datetime for non-'date' fields
+        if name == 'date':
+            return value.isoformat()
+        return datetime.datetime.combine(value, datetime.time(0, 0))
+    if isinstance(value, str):
+        txt = value.strip()
+        if not txt:
+            return None
+        # Handle trailing Z (UTC) which fromisoformat doesn't parse directly
+        if txt.endswith('Z'):
+            txt_stripped = txt[:-1]
+        else:
+            txt_stripped = txt
+        try:
+            if name == 'date' and len(txt_stripped) == 10:
+                # YYYY-MM-DD
+                return datetime.date.fromisoformat(txt_stripped).isoformat()
+            # Try full datetime
+            dt = datetime.datetime.fromisoformat(txt_stripped)
+            # For pure date (no time) fromisoformat returns datetime with 00:00 time
+            if name == 'date':
+                return dt.date().isoformat()
+            return dt
+        except ValueError:
+            # Fallback: if looks like YYYY-MM-DD for non-'date' -> promote to datetime midnight
+            if len(txt) == 10 and txt.count('-') == 2:
+                try:
+                    d = datetime.date.fromisoformat(txt)
+                    if name == 'date':
+                        return d.isoformat()
+                    return datetime.datetime.combine(d, datetime.time(0, 0))
+                except ValueError:
+                    return value
+            return value
+    return value
+
+def _sanitize_event_doc(doc: dict) -> dict:
+    """Mutate & return event doc ensuring Mongo encodable values for date/time fields.
+
+    - 'date' stored as ISO date string (YYYY-MM-DD)
+    - datetime.date objects for other fields are promoted to datetime.datetime midnight
+    - Leaves other values untouched.
+    """
+    if not isinstance(doc, dict):
+        return doc
+    date_fields = ['date', 'start_at', 'registration_deadline', 'payment_deadline']
+    for f in date_fields:
+        if f in doc:
+            parsed = _parse_incoming_date(f, doc.get(f))
+            # Promote stray datetime.date (non 'date') to datetime
+            if isinstance(parsed, datetime.date) and not isinstance(parsed, datetime.datetime):
+                if f == 'date':
+                    parsed = parsed.isoformat()
+                else:
+                    parsed = datetime.datetime.combine(parsed, datetime.time(0, 0))
+            # Ensure 'date' is plain string
+            if f == 'date' and isinstance(parsed, datetime.datetime):
+                parsed = parsed.date().isoformat()
+            doc[f] = parsed
+    return doc
+
+def _fmt_date(v):
+    """Format stored date/datetime value to API string.
+
+    Returns:
+    - ISO date (YYYY-MM-DD) for date/datetime representing date-only
+    - ISO 8601 datetime without microseconds for datetimes
+    - Original string if already a string
+    - None if value falsy
+    """
+    if not v:
+        return None
+    if isinstance(v, str):
+        return v
+    if isinstance(v, datetime.datetime):
+        # If time is midnight and no tz info, treat as date-only
+        if v.hour == 0 and v.minute == 0 and v.second == 0 and v.microsecond == 0:
+            return v.date().isoformat()
+        return v.replace(microsecond=0).isoformat()
+    if isinstance(v, datetime.date):
+        return v.isoformat()
+    return str(v)
+
+# Generic serializer (recursive) to convert ObjectId & datetime for JSON responses
+# (events.py referenced _serialize without defining it previously)
+def _serialize(obj):
+    if obj is None:
+        return None
+    if isinstance(obj, list):
+        return [_serialize(x) for x in obj]
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            out[k] = _serialize(v)
+        return out
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    if isinstance(obj, datetime.datetime):
+        return _fmt_date(obj)
+    if isinstance(obj, datetime.date):
+        return obj.isoformat()
+    return obj
 
 class LocationIn(BaseModel):
     address: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
-
 
 class EventCreate(BaseModel):
     """Admin event creation/update payload (simplified pricing).
@@ -87,13 +172,10 @@ class EventCreate(BaseModel):
     status: Optional[Literal['draft','coming_soon','open','closed','matched','released','cancelled']] = 'draft'
     refund_on_cancellation: Optional[bool] = None
     chat_enabled: Optional[bool] = None
-    # New: restrict participation area by zip codes
-    valid_zip_codes: Optional[List[str]] = None
 
 class LocationOut(BaseModel):
     address_public: Optional[str] = None
     point: Optional[dict] = None
-
 
 class EventOut(BaseModel):
     id: str
@@ -118,8 +200,6 @@ class EventOut(BaseModel):
     updated_at: Optional[datetime.datetime] = None
     refund_on_cancellation: Optional[bool] = None
     chat_enabled: Optional[bool] = None
-    # New: expose allowed zip codes
-    valid_zip_codes: Optional[List[str]] = None
 
 @router.get("/", response_model=list[EventOut])
 async def list_events(date: Optional[str] = None, status: Optional[str] = None, lat: Optional[float] = None, lon: Optional[float] = None, radius_m: Optional[int] = None, participant: Optional[str] = None, current_user=Depends(get_current_user)):
@@ -132,71 +212,53 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
     if date:
         query['date'] = date
     if status:
-        # map legacy 'published' to 'open'
+        # unify requested 'published' to 'open'
         if status == 'published':
             status = 'open'
         query['status'] = status
-    # simple radius -> degree bounding box
     if lat is not None and lon is not None and radius_m is not None:
-        # approx degrees per meter: 1 deg ~ 111_000 m
         delta_deg = radius_m / 111000.0
         query['lat'] = {"$gte": lat - delta_deg, "$lte": lat + delta_deg}
         query['lon'] = {"$gte": lon - delta_deg, "$lte": lon + delta_deg}
 
-    # if participant filter provided, resolve to event_ids via registrations
     if participant:
-        # support special keyword 'me' to mean currently authenticated user
         target_email = None
         target_user_id = None
         if participant == 'me':
-            # current_user is provided by dependency; use their _id
             target_user_id = current_user.get('_id')
         else:
-            # if looks like an email use snapshot match, otherwise treat as user_id
             if '@' in participant:
                 target_email = participant.lower()
             else:
                 try:
                     target_user_id = ObjectId(participant)
                 except (InvalidId, TypeError, ValueError):
-                    # fallback: treat as email snapshot
                     target_email = participant.lower()
-
         reg_query = {}
         if target_user_id is not None:
             reg_query['user_id'] = target_user_id
         if target_email is not None:
             reg_query['user_email_snapshot'] = target_email
-
         event_ids = set()
         async for r in db_mod.db.registrations.find(reg_query, {'event_id': 1}):
             if r.get('event_id') is not None:
                 event_ids.add(r['event_id'])
-
-        # if no registrations found, return empty list
         if not event_ids:
             return []
-
-        # restrict events query to these ids
         query['_id'] = {'$in': list(event_ids)}
 
-    # hide draft events from non-admins unless they are the organizer
     roles = current_user.get('roles') or []
     is_admin = 'admin' in roles
-    if not is_admin:
-        if not status:
-            # show coming_soon + open + matched + released (public phases)
-            query['status'] = {'$in': ['coming_soon','open','matched','released']}
+    if not is_admin and not status:
+        query['status'] = {'$in': ['coming_soon','open','matched','released']}
 
     events_resp = []
     async for e in db_mod.db.events.find(query):
-        # ZIP whitelist filtering for non-admins
         if not is_admin:
             valid_zips = e.get('valid_zip_codes') or []
             user_zip = (current_user.get('postal_code') or '').strip()
             if valid_zips and user_zip and user_zip not in valid_zips:
                 continue
-        # format date-like fields as strings to match EventOut typing
         date_val = _fmt_date(e.get('date')) or ''
         start_val = _fmt_date(e.get('start_at'))
         events_resp.append(EventOut(
@@ -226,7 +288,7 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
 @router.post('/', response_model=EventOut)
 async def create_event(payload: EventCreate, current_user=Depends(require_admin)):
     # admin-only: only admins can create events
-    now = __import__('datetime').datetime.utcnow()
+    now = datetime.datetime.utcnow()
     doc = payload.model_dump()
     # build after_party_location subdocument if provided (accept legacy 'location')
     loc_in = doc.pop('after_party_location', None)
@@ -279,6 +341,9 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
     # enforce status default (pydantic already defaults but ensure correct)
     if not doc.get('status'):
         doc['status'] = 'draft'
+
+    # Sanitize date/time fields for Mongo
+    _sanitize_event_doc(doc)
 
     res = await db_mod.db.events.insert_one(doc)
     return EventOut(
@@ -367,7 +432,6 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
 @router.put('/{event_id}', response_model=EventOut)
 async def update_event(event_id: str, payload: EventCreate, _=Depends(require_admin)):
     update = payload.model_dump(exclude_unset=True)
-
     # handle after_party_location update (accept legacy 'location')
     loc_in = update.pop('after_party_location', None)
     if loc_in is None:
@@ -401,6 +465,9 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
 
     # set updated_at
     update['updated_at'] = datetime.datetime.now()
+
+    # Sanitize date/time fields for Mongo
+    _sanitize_event_doc(update)
 
     # Persist changes (model_dump with exclude_unset ensures we only touch provided fields)
     await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": update})
