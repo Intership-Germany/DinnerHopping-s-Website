@@ -5,8 +5,8 @@ COPY . /app
 
 # Generate public/config.js from .env (used by static HTML pages)
 WORKDIR /app
-# RUN apk add --no-cache nodejs npm && \
-# 	node generate-config.js
+
+
 RUN apk add nodejs npm && \
 	node generate-config.js
 

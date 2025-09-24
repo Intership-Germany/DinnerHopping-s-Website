@@ -104,8 +104,25 @@
     const token = await ensureCsrfFor(options.method);
     if (token) options.headers[CSRF_HEADER] = token;
 
-    let res = await fetch(`${BASE}${path}`, options);
+    const url = `${BASE}${path}`;
+    let res = await fetch(url, options);
     readCsrfFromResponse(res);
+
+    // If unauthorized and we used cookie-based auth (no explicit Bearer header), try one refresh-then-retry
+    const usedBearer = !!options.headers['Authorization'] || !!options.headers['authorization'];
+    if ((res.status === 401 || res.status === 419) && !usedBearer) {
+      try {
+        await doRefresh();
+        // Re-attach CSRF (it may have rotated)
+        const token2 = await ensureCsrfFor(options.method);
+        if (token2) options.headers[CSRF_HEADER] = token2;
+        // Retry once
+        res = await fetch(url, options);
+        readCsrfFromResponse(res);
+      } catch (e) {
+        // fall through to unauthorized handler below
+      }
+    }
 
     if (res.status === 401 || res.status === 419){
       try {

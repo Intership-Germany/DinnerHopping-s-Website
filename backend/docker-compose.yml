@@ -6,7 +6,7 @@ services:
       - "27017:27017"
     volumes:
       # Persist MongoDB data inside the repo under backend/app/data
-      - ../../data:/data/db
+      - ./data/mongo:/data/db
   backend:
     build: .
     ports:

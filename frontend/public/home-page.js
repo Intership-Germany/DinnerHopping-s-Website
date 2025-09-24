@@ -2,6 +2,9 @@
 // This file is loaded by home.html and is responsible for dynamic content.
 
 (function () {
+    // Cached profile info for ZIP eligibility and defaults
+    let __USER_PROFILE = null;
+    let __USER_ZIP = null;
     // Tiny helpers around <template> usage for cleaner DOM
     function $tpl(id) {
         const t = document.getElementById(id);
@@ -25,6 +28,19 @@
             }
         } catch {}
         return out;
+    }
+
+    // Provider modal helpers
+    function openProviderModal() {
+        const tpl = $tpl('tpl-provider-modal');
+        if (!tpl) return null;
+        const node = tpl.cloneNode(true);
+        document.body.appendChild(node);
+        // close handlers
+        const closer = () => node.remove();
+        node.querySelector('.provider-close')?.addEventListener('click', closer);
+        node.addEventListener('click', (e) => { if (e.target === node) closer(); });
+        return node;
     }
 
     // Render helpers for states using templates
@@ -73,6 +89,7 @@
             const descEl = node.querySelector('.event-desc');
             const spotsEl = node.querySelector('.event-spots');
             const ctaEl = node.querySelector('.event-cta');
+            const zipBadgeEl = node.querySelector('.event-zip-badge');
 
             // Title
             titleEl.textContent = e.title || e.name || 'Untitled Event';
@@ -93,8 +110,11 @@
                 if (!desc) descEl.classList.add('hidden');
             }
 
-            // Spots remaining (assuming 6 capacity for now)
-            const capacity = 6; // default to 6
+            // Spots remaining
+            const capacity = e.capacity && Number.isInteger(e.capacity) && e.capacity > 0 ? e.capacity : 6; // assume 6 if not set
+            spotsEl.textContent = 'Loading...';
+            spotsEl.className = 'event-spots text-sm font-semibold text-gray-600';
+            // Simple availability logic: capacity - attendee_count
             const placeLeft = capacity - (Number(e.attendee_count) || 0);
             if (placeLeft <= 0) {
                 spotsEl.textContent = 'Event Full';
@@ -110,88 +130,316 @@
                 spotsEl.className = 'event-spots text-sm font-semibold text-green-600';
             }
 
-            // CTA -> register endpoint
+            // ZIP eligibility hint (client-side only)
+            try {
+                if (zipBadgeEl && __USER_ZIP && Array.isArray(e.allowed_zips) && !e.allowed_zips.includes(__USER_ZIP)) {
+                    zipBadgeEl.classList.remove('hidden');
+                }
+            } catch {}
+
+            // CTA -> open registration modal (Solo/Team)
             // Try to resolve an event id (API might return id/_id)
             const eventId = e.id || e._id || e.eventId || (e.event && (e.event.id || e.event._id));
             ctaEl.href = '#';
-            ctaEl.addEventListener('click', async (ev) => {
+            ctaEl.addEventListener('click', (ev) => {
                 ev.preventDefault();
                 if (!eventId || ctaEl.getAttribute('aria-disabled') === 'true') return;
-
-                const origText = ctaEl.textContent;
-                ctaEl.textContent = 'Applying…';
-                ctaEl.classList.add('opacity-80');
-
-                try {
-                    const headers = withAuthHeader({ 'Accept': 'application/json', 'Content-Type': 'application/json' });
-                    const path = `/events/${eventId}/register`;
-
-                    // Important: avoid credentials: 'include' to bypass wildcard CORS restriction from server
-                    // We authenticate with Bearer token extracted from cookie instead.
-                    const res = await fetch((window.BACKEND_BASE_URL || '') + path, {
-                        method: 'POST',
-                        headers,
-                        body: JSON.stringify({ team_size: 1, invited_emails: [] }),
-                        credentials: 'omit'
-                    });
-
-                    if (res.status === 401 || res.status === 419) {
-                        if (typeof window.handleUnauthorized === 'function') window.handleUnauthorized();
-                        return;
-                    }
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-                    const body = await res.json();
-                    const paymentLink = body.payment_link || (body.payment && (body.payment.link || body.payment.url));
-                    // Try to extract a registration id
-                    const regId = (body && (body.registration_id || body.registrationId))
-                        || (Array.isArray(body?.registration_ids) && body.registration_ids[0])
-                        || (body?.registration && (body.registration.id || body.registration._id))
-                        || body?.id || body?._id;
-
-                    // Optimistic UI: reflect registration
-                    spotsEl.textContent = Math.max(placeLeft - 1, 0) === 0 ? 'Event Full' : `${Math.max(placeLeft - 1, 0)} spots left`;
-                    if (Math.max(placeLeft - 1, 0) === 0) {
-                        ctaEl.classList.add('opacity-60', 'cursor-not-allowed');
-                        ctaEl.setAttribute('aria-disabled', 'true');
-                        ctaEl.tabIndex = -1;
-                    }
-
-                    // If event has a fee, prefer provider selection page
-                    const feeCents = typeof e.fee_cents === 'number' ? e.fee_cents : 0;
-                    if (feeCents > 0 && regId) {
-                        const params = new URLSearchParams({ reg: String(regId), event: String(eventId), amount: String(feeCents) });
-                        window.location.href = `payment-providers.html?${params.toString()}`;
-                        return;
-                    }
-                    // Fallback: direct payment link if provided by backend
-                    if (paymentLink) {
-                        const base = window.BACKEND_BASE_URL || '';
-                        window.location.href = paymentLink.startsWith('http') ? paymentLink : base + paymentLink;
-                        return;
-                    }
-
-                    // Otherwise show a lightweight confirmation state
-                    ctaEl.textContent = 'Registered';
-                } catch (err) {
-                    console.error('Registration failed', err);
-                    ctaEl.textContent = 'Try Again';
-                } finally {
-                    setTimeout(() => {
-                        if (ctaEl.textContent === 'Applying…') ctaEl.textContent = origText;
-                        ctaEl.classList.remove('opacity-80');
-                    }, 600);
-                }
+                openRegisterModal({ event: e, eventId, spotsEl, ctaEl, placeLeft });
             });
 
             container.appendChild(node);
         });
     }
 
+    // Registration modal (Solo/Team)
+    function openRegisterModal(ctx) {
+        const { event: eventObj, eventId, spotsEl, ctaEl, placeLeft } = ctx;
+        const tpl = document.getElementById('tpl-register-modal');
+        if (!tpl) return;
+        const modalFrag = tpl.content.cloneNode(true);
+        const overlay = modalFrag.querySelector('div.fixed');
+        const form = modalFrag.querySelector('form.reg-form');
+        form.elements.event_id.value = eventId;
+
+        const close = () => overlay.remove();
+        modalFrag.querySelector('.reg-close')?.addEventListener('click', close);
+        modalFrag.querySelector('.reg-cancel')?.addEventListener('click', close);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+        // Tabs
+        const tabSolo = modalFrag.querySelector('.tab-btn.solo');
+        const tabTeam = modalFrag.querySelector('.tab-btn.team');
+        const formSolo = modalFrag.querySelector('.form-solo');
+        const formTeam = modalFrag.querySelector('.form-team');
+        function setMode(mode) {
+            form.dataset.mode = mode;
+            if (mode === 'solo') {
+                formSolo.classList.remove('hidden');
+                formTeam.classList.add('hidden');
+                tabSolo.classList.add('bg-white','text-[#172a3a]','font-semibold');
+                tabTeam.classList.remove('bg-white','text-[#172a3a]','font-semibold');
+            } else {
+                formTeam.classList.remove('hidden');
+                formSolo.classList.add('hidden');
+                tabTeam.classList.add('bg-white','text-[#172a3a]','font-semibold');
+                tabSolo.classList.remove('bg-white','text-[#172a3a]','font-semibold');
+            }
+        }
+        tabSolo.addEventListener('click', () => setMode('solo'));
+        tabTeam.addEventListener('click', () => setMode('team'));
+
+        // Team toggles
+        const teamRoot = modalFrag.querySelector('.form-team');
+        const partnerExisting = teamRoot.querySelector('.partner-existing');
+        const partnerExternal = teamRoot.querySelector('.partner-external');
+        teamRoot.addEventListener('change', (e) => {
+            if (e.target.name === 'partner_mode') {
+                const isExternal = e.target.value === 'external';
+                partnerExternal.classList.toggle('hidden', !isExternal);
+                partnerExisting.classList.toggle('hidden', isExternal);
+            }
+        });
+
+        // Aggregated diet hint
+        const teamDietSummary = modalFrag.querySelector('#team-diet-summary');
+        teamRoot.addEventListener('input', () => {
+            const partnerDiet = teamRoot.querySelector('[name="partner_dietary"]').value || '';
+            const selfDiet = (__USER_PROFILE && __USER_PROFILE.preferences && __USER_PROFILE.preferences.default_dietary) || '';
+            const agg = aggregateDiet(selfDiet, partnerDiet);
+            teamDietSummary.textContent = agg ? `Aggregated dietary preference: ${agg}` : '';
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = form.querySelector('.reg-submit');
+            const prevLabel = submitBtn.textContent;
+            submitBtn.textContent = 'Submitting…';
+            submitBtn.disabled = true;
+            try {
+                const payload = buildRegistrationPayload(form, __USER_PROFILE);
+                const headers = withAuthHeader({ 'Accept': 'application/json', 'Content-Type': 'application/json' });
+                const path = `/events/${encodeURIComponent(payload.event_id)}/register`;
+                const res = await fetch((window.BACKEND_BASE_URL || '') + path, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(payload.body),
+                    credentials: 'omit'
+                });
+                if (res.status === 401 || res.status === 419) {
+                    if (typeof window.handleUnauthorized === 'function') window.handleUnauthorized();
+                    return;
+                }
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const body = await res.json();
+                const paymentLink = body.payment_link || (body.payment && (body.payment.link || body.payment.url));
+
+                // Optimistic UI update
+                if (spotsEl) {
+                    const left = Math.max((placeLeft || 1) - 1, 0);
+                    if (left <= 0) {
+                        spotsEl.textContent = 'Event Full';
+                        ctaEl.classList.add('opacity-60', 'cursor-not-allowed');
+                        ctaEl.setAttribute('aria-disabled','true');
+                        ctaEl.tabIndex = -1;
+                    } else {
+                        spotsEl.textContent = `${left} spots left`;
+                    }
+                }
+
+                // Direct payment link
+                if (paymentLink) {
+                    const base = window.BACKEND_BASE_URL || '';
+                    window.location.href = paymentLink.startsWith('http') ? paymentLink : base + paymentLink;
+                    return;
+                }
+
+                // Provider selection if needed
+                const regId = body.registration_id || body.registrationId || (Array.isArray(body.registration_ids) && body.registration_ids[0]) || (Array.isArray(body.registrationIds) && body.registrationIds[0]);
+                const amountCents = typeof eventObj.fee_cents === 'number' ? eventObj.fee_cents : 0;
+                if (amountCents > 0 && regId) {
+                    const base = window.BACKEND_BASE_URL || '';
+                    let providers = ['paypal','stripe','wero'];
+                    try {
+                        const provRes = await fetch(base + '/payments/providers', { method: 'GET', credentials: 'omit', headers: withAuthHeader({ 'Accept': 'application/json' }) });
+                        if (provRes.ok) {
+                            const provs = await provRes.json();
+                            providers = (provs && provs.providers) ? provs.providers : (Array.isArray(provs) ? provs : providers);
+                        }
+                    } catch {}
+
+                    const provModal = openProviderModal();
+                    if (provModal) {
+                        provModal.querySelectorAll('[data-provider]')?.forEach(btn => {
+                            const p = (btn.getAttribute('data-provider') || '').toLowerCase();
+                            if (!providers.includes(p)) {
+                                btn.classList.add('opacity-40', 'pointer-events-none');
+                                btn.setAttribute('aria-disabled','true');
+                            }
+                        });
+                        const onChoose = async (provider) => {
+                            try {
+                                const createRes = await fetch(base + '/payments/create', {
+                                    method: 'POST',
+                                    headers: withAuthHeader({ 'Accept': 'application/json', 'Content-Type': 'application/json' }),
+                                    body: JSON.stringify({ registration_id: regId, provider })
+                                });
+                                if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
+                                const created = await createRes.json();
+                                const link = created.payment_link || (created.instructions && (created.instructions.approval_link || created.instructions.link));
+                                if (link) {
+                                    window.location.href = link.startsWith('http') ? link : base + link;
+                                    return;
+                                }
+                            } catch (err) {
+                                console.error('Create payment failed', err);
+                            } finally {
+                                provModal.remove();
+                            }
+                        };
+                        provModal.querySelectorAll('[data-provider]')?.forEach(btn => {
+                            btn.addEventListener('click', (e) => {
+                                e.preventDefault();
+                                const p = (btn.getAttribute('data-provider') || '').toLowerCase();
+                                if (providers.includes(p)) onChoose(p);
+                            });
+                        });
+                    }
+                }
+
+                close();
+            } catch (err) {
+                alert(err.message || String(err));
+            } finally {
+                const submitBtn2 = form.querySelector('.reg-submit');
+                submitBtn2.textContent = prevLabel;
+                submitBtn2.disabled = false;
+            }
+        });
+
+        document.body.appendChild(overlay);
+    }
+
+    function aggregateDiet(a, b) {
+        const order = ['omnivore', 'vegetarian', 'vegan'];
+        const ca = order.indexOf((a||'').toLowerCase());
+        const cb = order.indexOf((b||'').toLowerCase());
+        if (ca === -1) return b || a || '';
+        if (cb === -1) return a || b || '';
+        return order[Math.max(ca, cb)];
+    }
+
+    function buildRegistrationPayload(form, profile) {
+        const event_id = form.elements.event_id.value;
+        const mode = form.dataset.mode || 'solo';
+        if (mode === 'solo') {
+            const dietary = form.elements.dietary.value;
+            const kitchenVal = form.elements.kitchen.value;
+            const mainCourseVal = form.elements.main_course.value;
+            const course = form.elements.course.value;
+            if (course === 'main') {
+                const profileMain = !!(profile && profile.preferences && profile.preferences.main_course_possible);
+                if (mainCourseVal === 'no' || (!mainCourseVal && !profileMain)) {
+                    throw new Error('Cannot select Main if main course is not possible.');
+                }
+            }
+            const preferences = {};
+            if (dietary) preferences.default_dietary = dietary;
+            if (kitchenVal) preferences.kitchen_available = (kitchenVal === 'yes');
+            if (mainCourseVal) preferences.main_course_possible = (mainCourseVal === 'yes');
+            if (course) preferences.course_preference = course;
+            return { event_id, body: { team_size: 1, preferences } };
+        }
+        // team mode
+        const partnerMode = form.querySelector('[name="partner_mode"]:checked')?.value || 'existing';
+        const preferences = {};
+        const invited_emails = [];
+        const teamCourse = form.elements.team_course.value;
+        if (teamCourse) preferences.course_preference = teamCourse;
+        const cookLocation = form.elements.cook_location.value; // 'self' or 'partner'
+        if (cookLocation) preferences.cook_at = cookLocation;
+        if (partnerMode === 'existing') {
+            const email = (form.elements.partner_email.value || '').trim();
+            if (!email) throw new Error('Partner email is required.');
+            invited_emails.push(email);
+        } else {
+            const name = (form.elements.partner_name.value || '').trim();
+            const email = (form.elements.partner_email_ext.value || '').trim();
+            if (!name || !email) throw new Error('Partner name and email are required.');
+            invited_emails.push(email);
+            preferences.partner_external = {
+                name,
+                email,
+                gender: form.elements.partner_gender.value || undefined,
+                dietary: form.elements.partner_dietary.value || undefined,
+                field_of_study: form.elements.partner_field.value || undefined
+            };
+        }
+        // Basic validation for kitchen if user chooses self
+        const selfKitchen = !!(profile && profile.preferences && profile.preferences.kitchen_available);
+        if (cookLocation === 'self' && !selfKitchen) {
+            throw new Error('Your profile says no kitchen available, but you selected to cook at your place.');
+        }
+        return { event_id, body: { team_size: 2, invited_emails, preferences } };
+    }
+
     // --- Filtering ---
     let __ALL_EVENTS = [];
     let __PAGE = 1;
     const PAGE_SIZE = 6;
+
+    // --- URL <-> state helpers ---
+    function parseFiltersFromURL() {
+        const sp = new URLSearchParams(location.search);
+        const q = (sp.get('q') || '').trim();
+        const maxFee = sp.has('fee') && sp.get('fee') !== '' ? parseInt(sp.get('fee'), 10) : null;
+        const deadline = sp.get('deadline') ? new Date(sp.get('deadline')) : null;
+        const onlyAvail = sp.get('avail') === '1';
+        const sort = (sp.get('sort') || '').trim();
+        const page = Math.max(1, parseInt(sp.get('page') || '1', 10) || 1);
+        return { q, maxFee, deadline, onlyAvail, sort, page };
+    }
+
+    function syncFormFromFilters(filters) {
+        const titleI = document.getElementById('filter-title');
+        const feeI = document.getElementById('filter-fee');
+        const deadlineI = document.getElementById('filter-deadline');
+        const availI = document.getElementById('filter-available');
+        const sortI = document.getElementById('filter-sort');
+        if (titleI) titleI.value = filters.q || '';
+        if (feeI) feeI.value = filters.maxFee != null && !Number.isNaN(filters.maxFee) ? String(filters.maxFee) : '';
+        if (deadlineI) {
+            // format yyyy-mm-dd
+            if (filters.deadline instanceof Date && !Number.isNaN(filters.deadline)) {
+                const d = filters.deadline;
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                deadlineI.value = `${yyyy}-${mm}-${dd}`;
+            } else {
+                deadlineI.value = '';
+            }
+        }
+        if (availI) availI.checked = !!filters.onlyAvail;
+        if (sortI) sortI.value = filters.sort || '';
+    }
+
+    function writeFiltersToURL(filters, page) {
+        const sp = new URLSearchParams();
+        if (filters.q) sp.set('q', filters.q);
+        if (filters.maxFee != null) sp.set('fee', String(filters.maxFee));
+        if (filters.deadline instanceof Date && !Number.isNaN(filters.deadline)) {
+            const d = filters.deadline;
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            sp.set('deadline', `${yyyy}-${mm}-${dd}`);
+        }
+        if (filters.onlyAvail) sp.set('avail', '1');
+        if (filters.sort) sp.set('sort', filters.sort);
+        if (page && page > 1) sp.set('page', String(page));
+        const newUrl = `${location.pathname}${sp.toString() ? '?' + sp.toString() : ''}${location.hash || ''}`;
+        history.replaceState(null, '', newUrl);
+    }
 
     function buildActiveFilterPills(filters) {
         const pills = [];
@@ -238,7 +486,7 @@
     }
 
     function applyFilters() {
-        const { q, maxFee, deadline, onlyAvail, sort } = readFilters();
+    const { q, maxFee, deadline, onlyAvail, sort } = readFilters();
         let filtered = (__ALL_EVENTS || []).filter(e => {
             // title
             const title = (e.title || e.name || '').toLowerCase();
@@ -285,7 +533,7 @@
         const listEl = document.getElementById('events-list');
         if (listEl) renderEvents(listEl, pageItems);
 
-    // render pills + counter
+        // render pills + counter
         renderActiveFiltersAndCounter(total, { q, maxFee, deadline, onlyAvail, sort });
 
         // render pager
@@ -295,9 +543,8 @@
         if (prevBtn) prevBtn.disabled = __PAGE <= 1;
         if (nextBtn) nextBtn.disabled = __PAGE >= maxPage;
         if (info) info.textContent = `Page ${__PAGE} of ${maxPage}`;
-
-        // Persist filters into URL for share/refresh
-        updateQueryString({ q, maxFee, deadline, onlyAvail, sort, page: __PAGE });
+        // write current filters to URL
+        writeFiltersToURL({ q, maxFee, deadline, onlyAvail, sort }, __PAGE);
     }
 
     function bindFilterEvents() {
@@ -318,49 +565,10 @@
         if (nextBtn) nextBtn.addEventListener('click', (e) => { e.preventDefault(); __PAGE++; applyFilters(); });
     }
 
-    // --- URL state (persist filters) ---
-    function updateQueryString({ q, maxFee, deadline, onlyAvail, sort, page }) {
-        const params = new URLSearchParams(window.location.search);
-        if (q) params.set('q', q); else params.delete('q');
-        if (typeof maxFee === 'number') params.set('fee', String(maxFee)); else params.delete('fee');
-        if (deadline instanceof Date && !isNaN(deadline)) {
-            // keep YYYY-MM-DD format
-            const yyyy = deadline.getFullYear();
-            const mm = String(deadline.getMonth() + 1).padStart(2, '0');
-            const dd = String(deadline.getDate()).padStart(2, '0');
-            params.set('deadline', `${yyyy}-${mm}-${dd}`);
-        } else {
-            params.delete('deadline');
-        }
-        if (onlyAvail) params.set('available', '1'); else params.delete('available');
-        if (sort) params.set('sort', sort); else params.delete('sort');
-        if (page && page > 1) params.set('page', String(page)); else params.delete('page');
-        const query = params.toString();
-        const url = query ? `${window.location.pathname}?${query}` : window.location.pathname;
-        window.history.replaceState(null, '', url);
-    }
-
-    function setFiltersFromURL() {
-        const params = new URLSearchParams(window.location.search);
-        const titleI = document.getElementById('filter-title');
-        const feeI = document.getElementById('filter-fee');
-        const deadlineI = document.getElementById('filter-deadline');
-        const availI = document.getElementById('filter-available');
-        const sortI = document.getElementById('filter-sort');
-
-        if (titleI && params.has('q')) titleI.value = params.get('q') || '';
-        if (feeI && params.has('fee')) feeI.value = params.get('fee') || '';
-        if (deadlineI && params.has('deadline')) deadlineI.value = params.get('deadline') || '';
-        if (availI) availI.checked = params.get('available') === '1';
-        if (sortI && params.has('sort')) sortI.value = params.get('sort') || '';
-        const page = parseInt(params.get('page') || '1', 10);
-        if (!isNaN(page) && page > 0) __PAGE = page; else __PAGE = 1;
-    }
-
     async function fetchPublishedEvents() {
         // Proactively include Bearer token on first request and use apiFetch helper.
         // Also normalize URL with trailing slash to avoid a 307 redirect.
-        const path = '/events/?status=published';
+        const path = '/events/?status=open';
         const token = (function () {
             try {
                 if (window.auth && typeof window.auth.getCookie === 'function') {
@@ -389,14 +597,121 @@
         return res.json();
     }
 
+    async function fetchMyEvents() {
+        // Use participant=me filter exposed by backend list_events implementation
+        const path = '/events?participant=me';
+        const token = (function () {
+            try {
+                if (window.auth && typeof window.auth.getCookie === 'function') {
+                    return window.auth.getCookie('dh_token');
+                }
+                const m = document.cookie.match(/(?:^|; )dh_token=([^;]*)/);
+                return m ? decodeURIComponent(m[1]) : null;
+            } catch { return null; }
+        })();
+        const headers = { 'Accept': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await (window.apiFetch ? window.apiFetch(path, { method: 'GET', headers, credentials: 'omit' })
+            : fetch(((window.BACKEND_BASE_URL || '') + path), { method: 'GET', credentials: 'omit', headers }));
+        if (!res.ok) return [];
+        return res.json();
+    }
+
+    function renderMyRegistrations(events) {
+        const wrap = document.getElementById('my-registrations');
+        const list = document.getElementById('my-registrations-list');
+        if (!wrap || !list) return;
+        list.innerHTML = '';
+        if (!Array.isArray(events) || events.length === 0) {
+            wrap.classList.add('hidden');
+            return;
+        }
+        const tpl = document.getElementById('tpl-myreg-card');
+        events.forEach(ev => {
+            const node = tpl.content.cloneNode(true);
+            node.querySelector('.reg-title').textContent = ev.title || ev.name || 'Event';
+            node.querySelector('.reg-date').textContent = ev.start_at ? new Date(ev.start_at).toLocaleString() : (ev.date || '');
+            const badge = node.querySelector('.reg-badge');
+            const match = node.querySelector('.reg-match');
+            const note = node.querySelector('.reg-note');
+            const btnPay = node.querySelector('.reg-pay');
+            const aGo = node.querySelector('.reg-go');
+            const eventId = ev.id || ev._id || ev.eventId;
+            aGo.href = `/event.html?id=${encodeURIComponent(eventId)}`;
+
+            // Try payment and registration hints from localStorage if present
+            const key = `dh:lastReg:${eventId}`;
+            const regInfoRaw = localStorage.getItem(key);
+            let regInfo = null;
+            try { regInfo = regInfoRaw ? JSON.parse(regInfoRaw) : null; } catch {}
+
+            // Badge for status (best-effort)
+            if (regInfo && regInfo.status) {
+                badge.textContent = regInfo.status;
+            } else {
+                badge.textContent = 'registered';
+            }
+
+            // Payment hint
+            if (typeof ev.fee_cents === 'number' && ev.fee_cents > 0) {
+                if (!regInfo || (regInfo.payment_status && regInfo.payment_status !== 'succeeded')) {
+                    note.classList.remove('hidden');
+                    note.textContent = "You haven't paid the fee yet.";
+                    if (regInfo && regInfo.registration_id) {
+                        btnPay.classList.remove('hidden');
+                        btnPay.addEventListener('click', async () => {
+                            try {
+                                const base = window.BACKEND_BASE_URL || '';
+                                const headers = withAuthHeader({ 'Accept': 'application/json', 'Content-Type': 'application/json' });
+                                const r = await fetch(base + '/payments/create', {
+                                    method: 'POST',
+                                    headers,
+                                    credentials: 'omit',
+                                    body: JSON.stringify({ registration_id: regInfo.registration_id })
+                                });
+                                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                                const data = await r.json();
+                                const link = data.payment_link || (data.instructions && (data.instructions.approval_link || data.instructions.link));
+                                if (link) {
+                                    window.location.assign(link.startsWith('http') ? link : (base + link));
+                                }
+                            } catch (err) {
+                                alert('Could not create payment.');
+                            }
+                        });
+                    }
+                }
+            }
+
+            // Matching hint (best-effort; backend has get_my_plan helper but not exposed via route)
+            match.textContent = ev.matching_status ? `Matching: ${ev.matching_status}` : '';
+            list.appendChild(node);
+        });
+        wrap.classList.remove('hidden');
+    }
+
     document.addEventListener('DOMContentLoaded', async function () {
         const listEl = document.getElementById('events-list');
         if (!listEl) return;
 
         renderLoading(listEl);
         bindFilterEvents();
-        // initialize filters from URL before first render
-        setFiltersFromURL();
+        // Initialize form from URL and page state
+        const urlFilters = parseFiltersFromURL();
+        __PAGE = urlFilters.page || 1;
+        syncFormFromFilters(urlFilters);
+        // Preload profile for ZIP eligibility and defaults
+        try {
+            const path = '/profile';
+            const headers = withAuthHeader({ 'Accept': 'application/json' });
+            const res = await (window.apiFetch ? window.apiFetch(path, { method: 'GET', headers, credentials: 'omit' })
+                : fetch(((window.BACKEND_BASE_URL || '') + path), { method: 'GET', credentials: 'omit', headers }));
+            if (res.ok) {
+                __USER_PROFILE = await res.json();
+                const addr = __USER_PROFILE.address || __USER_PROFILE.address_public || {};
+                __USER_ZIP = addr.postal_code || __USER_PROFILE.postal_code || null;
+            }
+        } catch {}
         try {
             const events = await fetchPublishedEvents();
             __ALL_EVENTS = Array.isArray(events) ? events : (events?.events || []);
@@ -410,5 +725,10 @@
             }
             renderError(listEl, 'Could not load events. Please try again later.');
         }
+        // Load my registrations banner (best-effort)
+        try {
+            const myEvents = await fetchMyEvents();
+            renderMyRegistrations(Array.isArray(myEvents) ? myEvents : []);
+        } catch {}
     });
 })();

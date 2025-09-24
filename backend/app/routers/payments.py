@@ -39,11 +39,6 @@ class CapturePaymentIn(BaseModel):
 
 # Provider-specific logic delegated to app.payments_providers
 
-    # Idempotency: return existing order for this registration if present
-    existing = await db_mod.db.payments.find_one({"registration_id": reg_obj, "provider": "paypal"})
-    if existing and existing.get('provider_payment_id'):
-        return {"id": existing.get('provider_payment_id')}
-
 @router.get('/paypal/config')
 async def paypal_config():
     """Expose minimal PayPal client configuration for the frontend.

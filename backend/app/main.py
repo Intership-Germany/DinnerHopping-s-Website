@@ -226,3 +226,8 @@ async def my_plan(current_user=Depends(get_current_user)):
     return await events.get_my_plan(current_user)
 
 app.include_router(api_router)
+
+# Healthcheck rapide (pas d'accès DB lourd). Optionnel: ajouter ping DB.
+@app.get('/health', tags=["health"], include_in_schema=False)
+async def health():
+    return {"status": "ok"}
