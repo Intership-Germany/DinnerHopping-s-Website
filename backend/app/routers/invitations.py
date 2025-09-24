@@ -20,7 +20,9 @@ router = APIRouter()
 
 
 class AcceptPayload(BaseModel):
-    name: Optional[str] = None
+    # Collect first/last name separately (legacy 'name' removed)
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     password: Optional[str] = None
 
 
@@ -82,9 +84,9 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
         except HTTPException:
             user_email = None
     if not user_email:
-        # create account flow: require password and name
-        if not payload.password or not payload.name:
-            raise HTTPException(status_code=400, detail='Provide name and password to create an account')
+        # create account flow: require password and both first & last name
+        if not payload.password or not payload.first_name or not payload.last_name:
+            raise HTTPException(status_code=400, detail='Provide first_name, last_name and password to create an account')
         existing = await db_mod.db.users.find_one({"email": invited_email})
         if existing:
             # user exists but not authenticated — instruct to login
@@ -92,11 +94,11 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
         now = datetime.datetime.utcnow()
         user_doc = {
             "email": invited_email,
-            "name": payload.name,
+            "first_name": payload.first_name.strip() if payload.first_name else None,
+            "last_name": payload.last_name.strip() if payload.last_name else None,
             "password_hash": hash_password(payload.password),
             # invited users created via accept are marked verified for login without email confirmation
-            "email_verified": False,
-            "is_verified": True,
+            "email_verified": False,  # require later explicit verification
             "roles": ['user'],
             "preferences": {},
             "failed_login_attempts": 0,

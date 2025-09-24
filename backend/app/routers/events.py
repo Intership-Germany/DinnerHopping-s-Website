@@ -54,28 +54,25 @@ class LocationIn(BaseModel):
 
 
 class EventCreate(BaseModel):
-    """Admin event creation/update payload.
+    """Admin event creation/update payload (simplified pricing).
 
-    Extended to support plan requirements: distinct solo/team fees, valid zip whitelist,
-    richer lifecycle statuses (coming_soon, open, matched, released), and feature flags.
-    Backwards compatibility: if fee_solo_cents/fee_team_cents absent use fee_cents.
+    Tarification: un seul champ `fee_cents` (prix pour un participant). Le total
+    à payer pour une équipe de taille N = fee_cents * N. Anciennes variantes
+    fee_solo_cents / fee_team_cents supprimées.
     """
     title: str
     description: Optional[str] = None
-    extra_info: Optional[str] = None  # optional free text for additional info
-    date: Optional[str] = None  # ISO date string (compat)
-    start_at: Optional[str] = None  # ISO datetime string (preferred)
+    extra_info: Optional[str] = None
+    date: Optional[str] = None
+    start_at: Optional[str] = None
     capacity: Optional[int] = None
-    fee_cents: Optional[int] = 0  # legacy single-fee field
-    fee_solo_cents: Optional[int] = None
-    fee_team_cents: Optional[int] = None
+    fee_cents: Optional[int] = 0
     city: Optional[str] = None
     registration_deadline: Optional[str] = None
     payment_deadline: Optional[str] = None
     valid_zip_codes: Optional[List[str]] = Field(default_factory=list, description="Whitelisted postal codes allowed to register")
     after_party_location: Optional[LocationIn] = None
-    organizer_id: Optional[str] = None  # user id (ObjectId as str)
-    # Extended status lifecycle; map legacy 'published' -> 'open'
+    organizer_id: Optional[str] = None
     status: Optional[Literal['draft','coming_soon','open','closed','matched','released','cancelled']] = 'draft'
     refund_on_cancellation: Optional[bool] = None
     chat_enabled: Optional[bool] = None
@@ -93,9 +90,7 @@ class EventOut(BaseModel):
     date: Optional[str] = None
     start_at: Optional[str] = None
     capacity: Optional[int] = None
-    fee_cents: Optional[int] = 0  # legacy
-    fee_solo_cents: Optional[int] = None
-    fee_team_cents: Optional[int] = None
+    fee_cents: Optional[int] = 0
     city: Optional[str] = None
     registration_deadline: Optional[str] = None
     payment_deadline: Optional[str] = None
@@ -198,8 +193,6 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
             start_at=start_val,
             capacity=e.get('capacity'),
             fee_cents=e.get('fee_cents', 0),
-            fee_solo_cents=e.get('fee_solo_cents'),
-            fee_team_cents=e.get('fee_team_cents'),
             city=e.get('city'),
             attendee_count=e.get('attendee_count', 0),
             status=e.get('status'),
@@ -257,12 +250,6 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
     # default fields per schema & fee compatibility
     doc['attendee_count'] = 0
     doc['fee_cents'] = int(doc.get('fee_cents', 0)) if doc.get('fee_cents') is not None else 0
-    # if new fee fields missing populate from legacy
-    if doc.get('fee_solo_cents') is None:
-        doc['fee_solo_cents'] = doc['fee_cents'] if doc.get('fee_cents') is not None else 0
-    if doc.get('fee_team_cents') is None:
-        # simple default: double solo
-        doc['fee_team_cents'] = int(doc.get('fee_solo_cents', 0)) * 2
     doc['registration_deadline'] = doc.get('registration_deadline')
     doc['payment_deadline'] = doc.get('payment_deadline')
     doc['matching_status'] = doc.get('matching_status', 'not_started')
@@ -284,9 +271,7 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         date=_fmt_date(doc.get('date')) or '',
         start_at=_fmt_date(doc.get('start_at')),
         capacity=doc.get('capacity'),
-        fee_cents=doc.get('fee_cents', 0),
-        fee_solo_cents=doc.get('fee_solo_cents'),
-        fee_team_cents=doc.get('fee_team_cents'),
+    fee_cents=doc.get('fee_cents', 0),
         city=doc.get('city'),
         registration_deadline=_fmt_date(doc.get('registration_deadline')),
         payment_deadline=_fmt_date(doc.get('payment_deadline')),
@@ -353,8 +338,7 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
     serialized['city'] = e.get('city')
     serialized['refund_on_cancellation'] = e.get('refund_on_cancellation')
     serialized['chat_enabled'] = e.get('chat_enabled')
-    serialized['fee_solo_cents'] = e.get('fee_solo_cents')
-    serialized['fee_team_cents'] = e.get('fee_team_cents')
+    # legacy fields removed: fee_solo_cents, fee_team_cents
     serialized['valid_zip_codes'] = e.get('valid_zip_codes', [])
     # normalize legacy status mapping
     if serialized.get('status') == 'published':
@@ -412,9 +396,7 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
     date=_fmt_date(e.get('date')),
     start_at=_fmt_date(e.get('start_at')),
         capacity=e.get('capacity'),
-        fee_cents=e.get('fee_cents', None),
-        fee_solo_cents=e.get('fee_solo_cents'),
-        fee_team_cents=e.get('fee_team_cents'),
+    fee_cents=e.get('fee_cents', 0),
         city=e.get('city'),
     registration_deadline=_fmt_date(e.get('registration_deadline')),
     payment_deadline=_fmt_date(e.get('payment_deadline')),
@@ -541,9 +523,8 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
 
     # Optionally create a payment link if event has a fee
     payment_link = None
-    fee_solo = event.get('fee_solo_cents') if event.get('fee_solo_cents') is not None else event.get('fee_cents', 0)
-    fee_team = event.get('fee_team_cents') if event.get('fee_team_cents') is not None else (fee_solo * 2)
-    chosen_fee_cents = fee_team if team_size > 1 else fee_solo
+    base_fee = event.get('fee_cents', 0) or 0
+    chosen_fee_cents = base_fee * team_size
     if chosen_fee_cents and chosen_fee_cents > 0:
         pay = {
             "registration_id": res.inserted_id,

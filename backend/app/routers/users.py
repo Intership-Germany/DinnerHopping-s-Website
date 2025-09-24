@@ -1,4 +1,12 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request, Response, Form
+"""Users router
+
+Migration note (2025-09):
+ - Removed duplicated full name field 'name'. Use 'first_name' and 'last_name'.
+ - Removed legacy boolean 'is_verified'; standardized on 'email_verified'.
+ - Address now always returned as structured components under 'address'.
+Existing records may still contain 'name' or 'is_verified'; they are ignored.
+"""
 import os
 from pydantic import BaseModel, EmailStr
 from typing import Optional, Literal
@@ -30,12 +38,18 @@ class UserCreate(BaseModel):
     preferences: dict | None = {}
 
 class UserOut(BaseModel):
+    """Public/own profile user representation without duplicated full name field.
+
+    Legacy field 'name' (full name) and 'is_verified' have been removed to avoid
+    duplication. Use first_name + last_name for display and 'email_verified' for
+    verification status.
+    """
     id: str
-    name: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: EmailStr
-    address: str | None = None
+    # Structured address components stored under `address_struct`.
+    address: dict | None = None
     preferences: dict | None = {}
     roles: list[str] | None = []
     # Optional profile fields
@@ -66,7 +80,6 @@ async def register(u: UserCreate):
         'email': u.email.lower(),
         'first_name': u.first_name.strip(),
         'last_name': u.last_name.strip(),
-        'name': f"{u.first_name.strip()} {u.last_name.strip()}",
         'gender': (u.gender or 'prefer_not_to_say').lower(),
         'address_struct': {
             'street': u.street,
@@ -163,7 +176,7 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
     user_obj = await get_user_by_email(username)
     if not user_obj:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    if not (user_obj.get('email_verified') or user_obj.get('is_verified')):
+    if not user_obj.get('email_verified'):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email not verified")
     user = await authenticate_user(username, password)
     if not user:
@@ -285,15 +298,11 @@ async def refresh(request: Request, response: Response):
 
 
 class ProfileUpdate(BaseModel):
-    # legacy combined name (admin-only)
-    name: str | None = None
-    # explicit fields
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     gender: Optional[Literal['female','male','diverse','prefer_not_to_say']] = None
     email: EmailStr | None = None
-    # either provide a single-line address or structured parts
-    address: str | None = None
+    # Structured address components only
     street: Optional[str] = None
     street_no: Optional[str] = None
     postal_code: Optional[str] = None
@@ -310,17 +319,17 @@ class ProfileUpdate(BaseModel):
     skip_optional_profile: Optional[bool] = False
 
 @router.get('/profile', response_model=UserOut)
-async def get_profile_alias(current_user=Depends(get_current_user)):
+async def get_profile(current_user=Depends(get_current_user)):
     u = await db_mod.db.users.find_one({"email": current_user['email']})
     if not u:
         raise HTTPException(status_code=404, detail='User not found')
     return UserOut(
         id=str(u.get('_id', '')),
-        name=u.get('name'),
         first_name=u.get('first_name'),
         last_name=u.get('last_name'),
         email=u.get('email'),
-        address=u.get('address_public'),
+        # Return the structured address components stored in `address_struct`.
+        address=u.get('address_struct'),
         preferences=u.get('preferences', {}),
         roles=u.get('roles', []),
         kitchen_available=u.get('kitchen_available'),
@@ -332,13 +341,8 @@ async def get_profile_alias(current_user=Depends(get_current_user)):
     )
 
 @router.put('/profile', response_model=UserOut)
-async def update_profile_alias(payload: ProfileUpdate, current_user=Depends(get_current_user)):
+async def update_profile(payload: ProfileUpdate, current_user=Depends(get_current_user)):
     update_data = {k: v for k, v in payload.dict().items() if v is not None}
-    # Only admins may change the 'name' field. Prevent non-admins from updating it.
-    if 'name' in update_data:
-        roles = current_user.get('roles') or []
-        if 'admin' not in roles:
-            raise HTTPException(status_code=403, detail='Only admins may change the name')
     if 'password' in update_data:
         # migrating update: accept 'password' input, store as password_hash
         update_data['password_hash'] = hash_password(update_data['password'])
@@ -359,12 +363,7 @@ async def update_profile_alias(payload: ProfileUpdate, current_user=Depends(get_
         else:
             # empty/invalid email not allowed
             raise HTTPException(status_code=400, detail='Invalid email')
-    # handle first/last name synchronization with legacy 'name'
-    if 'first_name' in update_data or 'last_name' in update_data:
-        first_name = update_data.get('first_name', current_user.get('first_name'))
-        last_name = update_data.get('last_name', current_user.get('last_name'))
-        if first_name and last_name:
-            update_data['name'] = f"{first_name.strip()} {last_name.strip()}"
+    # no longer maintaining combined 'name' field; clients compose front-end
     # normalize gender
     if 'gender' in update_data and isinstance(update_data.get('gender'), str):
         update_data['gender'] = update_data['gender'].lower()
@@ -384,11 +383,6 @@ async def update_profile_alias(payload: ProfileUpdate, current_user=Depends(get_
         if full_line:
             update_data['address_encrypted'] = encrypt_address(full_line)
             update_data['address_public'] = anonymize_public_address(full_line)
-    # handle single-line address
-    if 'address' in update_data:
-        update_data['address_encrypted'] = encrypt_address(update_data.get('address'))
-        update_data['address_public'] = anonymize_public_address(update_data.get('address'))
-        update_data.pop('address', None)
     # handle optional profile fields provided via the main profile endpoint
     if any(k in update_data for k in ('kitchen_available','main_course_possible','default_dietary_preference','field_of_study','skip_optional_profile')):
         # map skip flag
@@ -413,11 +407,10 @@ async def update_profile_alias(payload: ProfileUpdate, current_user=Depends(get_
         u = await db_mod.db.users.find_one({"email": update_data.get('email')})
     return UserOut(
         id=str(u.get('_id', '')),
-        name=u.get('name'),
         first_name=u.get('first_name'),
         last_name=u.get('last_name'),
         email=u.get('email'),
-        address=u.get('address_public'),
+        address=u.get('address_struct'),
         preferences=u.get('preferences', {}),
         roles=u.get('roles', []),
     )
@@ -461,7 +454,7 @@ async def resend_verification(payload: ResendVerificationIn):
     """
     user = await db_mod.db.users.find_one({"email": payload.email})
     email_sent = False
-    if user and not (user.get('email_verified') or user.get('is_verified')):
+    if user and not user.get('email_verified'):
         with suppress(Exception):
             await db_mod.db.email_verifications.delete_many({"email": payload.email})
         with suppress(Exception):
