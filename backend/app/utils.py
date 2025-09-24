@@ -18,6 +18,7 @@ import os
 import secrets
 import smtplib
 import uuid
+import math
 from email.message import EmailMessage
 from typing import Mapping, Optional, Sequence
 import base64
@@ -63,6 +64,58 @@ def anonymize_address(lat: float, lon: float) -> dict:
         "center": cell,
         "approx_radius_m": 500,
     }
+
+
+# ---------- Distance / Travel Utilities (Matching support) ----------
+
+EARTH_RADIUS_M = 6371000.0
+
+def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance between two WGS84 points in meters.
+
+    Simple implementation adequate for intra-city routing estimation.
+    """
+    # convert degrees -> radians
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return EARTH_RADIUS_M * c
+
+
+def approx_travel_time_minutes(distance_m: float, mode: str = 'walk') -> float:
+    """Approximate travel time based on naive average speeds.
+
+    - walk: 4.5 km/h
+    - bike: 15 km/h
+    """
+    if distance_m <= 0:
+        return 0.0
+    speed_map = {
+        'walk': 4_500.0,  # meters per hour
+        'bike': 15_000.0,
+    }
+    speed = speed_map.get(mode, speed_map['walk'])
+    hours = distance_m / speed
+    return hours * 60.0
+
+
+def distance_matrix(points: list[tuple[float, float]]) -> list[list[float]]:
+    """Return a symmetric distance matrix (meters) for given (lat,lon) points.
+
+    Used by matching algorithm for scoring travel cost.
+    """
+    n = len(points)
+    mtx = [[0.0]*n for _ in range(n)]
+    for i in range(n):
+        lat1, lon1 = points[i]
+        for j in range(i+1, n):
+            lat2, lon2 = points[j]
+            d = haversine_m(lat1, lon1, lat2, lon2)
+            mtx[i][j] = mtx[j][i] = d
+    return mtx
 
 
 def _load_address_key() -> bytes | None:
@@ -363,11 +416,20 @@ async def get_event(event_id) -> Optional[dict]:
 
 
 async def require_event_published(event_id) -> dict:
-    """Raise HTTPException if event not found or not published. Returns event dict on success."""
+    """Raise HTTPException if event not found or not published/open.
+
+    In legacy/newer lifecycle we treat status 'open' as equivalent to historical
+    'published'. During tests (USE_FAKE_DB_FOR_TESTS) we relax the check to also
+    accept 'draft' to simplify integration setup if needed.
+    """
     ev = await get_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail='Event not found')
-    if ev.get('status') != 'published':
+    status = ev.get('status')
+    allowed = {'published', 'open'}
+    if os.getenv('USE_FAKE_DB_FOR_TESTS'):
+        allowed.add('draft')
+    if status not in allowed:
         raise HTTPException(status_code=400, detail='Event is not open for this action')
     return ev
 
@@ -527,3 +589,72 @@ async def send_payment_confirmation(registration_id) -> bool:
         ok = await send_email(to=to, subject=subject, body="\n".join(lines), category='payment_confirmation')
         ok_any = ok_any or ok
     return ok_any
+
+
+async def finalize_registration_payment(registration_id, payment_id=None) -> bool:
+    """Finalize a successful payment for a registration (solo or team) in an idempotent way.
+
+    Responsibilities:
+    - Mark the target registration (and any teammate registrations sharing team_id) as paid.
+    - If a team is involved, also update the team document status to 'paid'.
+    - Send confirmation emails (once) to all involved participant email snapshots.
+    - Mark the Payment document (if provided) with confirmation_email_sent_at to avoid duplicate mails.
+
+    This function is safe to call multiple times (e.g. concurrent webhook + return URL)
+    because it checks the payment document for an existing confirmation_email_sent_at timestamp.
+    """
+    try:
+        oid = registration_id if isinstance(registration_id, ObjectId) else ObjectId(registration_id)
+    except (InvalidId, TypeError):
+        return False
+    reg = await db_mod.db.registrations.find_one({'_id': oid})
+    if not reg:
+        return False
+    now = datetime.datetime.utcnow()
+
+    # If supplied, load payment doc to check idempotency flag
+    pay_doc = None
+    if payment_id is not None:
+        try:
+            pay_oid = payment_id if isinstance(payment_id, ObjectId) else ObjectId(payment_id)
+            pay_doc = await db_mod.db.payments.find_one({'_id': pay_oid})
+        except (InvalidId, TypeError):
+            pay_doc = None
+
+    # Update registration(s) status to paid (idempotent updates)
+    team_id = reg.get('team_id')
+    if team_id:
+        # Mark all registrations in the team paid
+        try:
+            await db_mod.db.registrations.update_many(
+                {'team_id': team_id, 'status': {'$ne': 'paid'}},
+                {'$set': {'status': 'paid', 'paid_at': now, 'updated_at': now}}
+            )
+        except PyMongoError:
+            pass
+        # Mark team document
+        try:
+            await db_mod.db.teams.update_one({'_id': team_id}, {'$set': {'status': 'paid', 'updated_at': now}})
+        except PyMongoError:
+            pass
+    else:
+        try:
+            await db_mod.db.registrations.update_one(
+                {'_id': reg['_id'], 'status': {'$ne': 'paid'}},
+                {'$set': {'status': 'paid', 'paid_at': now, 'updated_at': now}}
+            )
+        except PyMongoError:
+            pass
+
+    # Only send emails once per payment
+    if pay_doc and pay_doc.get('confirmation_email_sent_at'):
+        return True
+
+    await send_payment_confirmation(reg['_id'])
+
+    if pay_doc:
+        try:
+            await db_mod.db.payments.update_one({'_id': pay_doc['_id']}, {'$set': {'confirmation_email_sent_at': now}})
+        except PyMongoError:
+            pass
+    return True

@@ -1,16 +1,20 @@
 from fastapi import APIRouter, HTTPException, Header, Request, Depends
 from pydantic import BaseModel
-import os
-from app import db as db_mod
+import os, datetime
+from typing import Optional
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 from pymongo import ReturnDocument
 from pymongo.errors import PyMongoError
-import datetime
-from typing import Optional
 
+from app import db as db_mod
 from app.auth import get_current_user, require_admin
-from app.utils import require_event_published, require_registration_owner_or_admin, require_event_payment_open, send_payment_confirmation
+from app.utils import (
+    require_event_published,
+    require_registration_owner_or_admin,
+    require_event_payment_open,
+    finalize_registration_payment,
+)
 from app.payments_providers import paypal as paypal_provider
 from app.payments_providers import stripe as stripe_provider
 from app.payments_providers import wero as wero_provider
@@ -136,12 +140,10 @@ async def paypal_capture_order(order_id: str):
     now = datetime.datetime.utcnow()
     if status == 'COMPLETED':
         await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "succeeded", "paid_at": now, "meta.capture": capture}})
-        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
-        await send_payment_confirmation(pay.get('registration_id'))
+        await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
         return {"status": "COMPLETED"}
-    else:
-        await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "failed", "meta.capture": capture}})
-        return {"status": status or "FAILED", "detail": capture}
+    await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "failed", "meta.capture": capture}})
+    return {"status": status or "FAILED", "detail": capture}
 
 
 @router.get('/paypal/orders/{order_id}')
@@ -458,12 +460,10 @@ async def paypal_return(payment_id: str, token: Optional[str] = None):
     now = datetime.datetime.utcnow()
     if status == 'COMPLETED':
         await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now, "meta.capture": capture}})
-        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
-        await send_payment_confirmation(pay.get('registration_id'))
+        await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
         return {"status": "paid"}
-    else:
-        await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
-        return {"status": "failed"}
+    await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
+    return {"status": "failed"}
 
 
 @router.post('/{payment_id}/capture')
@@ -492,11 +492,10 @@ async def capture_payment(payment_id: str, payload: CapturePaymentIn, current_us
         now = datetime.datetime.utcnow()
         if status == 'COMPLETED':
             await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now, "meta.capture": capture}})
-            await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+            await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
             return {"status": "paid"}
-        else:
-            await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
-            return {"status": "failed", "detail": capture}
+        await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
+        return {"status": "failed", "detail": capture}
     elif provider == 'stripe':
         # Stripe should use webhooks to confirm payment. For completeness, we
         # accept a manual confirmation here if provider_payment_id is provided
@@ -508,11 +507,9 @@ async def capture_payment(payment_id: str, payload: CapturePaymentIn, current_us
             raise HTTPException(status_code=403, detail='Admin required to manually confirm Stripe payments')
         now = datetime.datetime.utcnow()
         await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now}})
-        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
-        await send_payment_confirmation(pay.get('registration_id'))
+        await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
         return {"status": "paid"}
     elif provider == 'wero':
-        # Wero manual confirmation stays admin-only via /{payment_id}/confirm
         raise HTTPException(status_code=400, detail='Use manual confirmation endpoint for WERO')
     else:
         raise HTTPException(status_code=400, detail='Unsupported provider')
@@ -566,14 +563,42 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
                 return {"status": "not_found"}
         if pay.get('status') in ('succeeded', 'paid'):
             return {"status": "already_processed"}
-        # mark as paid
         now = datetime.datetime.utcnow()
         await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "succeeded", "paid_at": now}})
-        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
-        await send_payment_confirmation(pay.get('registration_id'))
-        return {"status": "ok"}
-
+        await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
+        return {"status": "processed"}
     return {"status": "ignored"}
+
+@router.get('/admin/events/{event_id}/refunds', dependencies=[Depends(require_admin)])
+async def list_refunds(event_id: str):
+    """List registrations cancelled and eligible for refund for an event.
+
+    A registration is considered refundable if:
+    - Event has refund_on_cancellation true
+    - Registration has field refund_flag == True (set by cancellation logic)
+    Returns: { "event_id": ..., "currency": "EUR", "items": [ { registration_id, user_email, amount_cents } ], "total_cents": int }
+    """
+    try:
+        ev_id = ObjectId(event_id)
+    except InvalidId as exc:
+        raise HTTPException(status_code=400, detail='invalid event_id') from exc
+    ev = await db_mod.db.events.find_one({'_id': ev_id})
+    if not ev:
+        raise HTTPException(status_code=404, detail='Event not found')
+    if not ev.get('refund_on_cancellation'):
+        return {"event_id": event_id, "currency": (ev.get('currency') or 'EUR'), "items": [], "total_cents": 0}
+    fee_cents = int(ev.get('fee_cents') or 0)
+    items = []
+    total = 0
+    async for reg in db_mod.db.registrations.find({'event_id': ev_id, 'refund_flag': True}):
+        amount = fee_cents * int(reg.get('team_size') or 1)
+        items.append({
+            'registration_id': str(reg.get('_id')),
+            'user_email': reg.get('user_email_snapshot'),
+            'amount_cents': amount,
+        })
+        total += amount
+    return {"event_id": event_id, "currency": (ev.get('currency') or 'EUR'), "items": items, "total_cents": total}
 
 
 @router.post('/webhooks/paypal')
@@ -600,8 +625,7 @@ async def paypal_webhook(request: Request):
             return {"status": "ok"}
         now = datetime.datetime.utcnow()
         await db_mod.db.payments.update_one({"_id": pay['_id']}, {"$set": {"status": "succeeded", "paid_at": now, "meta.webhook": body}})
-        await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
-        await send_payment_confirmation(pay.get('registration_id'))
+        await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
         return {"status": "ok"}
     return {"status": "ignored"}
 
@@ -621,8 +645,7 @@ async def confirm_manual_payment(payment_id: str, _current_user=Depends(require_
         raise HTTPException(status_code=404, detail='Payment not found')
     now = datetime.datetime.utcnow()
     await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now}})
-    await db_mod.db.registrations.update_one({"_id": pay.get('registration_id')}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
-    await send_payment_confirmation(pay.get('registration_id'))
+    await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
     return {"status": "paid"}
 
 

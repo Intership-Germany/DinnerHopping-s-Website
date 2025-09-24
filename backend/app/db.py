@@ -3,6 +3,102 @@ import os
 import logging
 from pymongo.errors import PyMongoError
 from motor.motor_asyncio import AsyncIOMotorClient
+from bson.objectid import ObjectId
+
+# ---------------- In-memory Fake DB (test mode) -----------------
+if os.getenv('USE_FAKE_DB_FOR_TESTS'):
+    import types
+    import asyncio
+
+    class _InsertOneResult:
+        def __init__(self, inserted_id):
+            self.inserted_id = inserted_id
+
+    class _UpdateResult:
+        def __init__(self, matched, modified):
+            self.matched_count = matched
+            self.modified_count = modified
+
+    class FakeCollection:
+        def __init__(self, name, store):
+            self._name = name
+            self._store = store  # list of dicts
+
+        async def create_index(self, *args, **kwargs):  # no-op
+            return None
+
+        def _match(self, doc, filt):
+            if not filt:
+                return True
+            for k, v in filt.items():
+                if isinstance(v, dict) and '$in' in v:
+                    if doc.get(k) not in v['$in']:
+                        return False
+                else:
+                    if doc.get(k) != v:
+                        return False
+            return True
+
+        async def find_one(self, filt: dict | None = None, projection=None):
+            for d in self._store:
+                if self._match(d, filt or {}):
+                    return d.copy()
+            return None
+
+        async def insert_one(self, doc: dict):
+            if '_id' not in doc:
+                doc['_id'] = ObjectId()
+            self._store.append(doc)
+            return _InsertOneResult(doc['_id'])
+
+        async def update_one(self, filt: dict, update: dict):
+            modified = 0
+            for d in self._store:
+                if self._match(d, filt):
+                    if '$set' in update:
+                        d.update(update['$set'])
+                    if '$unset' in update:
+                        for k in update['$unset'].keys():
+                            d.pop(k, None)
+                    modified += 1
+                    break
+            return _UpdateResult(int(modified > 0), modified)
+
+        async def delete_many(self, filt: dict):
+            before = len(self._store)
+            self._store[:] = [d for d in self._store if not self._match(d, filt)]
+            return types.SimpleNamespace(deleted_count=before - len(self._store))
+
+        def find(self, filt: dict | None = None, projection=None):
+            filt = filt or {}
+            matches = [d.copy() for d in self._store if self._match(d, filt)]
+
+            class _Cursor:
+                def __init__(self, docs):
+                    self._docs = docs
+                def __aiter__(self):
+                    self._iter = iter(self._docs)
+                    return self
+                async def __anext__(self):
+                    try:
+                        return next(self._iter)
+                    except StopIteration:
+                        raise StopAsyncIteration
+            return _Cursor(matches)
+
+    class FakeDB:
+        def __init__(self):
+            self._collections = {}
+        def __getattr__(self, item):
+            if item.startswith('_'):
+                raise AttributeError(item)
+            if item not in self._collections:
+                self._collections[item] = FakeCollection(item, [])
+            return self._collections[item]
+
+    # Pre-create commonly used collections for clarity (optional)
+    _fake_db = FakeDB()
+
 
 class MongoDB:
     """MongoDB connection manager."""
@@ -12,12 +108,16 @@ class MongoDB:
 
     async def connect(self):
         """Connect to MongoDB and create necessary indexes."""
-        # establish client/db if not already
+        if os.getenv('USE_FAKE_DB_FOR_TESTS'):
+            # swap in fake DB and skip network
+            self.client = None
+            self.db = _fake_db  # type: ignore
+            globals()['db'] = self.db
+            return
+        # establish real client/db if not already
         if not self.client:
-            # Prefer MONGO_URI if provided (common env name), fallback to MONGO_URL, then default
             mongo_url = os.getenv('MONGO_URI') or os.getenv('MONGO_URL') or 'mongodb://mongo:27017/dinnerhopping'
             self.client = AsyncIOMotorClient(mongo_url)
-            # default database name
             db_name = os.getenv('MONGO_DB', 'dinnerhopping')
             self.db = self.client[db_name]
             globals()['db'] = self.db
