@@ -1,7 +1,11 @@
-"""Authentication utilities for FastAPI application."""
+"""Authentication utilities for FastAPI application.
+
+Adds structured logging around authentication attempts for observability.
+"""
 import datetime
 import os
 import re
+import logging
 
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
@@ -12,6 +16,7 @@ from passlib.exc import UnknownHashError
 from . import db as db_mod
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+auth_logger = logging.getLogger('auth')
 # Make the OAuth2 scheme optional in dependency so the OpenAPI docs
 # include the Bearer auth scheme (shows Authorize button) but runtime
 # code can still fall back to cookie-based auth.
@@ -88,15 +93,18 @@ async def get_user_by_email(email: str):
 async def authenticate_user(email: str, password: str):
     user = await get_user_by_email(email)
     if not user:
+        auth_logger.info('auth.login.failed reason=not_found email=%s', email)
         return None
     # deny soft-deleted accounts
     if user.get('deleted_at') is not None:
+        auth_logger.info('auth.login.failed reason=deleted email=%s', email)
         return None
     # check lockout
     lock_until = user.get('lockout_until')
     if lock_until:
         try:
             if datetime.datetime.utcnow() < lock_until:
+                auth_logger.warning('auth.login.locked email=%s until=%s', email, lock_until)
                 return None
         except (TypeError, ValueError):
             # if lock_until isn't a datetime (older records), ignore
@@ -117,6 +125,9 @@ async def authenticate_user(email: str, password: str):
         if user.get('failed_login_attempts', 0) >= 5:
             # lock the account for 15 minutes
             await db_mod.db.users.update_one({"email": email}, {"$set": {"lockout_until": datetime.datetime.utcnow() + datetime.timedelta(minutes=15)}})
+            auth_logger.warning('auth.login.lockout email=%s attempts=%s', email, user.get('failed_login_attempts'))
+        else:
+            auth_logger.info('auth.login.failed reason=bad_credentials email=%s attempts=%s', email, user.get('failed_login_attempts'))
         return None
 
     # successful login: reset failed attempts and remove lockout
@@ -127,6 +138,7 @@ async def authenticate_user(email: str, password: str):
         updates['password_hash'] = hash_password(password)
         unset['password'] = ""
     await db_mod.db.users.update_one({"email": email}, {"$set": updates, "$unset": unset})
+    auth_logger.info('auth.login.success email=%s', email)
     return user
 
 async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)):

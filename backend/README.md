@@ -54,6 +54,7 @@ Centralized in `app/settings.py` using `pydantic-settings`. All env vars have sa
 | Payments | `STRIPE_WEBHOOK_SECRET` | — | Signature verification for webhooks |
 | Payments | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | — | Enables PayPal Orders API |
 | Payments | `PAYPAL_ENV` | sandbox | sandbox or live |
+| Payments | `PAYPAL_WEBHOOK_ID` | — | (Optionnel) Active la vérification de signature des webhooks |
 | Manual Pay | `WERO_*` | — | IBAN/BIC beneficiary + purpose prefix |
 | Privacy | `ADDRESS_KEY` | — | Base64 AES-GCM key for address encryption |
 | Testing | `USE_FAKE_DB_FOR_TESTS` | 0 | Set to 1 to use in-memory DB |
@@ -65,6 +66,57 @@ settings = get_settings()
 ```
 
 Settings are cached, so reading them is inexpensive.
+
+### Intégration PayPal (Sandbox & Production)
+
+L'API de paiement utilise l'Orders API de PayPal (v2) en mode « Server-side create → client approve → server capture ».
+
+Variables d'environnement requises (sandbox):
+
+```
+PAYPAL_ENV=sandbox
+PAYPAL_CLIENT_ID=VotreClientIdSandbox
+PAYPAL_CLIENT_SECRET=VotreSecretSandbox
+# Optionnel pour sécuriser les webhooks:
+PAYPAL_WEBHOOK_ID=WH-XXX...  # ID retourné par PayPal lors de la création du webhook
+```
+
+En production, définissez `PAYPAL_ENV=live` et remplacez les identifiants par ceux du compte live.
+
+Endpoints principaux:
+* `GET /payments/paypal/config` → `{ clientId, currency, env }` pour charger le SDK JS.
+* `POST /payments/paypal/orders` → crée un Order PayPal et renvoie `{ id }` (order id).
+* `POST /payments/paypal/orders/{order_id}/capture` → capture l'ordre et marque la registration payée.
+* `POST /payments/webhooks/paypal` → traite `PAYMENT.CAPTURE.COMPLETED` et `CHECKOUT.ORDER.COMPLETED` (signature vérifiée si `PAYPAL_WEBHOOK_ID` est configuré).
+
+Flow standard (Buttons JS SDK):
+1. Front appelle `GET /payments/paypal/config` pour récupérer `clientId`.
+2. Charge le script `https://www.paypal.com/sdk/js?client-id=...&currency=EUR`.
+3. `createOrder` (callback JS) appelle `POST /payments/paypal/orders` avec `registration_id`.
+4. L'utilisateur approuve sur PayPal.
+5. `onApprove` appelle `POST /payments/paypal/orders/{orderID}/capture`.
+6. Backend met à jour Payment + Registration (status `succeeded`).
+
+Sécurité webhook:
+* Configurez un webhook dans le Dashboard PayPal (événements: `CHECKOUT.ORDER.COMPLETED`, `PAYMENT.CAPTURE.COMPLETED`).
+* Renseignez l'URL publique: `https://<votre-domaine>/payments/webhooks/paypal`.
+* Copiez l'ID du webhook (`PAYPAL_WEBHOOK_ID`) dans l'environnement.
+* La route vérifiera la signature via `/v1/notifications/verify-webhook-signature`.
+
+Test Sandbox rapide:
+1. Créez un event avec un `fee_cents > 0` et status `open`.
+2. Créez/validez un utilisateur puis enregistrez-le (`/registrations/solo`).
+3. Notez le `registration_id` renvoyé.
+4. Ouvrez `frontend/public/paypal-example.html` (servez le dossier `frontend/public` via le conteneur ou un serveur statique) et saisissez le `registration_id`.
+5. Payez avec un compte « Buyer » sandbox. Après redirection/approval, la capture devrait renvoyer `{ "status": "COMPLETED" }` et le paiement en base passer à `succeeded`.
+6. Vérifiez en base (Mongo) document `payments` ou appelez `GET /payments/{payment_id}`.
+
+Notes:
+* Le montant n'est pas pris depuis le client: il est recalculé à partir de `event.fee_cents * team_size` et rejeté si incohérent.
+* Idempotence: une seule commande PayPal par registration; les tentatives répétées renvoient l'`order_id` existant.
+* Pour changer de monnaie fixez `PAYMENT_CURRENCY` (défaut `EUR`).
+* Les captures peuvent se faire soit via `/payments/paypal/orders/{id}/capture` (JS SDK) soit via `GET /payments/paypal/return` (flow redirection classique).
+
 
 ### Email & Notifications
 Primitive templates are in `app/notifications.py` and low-level delivery in `app/utils.py` (`send_email`). In absence of SMTP configuration, mail bodies are printed. Add new categories by reusing `send_email(category="your_feature")`.

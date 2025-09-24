@@ -6,6 +6,7 @@ from fastapi import FastAPI, APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .auth import get_current_user
+from .logging_config import configure_logging
 from .middleware.rate_limit import RateLimit
 from .middleware.security import SecurityHeadersMiddleware, CSRFMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -16,7 +17,33 @@ import logging, time, uuid
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
+from typing import Optional
+import contextvars
 
+# Context variables for request-scoped logging
+_ctx_request_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("request_id", default=None)
+_ctx_client_ip: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("client_ip", default=None)
+
+# Install a LogRecord factory to automatically attach request context to LogRecords.
+_original_factory = logging.getLogRecordFactory()
+
+def _record_factory(*args, **kwargs):
+    record = _original_factory(*args, **kwargs)
+    try:
+        rid = _ctx_request_id.get()
+        cip = _ctx_client_ip.get()
+        if rid is not None:
+            setattr(record, 'request_id', rid)
+        if cip is not None:
+            setattr(record, 'client_ip', cip)
+    except Exception:
+        # best-effort; never fail logging
+        pass
+    return record
+
+logging.setLogRecordFactory(_record_factory)
+
+configure_logging()
 settings = get_settings()
 
 # Compatibility shim: some bcrypt distributions expose `__version__` but not
@@ -43,18 +70,33 @@ app = FastAPI(title=settings.app_name)
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
-        start = time.time()
+        # Extract client IP from X-Forwarded-For or remote
+        xff = request.headers.get('X-Forwarded-For')
+        client_ip = None
+        if xff:
+            # take first IP in the list
+            client_ip = xff.split(',')[0].strip()
+        else:
+            # starlette request.client may be None in some test contexts
+            client = getattr(request, 'client', None)
+            client_ip = client.host if client else None
+        # set into request.state and contextvars so log records can pick them up
         request.state.request_id = request_id
+        request.state.client_ip = client_ip
+        _ctx_request_id.set(request_id)
+        _ctx_client_ip.set(client_ip)
+        start = time.time()
         logger = logging.getLogger('request')
-        logger.info('request.start method=%s path=%s rid=%s', request.method, request.url.path, request_id)
+        # include extras as structured fields via logger.info extras
+        logger.info('request.start method=%s path=%s', request.method, request.url.path)
         try:
             response = await call_next(request)
         except Exception as exc:  # let exception handlers format
-            logger.exception('request.error rid=%s', request_id)
+            logger.exception('request.error')
             raise exc
         duration_ms = int((time.time() - start) * 1000)
         response.headers['X-Request-ID'] = request_id
-        logger.info('request.end status=%s dur_ms=%s rid=%s', response.status_code, duration_ms, request_id)
+        logger.info('request.end status=%s dur_ms=%s', response.status_code, duration_ms)
         return response
 
 app.add_middleware(RequestIDMiddleware)
