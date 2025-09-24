@@ -13,7 +13,17 @@
         name: document.getElementById('profile-name'),
         email: document.getElementById('profile-email'),
         address: document.getElementById('profile-address'),
+  // Address edit inputs
+  addressEditGroup: document.getElementById('address-edit-group'),
+  addrCity: document.getElementById('profile-city'),
+  addrPostal: document.getElementById('profile-postal'),
+  addrStreet: document.getElementById('profile-street'),
+  addrNumber: document.getElementById('profile-number'),
         preferences: document.getElementById('profile-preferences'),
+        kitchenAvailable: document.getElementById('kitchen-available'),
+        mainCoursePossible: document.getElementById('main-course-possible'),
+        dietary: document.getElementById('default-dietary'),
+        fieldOfStudy: document.getElementById('field-of-study'),
         editBtn: document.getElementById('edit-btn'),
         saveBtn: document.getElementById('save-btn'),
         cancelBtn: document.getElementById('cancel-btn'),
@@ -25,6 +35,11 @@
         skeletonMain: document.getElementById('skeleton-main'),
         profileHeader: document.getElementById('profile-header'),
         profileMain: document.getElementById('profile-main'),
+        onboardingModal: document.getElementById('onboarding-modal'),
+        onboardingMissing: document.getElementById('onboarding-missing'),
+        onboardingSkip: document.getElementById('onboarding-skip'),
+        onboardingFill: document.getElementById('onboarding-fill'),
+        mainCourseGroup: document.getElementById('main-course-group'),
       };
 
       let initialData = null;
@@ -34,6 +49,15 @@
       function formatPreferences(pref){
         try {
           if (!pref) return '';
+          // Filter out optional-only keys so textarea shows only the user's food prefs
+          const OPTIONAL_KEYS = new Set(['kitchen_available','main_course_possible','default_dietary','field_of_study','onboarding_seen']);
+          if (typeof pref === 'object' && !Array.isArray(pref)) {
+            const filtered = {};
+            for (const [k,v] of Object.entries(pref)) {
+              if (!OPTIONAL_KEYS.has(k)) filtered[k] = v;
+            }
+            pref = filtered;
+          }
           if (Array.isArray(pref)) return pref.join(', ');
           if (typeof pref === 'string') return pref;
           if (typeof pref === 'object') {
@@ -66,6 +90,42 @@
         return true;
       }
 
+      function getOptionalFromPrefs(prefs){
+        const p = prefs || {};
+        return {
+          kitchen_available: typeof p.kitchen_available === 'boolean' ? p.kitchen_available : null,
+          main_course_possible: typeof p.main_course_possible === 'boolean' ? p.main_course_possible : null,
+          default_dietary: (typeof p.default_dietary === 'string' && ['vegan','vegetarian','omnivore'].includes(p.default_dietary)) ? p.default_dietary : null,
+          field_of_study: (typeof p.field_of_study === 'string' && p.field_of_study.trim()) ? p.field_of_study.trim() : null,
+          onboarding_seen: !!p.onboarding_seen,
+        };
+      }
+
+      function setOptionalInputs(vals){
+        if (!vals) vals = {};
+        if (el.kitchenAvailable) el.kitchenAvailable.value = vals.kitchen_available === true ? 'yes' : vals.kitchen_available === false ? 'no' : '';
+        if (el.mainCoursePossible) el.mainCoursePossible.value = vals.main_course_possible === true ? 'yes' : vals.main_course_possible === false ? 'no' : '';
+        if (el.dietary) el.dietary.value = vals.default_dietary || '';
+        if (el.fieldOfStudy) el.fieldOfStudy.value = vals.field_of_study || '';
+        // Show/hide main course group based on kitchen availability
+        if (el.mainCourseGroup) el.mainCourseGroup.classList.toggle('hidden', el.kitchenAvailable && el.kitchenAvailable.value !== 'yes');
+      }
+
+      function collectOptionalToPrefs(){
+        const out = {};
+        const k = el.kitchenAvailable?.value || '';
+        const m = el.mainCoursePossible?.value || '';
+        const d = el.dietary?.value || '';
+        const f = el.fieldOfStudy?.value?.trim() || '';
+        if (k === 'yes') out.kitchen_available = true; else if (k === 'no') out.kitchen_available = false;
+        if (k === 'yes') { // only meaningful when kitchen is available
+          if (m === 'yes') out.main_course_possible = true; else if (m === 'no') out.main_course_possible = false;
+        }
+        if (['vegan','vegetarian','omnivore'].includes(d)) out.default_dietary = d;
+        if (f) out.field_of_study = f;
+        return out;
+      }
+
       try {
         if (!window.dbg) window.dbg = { logReq: (...a)=>console.log(...a) };
         let res;
@@ -90,6 +150,10 @@
         const prefText = formatPreferences(data.preferences);
         if (el.preferences) el.preferences.value = prefText || '';
 
+        // map optional fields from preferences
+        const opt = getOptionalFromPrefs(data.preferences);
+        setOptionalInputs(opt);
+
         initialData = {
           name: data.name || '',
           email: data.email || '',
@@ -106,11 +170,26 @@
         if (!data.name) missing.push('name');
         if (!data.email) missing.push('email');
         if (!data.address) missing.push('address');
+        // Optional fields aren't required, but we can highlight if none set
+        const optMissing = [];
+        if (opt.kitchen_available == null) optMissing.push('kitchen');
+        if (opt.kitchen_available === true && opt.main_course_possible == null) optMissing.push('main course');
+        if (!opt.default_dietary) optMissing.push('dietary');
+        if (!opt.field_of_study) optMissing.push('field of study');
         if (isEmptyPreferences(data.preferences)) missing.push('preferences');
         if (missing.length && el.incompleteBanner){
           el.incompleteBanner.classList.remove('hidden');
           if (el.incompleteDetails) {
             el.incompleteDetails.textContent = `Missing: ${missing.join(', ')}`;
+          }
+        }
+
+        // Show onboarding modal on first login (if not seen) with summary of optional gaps
+        if (el.onboardingModal) {
+          const shouldShow = !opt.onboarding_seen && (optMissing.length > 0);
+          if (shouldShow) {
+            if (el.onboardingMissing) el.onboardingMissing.textContent = optMissing.join(', ');
+            el.onboardingModal.classList.remove('hidden');
           }
         }
       } catch (err) {
@@ -138,8 +217,22 @@
           el.name.classList.remove('bg-white');
         }
         toggle(el.email);
-        toggle(el.address);
+        // Address: view vs edit group
+        if (el.addressEditGroup) el.addressEditGroup.classList.toggle('hidden', !isEditing);
+        if (el.address) el.address.classList.toggle('hidden', isEditing);
+        toggle(el.addrCity);
+        toggle(el.addrPostal);
+        toggle(el.addrStreet);
+        toggle(el.addrNumber);
+        // Do not allow editing the displayed anonymized address input
+        if (el.address && isEditing) el.address.setAttribute('disabled', '');
+        if (el.address && !isEditing) el.address.setAttribute('disabled', '');
+        
         toggle(el.preferences);
+        toggle(el.kitchenAvailable);
+        toggle(el.mainCoursePossible);
+        toggle(el.dietary);
+        toggle(el.fieldOfStudy);
 
         if (el.editBtn) el.editBtn.classList.toggle('hidden', isEditing);
         if (el.editActions) el.editActions.classList.toggle('hidden', !isEditing);
@@ -158,7 +251,11 @@
         try {
           const parsed = JSON.parse(text);
           if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            return parsed;
+            // strip optional keys if present
+            const OPTIONAL_KEYS = new Set(['kitchen_available','main_course_possible','default_dietary','field_of_study','onboarding_seen']);
+            const out = {};
+            for (const [k,v] of Object.entries(parsed)) if (!OPTIONAL_KEYS.has(k)) out[k] = v;
+            return out;
           }
           if (Array.isArray(parsed)) {
             return { tags: parsed };
@@ -198,8 +295,23 @@
         const current = {
           name: el.name?.value ?? '',
           email: el.email?.value ?? '',
-          address: el.address?.value ?? '',
-          preferences: parsePreferencesInput(el.preferences?.value ?? '')
+          address: (()=>{
+            // If edit inputs are visible, compute from them; otherwise treat as unchanged view
+            if (!el.addressEditGroup || el.addressEditGroup.classList.contains('hidden')) return initialData.address;
+            const city = el.addrCity?.value?.trim() || '';
+            const postal = el.addrPostal?.value?.trim() || '';
+            const street = el.addrStreet?.value?.trim() || '';
+            const num = el.addrNumber?.value?.trim() || '';
+            const parts = [];
+            if (street) parts.push(street + (num?` ${num}`:''));
+            if (postal || city) parts.push([postal, city].filter(Boolean).join(' '));
+            return parts.join(', ');
+          })(),
+          preferences: (()=>{
+            const base = parsePreferencesInput(el.preferences?.value ?? '');
+            const opt = collectOptionalToPrefs();
+            return { ...base, ...opt };
+          })()
         };
         const normalize = (v) => typeof v === 'string' ? v.trim() : v;
         const prefEqual = canonicalizePreferences(current.preferences) === canonicalizePreferences(initialData.preferences);
@@ -211,24 +323,52 @@
         );
       }
 
-      el.editBtn?.addEventListener('click', (e)=>{ e.preventDefault(); setEditMode(true); });
+  el.editBtn?.addEventListener('click', (e)=>{ e.preventDefault(); setEditMode(true); });
       el.cancelBtn?.addEventListener('click', (e)=>{
         e.preventDefault();
         if (!initialData) return setEditMode(false);
         if (el.name) el.name.value = initialData.name;
         if (el.email) el.email.value = initialData.email;
         if (el.address) el.address.value = initialData.address;
+        // clear edit address inputs
+        if (el.addrCity) el.addrCity.value = '';
+        if (el.addrPostal) el.addrPostal.value = '';
+        if (el.addrStreet) el.addrStreet.value = '';
+        if (el.addrNumber) el.addrNumber.value = '';
         if (el.preferences) el.preferences.value = formatPreferences(initialData.preferences);
         setEditMode(false);
       });
 
-      async function saveProfile(){
+      async function saveProfile(extraPrefs){
         if (!isEditing) return;
         const parsedPrefs = parsePreferencesInput(el.preferences?.value || '');
+        // Build full address from edit inputs if in edit mode
+        let fullAddress;
+        if (!el.addressEditGroup?.classList.contains('hidden')){
+          const city = el.addrCity?.value?.trim();
+          const postal = el.addrPostal?.value?.trim();
+          const street = el.addrStreet?.value?.trim();
+          const num = el.addrNumber?.value?.trim();
+          if (street || num || postal || city) {
+            // light validations similar to signup
+            if (!street || !num || !postal || !city) {
+              alert('Please provide your full address: street, number, postal code, and city.');
+              return;
+            }
+            if (!/^[0-9A-Za-z \-]{3,10}$/.test(postal)){
+              alert('Please enter a valid postal code.');
+              return;
+            }
+            fullAddress = `${street} ${num}, ${postal} ${city}`;
+          }
+        }
         const payload = {
           email: el.email?.value?.trim() || undefined,
-          address: el.address?.value?.trim() || undefined,
-          preferences: (Object.keys(parsedPrefs).length ? parsedPrefs : undefined)
+          address: fullAddress || undefined,
+          preferences: (()=>{
+            const combined = { ...parsedPrefs, ...collectOptionalToPrefs(), ...(extraPrefs||{}) };
+            return Object.keys(combined).length ? combined : undefined;
+          })()
         };
         try{
           let res;
@@ -271,7 +411,13 @@
           if (el.name) el.name.value = initialData.name;
           if (el.email) el.email.value = initialData.email;
           if (el.address) el.address.value = initialData.address;
+          // clear edit address inputs after save
+          if (el.addrCity) el.addrCity.value = '';
+          if (el.addrPostal) el.addrPostal.value = '';
+          if (el.addrStreet) el.addrStreet.value = '';
+          if (el.addrNumber) el.addrNumber.value = '';
           if (el.preferences) el.preferences.value = formatPreferences(initialData.preferences);
+          setOptionalInputs(getOptionalFromPrefs(initialData.preferences));
 
           setEditMode(false);
 
@@ -288,20 +434,27 @@
           } else if (el.incompleteBanner) {
             el.incompleteBanner.classList.add('hidden');
           }
+
+          // Close onboarding modal if it was open
+          el.onboardingModal?.classList.add('hidden');
         }catch(err){
           console.error(err);
           alert(err?.message || 'Could not save your changes.');
         }
       }
 
-      el.saveBtn?.addEventListener('click', (e)=>{ e.preventDefault(); saveProfile(); });
+  el.saveBtn?.addEventListener('click', (e)=>{ e.preventDefault(); saveProfile(); });
 
       ['input','change'].forEach(ev=>{
-        [el.email, el.address, el.preferences].forEach(inp=>{
+        [el.email, el.preferences, el.kitchenAvailable, el.mainCoursePossible, el.dietary, el.fieldOfStudy, el.addrCity, el.addrPostal, el.addrStreet, el.addrNumber].forEach(inp=>{
           inp?.addEventListener(ev, ()=>{
             if (!isEditing) return;
             hasUnsaved = computeHasUnsaved();
             showUnsaved(hasUnsaved);
+            // dynamic: show/hide main course
+            if (inp === el.kitchenAvailable && el.mainCourseGroup) {
+              el.mainCourseGroup.classList.toggle('hidden', el.kitchenAvailable.value !== 'yes');
+            }
           });
         });
       });
@@ -323,6 +476,28 @@
           document.cookie = `dh_token=; Path=/; SameSite=Strict${location.protocol==='https:'?'; Secure':''}; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
         }
         window.location.href = 'login.html';
+      });
+
+      // Onboarding modal actions
+      el.onboardingSkip?.addEventListener('click', async (e)=>{
+        e.preventDefault();
+        // Mark onboarding_seen in preferences and save silently
+        try {
+          // we don't need edit mode to save this flag
+          const res = await window.apiFetch(`/profile`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ preferences: { ...(initialData?.preferences||{}), onboarding_seen: true } })
+          });
+          const body = await res.json().catch(()=>({}));
+          dbg.logReq('PUT /profile (onboarding skip)', { status: res.status, body });
+        } catch {}
+        el.onboardingModal?.classList.add('hidden');
+      });
+      el.onboardingFill?.addEventListener('click', (e)=>{
+        e.preventDefault();
+        el.onboardingModal?.classList.add('hidden');
+        setEditMode(true);
       });
     })();
   });
