@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import Optional, Literal
+from pydantic import BaseModel, Field
+from typing import Optional, Literal, List
 from app import db as db_mod
 from app.auth import get_current_user, require_admin
 from app.utils import anonymize_address, encrypt_address, anonymize_public_address, require_event_published, require_event_registration_open
@@ -54,19 +54,29 @@ class LocationIn(BaseModel):
 
 
 class EventCreate(BaseModel):
+    """Admin event creation/update payload.
+
+    Extended to support plan requirements: distinct solo/team fees, valid zip whitelist,
+    richer lifecycle statuses (coming_soon, open, matched, released), and feature flags.
+    Backwards compatibility: if fee_solo_cents/fee_team_cents absent use fee_cents.
+    """
     title: str
     description: Optional[str] = None
     extra_info: Optional[str] = None  # optional free text for additional info
     date: Optional[str] = None  # ISO date string (compat)
     start_at: Optional[str] = None  # ISO datetime string (preferred)
     capacity: Optional[int] = None
-    fee_cents: Optional[int] = 0
+    fee_cents: Optional[int] = 0  # legacy single-fee field
+    fee_solo_cents: Optional[int] = None
+    fee_team_cents: Optional[int] = None
     city: Optional[str] = None
     registration_deadline: Optional[str] = None
     payment_deadline: Optional[str] = None
+    valid_zip_codes: Optional[List[str]] = Field(default_factory=list, description="Whitelisted postal codes allowed to register")
     after_party_location: Optional[LocationIn] = None
     organizer_id: Optional[str] = None  # user id (ObjectId as str)
-    status: Optional[Literal['draft', 'published', 'closed', 'cancelled']] = 'draft'
+    # Extended status lifecycle; map legacy 'published' -> 'open'
+    status: Optional[Literal['draft','coming_soon','open','closed','matched','released','cancelled']] = 'draft'
     refund_on_cancellation: Optional[bool] = None
     chat_enabled: Optional[bool] = None
 
@@ -83,13 +93,16 @@ class EventOut(BaseModel):
     date: Optional[str] = None
     start_at: Optional[str] = None
     capacity: Optional[int] = None
-    fee_cents: Optional[int] = 0
+    fee_cents: Optional[int] = 0  # legacy
+    fee_solo_cents: Optional[int] = None
+    fee_team_cents: Optional[int] = None
     city: Optional[str] = None
     registration_deadline: Optional[str] = None
     payment_deadline: Optional[str] = None
+    valid_zip_codes: List[str] = []
     after_party_location: Optional[LocationOut] = None
     attendee_count: int = 0
-    status: Optional[Literal['draft', 'published', 'closed', 'cancelled']] = 'draft'
+    status: Optional[Literal['draft','coming_soon','open','closed','matched','released','cancelled']] = 'draft'
     matching_status: Optional[Literal['not_started','in_progress','proposed','finalized','archived']] = 'not_started'
     organizer_id: Optional[str] = None
     created_by: Optional[str] = None
@@ -99,7 +112,7 @@ class EventOut(BaseModel):
     chat_enabled: Optional[bool] = None
 
 @router.get("/", response_model=list[EventOut])
-async def list_events(date: Optional[str] = None, status: Optional[Literal['draft', 'published', 'closed', 'cancelled']] = None, lat: Optional[float] = None, lon: Optional[float] = None, radius_m: Optional[int] = None, participant: Optional[str] = None, current_user=Depends(get_current_user)):
+async def list_events(date: Optional[str] = None, status: Optional[str] = None, lat: Optional[float] = None, lon: Optional[float] = None, radius_m: Optional[int] = None, participant: Optional[str] = None, current_user=Depends(get_current_user)):
     """List events with optional filters:
     - date: exact match
     - status: 'published' or 'draft'
@@ -109,6 +122,9 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
     if date:
         query['date'] = date
     if status:
+        # map legacy 'published' to 'open'
+        if status == 'published':
+            status = 'open'
         query['status'] = status
     # simple radius -> degree bounding box
     if lat is not None and lon is not None and radius_m is not None:
@@ -158,13 +174,18 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
     roles = current_user.get('roles') or []
     is_admin = 'admin' in roles
     if not is_admin:
-        # if caller is not admin, exclude drafts unless organizer filter applies
-        # If status was explicitly requested as 'draft' above, allow only if requester is admin
         if not status:
-            query['status'] = {'$ne': 'draft'}
+            # show coming_soon + open + matched + released (public phases)
+            query['status'] = {'$in': ['coming_soon','open','matched','released']}
 
     events_resp = []
     async for e in db_mod.db.events.find(query):
+        # ZIP whitelist filtering for non-admins
+        if not is_admin:
+            valid_zips = e.get('valid_zip_codes') or []
+            user_zip = (current_user.get('postal_code') or '').strip()
+            if valid_zips and user_zip and user_zip not in valid_zips:
+                continue
         # format date-like fields as strings to match EventOut typing
         date_val = _fmt_date(e.get('date')) or ''
         start_val = _fmt_date(e.get('start_at'))
@@ -177,6 +198,8 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
             start_at=start_val,
             capacity=e.get('capacity'),
             fee_cents=e.get('fee_cents', 0),
+            fee_solo_cents=e.get('fee_solo_cents'),
+            fee_team_cents=e.get('fee_team_cents'),
             city=e.get('city'),
             attendee_count=e.get('attendee_count', 0),
             status=e.get('status'),
@@ -187,6 +210,7 @@ async def list_events(date: Optional[str] = None, status: Optional[Literal['draf
             updated_at=e.get('updated_at'),
             refund_on_cancellation=e.get('refund_on_cancellation'),
             chat_enabled=e.get('chat_enabled'),
+            valid_zip_codes=e.get('valid_zip_codes', []),
         ))
     return events_resp
 
@@ -230,9 +254,15 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         except (InvalidId, TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail='invalid organizer_id') from exc
 
-    # default fields per schema
+    # default fields per schema & fee compatibility
     doc['attendee_count'] = 0
     doc['fee_cents'] = int(doc.get('fee_cents', 0)) if doc.get('fee_cents') is not None else 0
+    # if new fee fields missing populate from legacy
+    if doc.get('fee_solo_cents') is None:
+        doc['fee_solo_cents'] = doc['fee_cents'] if doc.get('fee_cents') is not None else 0
+    if doc.get('fee_team_cents') is None:
+        # simple default: double solo
+        doc['fee_team_cents'] = int(doc.get('fee_solo_cents', 0)) * 2
     doc['registration_deadline'] = doc.get('registration_deadline')
     doc['payment_deadline'] = doc.get('payment_deadline')
     doc['matching_status'] = doc.get('matching_status', 'not_started')
@@ -255,6 +285,8 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         start_at=_fmt_date(doc.get('start_at')),
         capacity=doc.get('capacity'),
         fee_cents=doc.get('fee_cents', 0),
+        fee_solo_cents=doc.get('fee_solo_cents'),
+        fee_team_cents=doc.get('fee_team_cents'),
         city=doc.get('city'),
         registration_deadline=_fmt_date(doc.get('registration_deadline')),
         payment_deadline=_fmt_date(doc.get('payment_deadline')),
@@ -268,6 +300,7 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         updated_at=doc.get('updated_at'),
         refund_on_cancellation=doc.get('refund_on_cancellation'),
         chat_enabled=doc.get('chat_enabled'),
+        valid_zip_codes=doc.get('valid_zip_codes', []),
     )
 
 
@@ -320,6 +353,12 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
     serialized['city'] = e.get('city')
     serialized['refund_on_cancellation'] = e.get('refund_on_cancellation')
     serialized['chat_enabled'] = e.get('chat_enabled')
+    serialized['fee_solo_cents'] = e.get('fee_solo_cents')
+    serialized['fee_team_cents'] = e.get('fee_team_cents')
+    serialized['valid_zip_codes'] = e.get('valid_zip_codes', [])
+    # normalize legacy status mapping
+    if serialized.get('status') == 'published':
+        serialized['status'] = 'open'
     return serialized
 
 
@@ -374,6 +413,8 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
     start_at=_fmt_date(e.get('start_at')),
         capacity=e.get('capacity'),
         fee_cents=e.get('fee_cents', None),
+        fee_solo_cents=e.get('fee_solo_cents'),
+        fee_team_cents=e.get('fee_team_cents'),
         city=e.get('city'),
     registration_deadline=_fmt_date(e.get('registration_deadline')),
     payment_deadline=_fmt_date(e.get('payment_deadline')),
@@ -387,24 +428,41 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         updated_at=e.get('updated_at'),
         refund_on_cancellation=e.get('refund_on_cancellation'),
         chat_enabled=e.get('chat_enabled'),
+        valid_zip_codes=e.get('valid_zip_codes', []),
     )
 
 
-@router.post('/{event_id}/publish')
-async def publish_event(event_id: str, _=Depends(require_admin)):
-    # admin-only: publishing is a privileged action
-    e = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
+@router.post('/{event_id}/status/{new_status}')
+async def change_event_status(event_id: str, new_status: str, _=Depends(require_admin)):
+    """Generic status transition endpoint (admin).
+
+    Accepts lifecycle statuses: draft, coming_soon, open, closed, matched, released, cancelled.
+    Legacy 'published' will be rewritten to 'open'.
+    """
+    allowed = {'draft','coming_soon','open','closed','matched','released','cancelled','published'}
+    if new_status not in allowed:
+        raise HTTPException(status_code=400, detail='invalid status')
+    if new_status == 'published':
+        new_status = 'open'
+    e = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
     if not e:
         raise HTTPException(status_code=404, detail='Event not found')
-    await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": {"status": "published", "updated_at": __import__('datetime').datetime.utcnow()}})
-    return {"status": "published"}
+    await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'status': new_status, 'updated_at': datetime.datetime.utcnow()}})
+    return {'status': new_status}
 
 @router.post("/{event_id}/register")
 async def register_for_event(event_id: str, payload: dict, current_user=Depends(get_current_user)):
     # payload may include team info, invited_emails and preferences override
     # invited_emails: list of emails to invite (they will receive an invitation token)
-    # ensure event exists and is published
-    event = await require_event_published(event_id)
+    # ensure event exists and is open (published legacy)
+    event = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
+    if not event:
+        raise HTTPException(status_code=404, detail='Event not found')
+    status = event.get('status')
+    if status in ('draft','coming_soon'):
+        raise HTTPException(status_code=400, detail='Registration not open')
+    if status not in ('open','released','matched'):
+        raise HTTPException(status_code=400, detail='Event not accepting registrations')
     # ensure registration window is still open
     require_event_registration_open(event)
 
@@ -483,15 +541,17 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
 
     # Optionally create a payment link if event has a fee
     payment_link = None
-    if event.get('fee_cents', 0) > 0:
-        # create a simple payment record
+    fee_solo = event.get('fee_solo_cents') if event.get('fee_solo_cents') is not None else event.get('fee_cents', 0)
+    fee_team = event.get('fee_team_cents') if event.get('fee_team_cents') is not None else (fee_solo * 2)
+    chosen_fee_cents = fee_team if team_size > 1 else fee_solo
+    if chosen_fee_cents and chosen_fee_cents > 0:
         pay = {
             "registration_id": res.inserted_id,
-            "amount": event.get('fee_cents', 0) / 100.0,
+            "amount": chosen_fee_cents / 100.0,
             "currency": 'EUR',
             "status": "pending",
             "provider": 'N/A',
-            "meta": {},
+            "meta": {"team_size": team_size},
             "created_at": __import__('datetime').datetime.utcnow()
         }
         p = await db_mod.db.payments.insert_one(pay)

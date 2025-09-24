@@ -2,7 +2,7 @@
 FastAPI application for the DinnerHopping backend.
 """
 import os
-from fastapi import FastAPI, APIRouter, Depends
+from fastapi import FastAPI, APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .auth import get_current_user
@@ -11,6 +11,13 @@ from .middleware.security import SecurityHeadersMiddleware, CSRFMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from .db import close as close_mongo, connect as connect_to_mongo
 from .routers import admin, events, invitations, payments, users, matching, chats, registrations
+from .settings import get_settings
+import logging, time, uuid
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.middleware.base import BaseHTTPMiddleware
+
+settings = get_settings()
 
 # Compatibility shim: some bcrypt distributions expose `__version__` but not
 # `__about__.__version__`. passlib sometimes attempts to read
@@ -29,7 +36,49 @@ except (ImportError, AttributeError):
     pass
 
 
-app = FastAPI(title="DinnerHopping Backend")
+app = FastAPI(title=settings.app_name)
+
+
+######## Structured Logging & Request ID Middleware ########
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
+        start = time.time()
+        request.state.request_id = request_id
+        logger = logging.getLogger('request')
+        logger.info('request.start method=%s path=%s rid=%s', request.method, request.url.path, request_id)
+        try:
+            response = await call_next(request)
+        except Exception as exc:  # let exception handlers format
+            logger.exception('request.error rid=%s', request_id)
+            raise exc
+        duration_ms = int((time.time() - start) * 1000)
+        response.headers['X-Request-ID'] = request_id
+        logger.info('request.end status=%s dur_ms=%s rid=%s', response.status_code, duration_ms, request_id)
+        return response
+
+app.add_middleware(RequestIDMiddleware)
+
+
+######## Global Exception Handlers ########
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(status_code=422, content={
+        'error': 'validation_error',
+        'detail': exc.errors(),
+        'request_id': getattr(request.state, 'request_id', None),
+    })
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logging.getLogger('app').exception('unhandled exception rid=%s', getattr(request.state, 'request_id', None))
+    return JSONResponse(status_code=500, content={
+        'error': 'internal_server_error',
+        'detail': 'An unexpected error occurred',
+        'request_id': getattr(request.state, 'request_id', None),
+    })
 
 # Customize Swagger UI so that the OpenAPI /docs interface sends credentials
 # (cookies) and automatically injects the X-CSRF-Token header read from the
@@ -78,7 +127,7 @@ async def overridden_swagger():
     openapi_url = app.openapi_url
     return custom_swagger_ui_html(openapi_url=openapi_url, title=app.title + ' - Swagger UI')
 
-ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', '*')
+ALLOWED_ORIGINS = settings.allowed_origins
 if ALLOWED_ORIGINS == '*':
     origins = ["*"]
 else:
@@ -87,7 +136,7 @@ else:
 # If using cookies for auth (frontend + backend on different domains), you must
 # set specific origins and allow_credentials=True. Browsers reject wildcard
 # origins when allow_credentials is true.
-allow_credentials = os.getenv('CORS_ALLOW_CREDENTIALS', 'true').lower() in ('1','true','yes')
+allow_credentials = settings.cors_allow_credentials
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -97,7 +146,7 @@ app.add_middleware(
 )
 
 # security middlewares
-if os.getenv('ENFORCE_HTTPS', 'true').lower() in ('1','true','yes'):
+if settings.enforce_https:
     # Redirect HTTP to HTTPS (behind a proxy, ensure X-Forwarded-Proto is set)
     app.add_middleware(HTTPSRedirectMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)

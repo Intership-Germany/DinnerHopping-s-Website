@@ -3,7 +3,7 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional, Literal
 from app import db as db_mod
 from app.auth import get_current_user
-from app.utils import require_event_published, require_event_registration_open, compute_team_diet, send_email
+from app.utils import require_event_published, require_event_registration_open, compute_team_diet, send_email, require_registration_owner_or_admin
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 import datetime
@@ -46,6 +46,28 @@ class TeamRegistrationIn(BaseModel):
     main_course_possible: Optional[bool] = None
     # Team course preference
     course_preference: Optional[Literal['appetizer','main','dessert']] = None
+
+
+class ReplacePartnerExisting(BaseModel):
+    email: EmailStr
+
+
+class ReplacePartnerExternal(BaseModel):
+    name: str
+    email: EmailStr
+    gender: Optional[Literal['female','male','diverse','prefer_not_to_say']] = None
+    dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    field_of_study: Optional[str] = None
+    kitchen_available: Optional[bool] = None
+    main_course_possible: Optional[bool] = None
+
+
+class ReplacePartnerIn(BaseModel):
+    partner_existing: Optional[ReplacePartnerExisting] = None
+    partner_external: Optional[ReplacePartnerExternal] = None
+    # Optional updated course preference / cooking location (cannot violate constraints)
+    course_preference: Optional[Literal['appetizer','main','dessert']] = None
+    cooking_location: Optional[Literal['creator','partner']] = None
 
 
 def _now():
@@ -317,3 +339,252 @@ async def list_active_events(current_user=Depends(get_current_user)):
     async for e in db_mod.db.events.find(query).sort([('start_at', 1)]):
         out.append({'id': str(e.get('_id')), 'title': e.get('title'), 'date': e.get('date'), 'start_at': e.get('start_at'), 'fee_cents': e.get('fee_cents', 0)})
     return out
+
+
+# ------------- CANCELLATIONS & REPLACEMENTS (Phase 2.5) -------------
+
+async def _load_registration_or_404(registration_id: str) -> dict:
+    try:
+        rid = ObjectId(registration_id)
+    except (InvalidId, TypeError) as exc:
+        raise HTTPException(status_code=400, detail='invalid registration id') from exc
+    reg = await db_mod.db.registrations.find_one({'_id': rid})
+    if not reg:
+        raise HTTPException(status_code=404, detail='Registration not found')
+    return reg
+
+
+async def _load_event_for_registration(reg: dict) -> dict:
+    ev = await db_mod.db.events.find_one({'_id': reg.get('event_id')}) if reg.get('event_id') else None
+    if not ev:
+        raise HTTPException(status_code=404, detail='Event not found')
+    return ev
+
+
+def _cancellation_deadline_passed(ev: dict) -> bool:
+    ddl = ev.get('registration_deadline') or ev.get('payment_deadline')
+    if ddl and isinstance(ddl, datetime.datetime):
+        return datetime.datetime.utcnow() > ddl
+    return False
+
+
+async def _mark_refund_if_applicable(reg: dict, ev: dict):
+    if not ev.get('refund_enabled'):
+        return
+    # mark payment doc for later refund processing if exists and succeeded
+    pay_id = reg.get('payment_id')
+    if not pay_id:
+        return
+    try:
+        pay_oid = pay_id if isinstance(pay_id, ObjectId) else ObjectId(pay_id)
+    except (InvalidId, TypeError):
+        return
+    pay = await db_mod.db.payments.find_one({'_id': pay_oid})
+    if not pay or pay.get('status') not in ('succeeded', 'paid'):
+        return
+    await db_mod.db.payments.update_one({'_id': pay_oid}, {'$set': {'refund_requested': True, 'refund_requested_at': datetime.datetime.utcnow()}})
+
+
+@router.delete('/registrations/{registration_id}')
+async def cancel_solo_registration(registration_id: str, current_user=Depends(get_current_user)):
+    """Cancel a solo registration (team_size == 1) before the deadline.
+
+    If refund is enabled and payment succeeded, mark payment for refund processing.
+    Idempotent: repeated calls after cancellation return current status.
+    """
+    reg = await _load_registration_or_404(registration_id)
+    # Authorization: owner only (or admin)
+    try:
+        # reuse common helper indirectly
+        if str(reg.get('user_id')) != str(current_user.get('_id')) and 'admin' not in (current_user.get('roles') or []):
+            raise HTTPException(status_code=403, detail='Forbidden')
+    except Exception:
+        raise HTTPException(status_code=403, detail='Forbidden')
+    if reg.get('team_size') != 1:
+        raise HTTPException(status_code=400, detail='Use team cancellation endpoints for team registrations')
+    ev = await _load_event_for_registration(reg)
+    if _cancellation_deadline_passed(ev):
+        raise HTTPException(status_code=400, detail='Cancellation deadline passed')
+    # If already cancelled, return current state
+    if reg.get('status') in ('cancelled_by_user', 'cancelled_admin'):
+        return {'status': reg.get('status')}
+    now = datetime.datetime.utcnow()
+    await db_mod.db.registrations.update_one({'_id': reg['_id']}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
+    await _mark_refund_if_applicable(reg, ev)
+    # email best-effort
+    if reg.get('user_email_snapshot'):
+        _ = await send_email(to=reg['user_email_snapshot'], subject=f'Cancellation confirmed for {ev.get("title")}', body='Your registration has been cancelled. If eligible, a refund will be processed later.', category='cancellation')
+    return {'status': 'cancelled_by_user'}
+
+
+@router.post('/teams/{team_id}/members/{registration_id}/cancel')
+async def cancel_team_member(team_id: str, registration_id: str, current_user=Depends(get_current_user)):
+    """A team member (non-creator) cancels themselves. Team becomes incomplete.
+
+    Remaining creator will be notified and can replace partner or cancel team.
+    """
+    try:
+        tid = ObjectId(team_id)
+    except (InvalidId, TypeError) as exc:
+        raise HTTPException(status_code=400, detail='invalid team id') from exc
+    team = await db_mod.db.teams.find_one({'_id': tid})
+    if not team:
+        raise HTTPException(status_code=404, detail='Team not found')
+    reg = await _load_registration_or_404(registration_id)
+    if str(reg.get('team_id')) != str(tid):
+        raise HTTPException(status_code=400, detail='Registration not in team')
+    # Ensure current user matches the registration being cancelled and is not the creator
+    if str(reg.get('user_id')) != str(current_user.get('_id')):
+        raise HTTPException(status_code=403, detail='Forbidden')
+    if team.get('created_by_user_id') == reg.get('user_id'):
+        raise HTTPException(status_code=400, detail='Creator cannot cancel with this endpoint')
+    ev = await _load_event_for_registration(reg)
+    if _cancellation_deadline_passed(ev):
+        raise HTTPException(status_code=400, detail='Cancellation deadline passed')
+    # Already cancelled? idempotent
+    if reg.get('status') in ('cancelled_by_user', 'cancelled_admin'):
+        return {'status': reg.get('status')}
+    now = datetime.datetime.utcnow()
+    await db_mod.db.registrations.update_one({'_id': reg['_id']}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
+    # Mark team incomplete (custom status) without affecting payment (single payment stays)
+    await db_mod.db.teams.update_one({'_id': tid}, {'$set': {'status': 'incomplete', 'updated_at': now}})
+    # Notify creator
+    creator_reg = await db_mod.db.registrations.find_one({'team_id': tid, 'user_id': team.get('created_by_user_id')})
+    if creator_reg and creator_reg.get('user_email_snapshot'):
+        base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+        replace_url = f"{base}/registrations/teams/{team_id}/replace"
+        body = (
+            f"Your partner has cancelled for event '{ev.get('title')}'.\n"
+            f"You may invite a replacement via: {replace_url}\n"
+            "If you do nothing, the team may be excluded during matching if incomplete."
+        )
+        _ = await send_email(to=creator_reg['user_email_snapshot'], subject='Team partner cancelled', body=body, category='team_cancellation')
+    return {'status': 'cancelled_by_user', 'team_status': 'incomplete'}
+
+
+@router.post('/teams/{team_id}/replace')
+async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_user=Depends(get_current_user)):
+    """Replace a cancelled partner before the deadline with an existing user or external partner.
+
+    Constraints: Only team creator may call; team must be in status 'incomplete'.
+    """
+    try:
+        tid = ObjectId(team_id)
+    except (InvalidId, TypeError) as exc:
+        raise HTTPException(status_code=400, detail='invalid team id') from exc
+    team = await db_mod.db.teams.find_one({'_id': tid})
+    if not team:
+        raise HTTPException(status_code=404, detail='Team not found')
+    if team.get('created_by_user_id') != current_user.get('_id'):
+        raise HTTPException(status_code=403, detail='Only creator can replace partner')
+    if team.get('status') != 'incomplete':
+        raise HTTPException(status_code=400, detail='Team not incomplete')
+    # Ensure there is exactly one active member (creator) and one cancelled registration
+    active_regs = []
+    cancelled_regs = []
+    async for r in db_mod.db.registrations.find({'team_id': tid}):
+        if r.get('status') in ('cancelled_by_user', 'cancelled_admin'):
+            cancelled_regs.append(r)
+        else:
+            active_regs.append(r)
+    if len(active_regs) != 1 or len(cancelled_regs) != 1:
+        raise HTTPException(status_code=400, detail='Invalid team state for replacement')
+    creator_reg = active_regs[0]
+    ev = await _load_event_for_registration(creator_reg)
+    if _cancellation_deadline_passed(ev):
+        raise HTTPException(status_code=400, detail='Replacement deadline passed')
+    # Validate payload
+    if not payload.partner_existing and not payload.partner_external:
+        raise HTTPException(status_code=400, detail='Provide partner_existing or partner_external')
+    if payload.partner_existing and payload.partner_external:
+        raise HTTPException(status_code=400, detail='Provide only one partner type')
+    # Build new member snapshot
+    now = datetime.datetime.utcnow()
+    partner_user = None
+    partner_external_info = None
+    if payload.partner_existing:
+        partner_user = await _ensure_user(payload.partner_existing.email)
+        if not partner_user:
+            raise HTTPException(status_code=404, detail='Invited user not found')
+        member_snapshot = {
+            'type': 'user',
+            'user_id': partner_user.get('_id'),
+            'email': partner_user.get('email'),
+            'kitchen_available': bool(partner_user.get('kitchen_available')),
+            'main_course_possible': bool(partner_user.get('main_course_possible')),
+            'diet': (partner_user.get('default_dietary_preference') or 'omnivore').lower(),
+        }
+    else:
+        partner_external_info = payload.partner_external.model_dump()
+        member_snapshot = {
+            'type': 'external',
+            'name': partner_external_info.get('name'),
+            'email': partner_external_info.get('email').lower(),
+            'gender': partner_external_info.get('gender'),
+            'diet': (partner_external_info.get('dietary_preference') or 'omnivore').lower(),
+            'field_of_study': partner_external_info.get('field_of_study'),
+            'kitchen_available': bool(partner_external_info.get('kitchen_available')),
+            'main_course_possible': bool(partner_external_info.get('main_course_possible')),
+        }
+    # Update team members replacing cancelled one
+    members = team.get('members') or []
+    # Replace the non-creator entry
+    new_members = []
+    for m in members:
+        if m.get('user_id') == team.get('created_by_user_id'):
+            new_members.append(m)
+        else:
+            # assume this was cancelled partner; replace
+            new_members.append(member_snapshot)
+    team_course_pref = team.get('course_preference')
+    if payload.course_preference:
+        team_course_pref = payload.course_preference
+    cooking_location = team.get('cooking_location')
+    if payload.cooking_location:
+        cooking_location = payload.cooking_location
+    # Validate main course constraint if changed
+    if team_course_pref == 'main':
+        if cooking_location == 'creator':
+            # ensure creator still main_course_possible
+            if not any(m.get('user_id') == team.get('created_by_user_id') and m.get('main_course_possible') for m in new_members):
+                raise HTTPException(status_code=400, detail='Creator cannot host main course')
+        else:
+            # partner side
+            partner_entry = next((m for m in new_members if m is not None and m is not members[0]), None)
+            if not partner_entry or not partner_entry.get('main_course_possible'):
+                raise HTTPException(status_code=400, detail='Replacement partner cannot host main course')
+    # Compute new team diet
+    creator_diet = next((m.get('diet') for m in new_members if m.get('user_id') == team.get('created_by_user_id')), 'omnivore')
+    partner_diet = next((m.get('diet') for m in new_members if m.get('user_id') != team.get('created_by_user_id')), 'omnivore')
+    team_diet = compute_team_diet(creator_diet, partner_diet)
+    await db_mod.db.teams.update_one({'_id': tid}, {'$set': {
+        'members': new_members,
+        'status': 'pending',  # back to normal pending status
+        'updated_at': now,
+        'course_preference': team_course_pref,
+        'cooking_location': cooking_location,
+        'team_diet': team_diet,
+    }})
+    # Create registration for replacement partner if internal user
+    if partner_user:
+        reg_common = {
+            'event_id': ev['_id'],
+            'team_id': tid,
+            'team_size': 2,
+            'preferences': {
+                'course_preference': team_course_pref,
+                'cooking_location': cooking_location,
+            },
+            'diet': team_diet,
+            'status': 'pending',
+            'created_at': now,
+            'updated_at': now,
+        }
+        await db_mod.db.registrations.insert_one(reg_common | {'user_id': partner_user.get('_id'), 'user_email_snapshot': partner_user.get('email')})
+        # Notify partner
+        base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+        subject = 'You have been added to a DinnerHopping team (replacement)'
+        body = f"Hi,\n\nYou were added as a replacement partner for event '{ev.get('title')}'.\nIf you cannot participate, you can cancel from your dashboard.\n\nThanks,\nDinnerHopping Team"
+        _ = await send_email(to=partner_user.get('email'), subject=subject, body=body, category='team_replacement')
+    return {'status': 'replaced', 'team_status': 'pending'}
+

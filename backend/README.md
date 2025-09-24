@@ -1,65 +1,79 @@
 
-# DinnerHopping backend
+# DinnerHopping Backend
 
-This service is a minimal FastAPI backend with MongoDB for the DinnerHopping proof-of-concept.
-It exposes user authentication, event management, registrations/invitations and a payments flow
-(Stripe integration plus PayPal and a manual SEPA (Wero) option, with a dev-local fallback).
+FastAPI + (MongoDB or in‑memory fake DB) application providing:
 
-This README explains how the API works, how to run it locally, environment variables, and
-how to run the included end-to-end tests.
+* User registration, email verification, login / refresh / logout
+* Profile & role (admin) management
+* Event lifecycle (draft → coming_soon/open → matched/released, cancellation flag)
+* Solo & team registrations, invitations, partner replacement, cancellations with refund flags
+* Payments (Stripe Checkout, PayPal Orders API, manual SEPA “Wero”) with idempotent finalization
+* Refund reporting endpoint for admins
+* Modular notification + verification email system (console fallback)
+* Centralized settings module, structured request logging with request IDs, global error schema
+* Matching / travel scaffolding (currently deferred – not active in production flow)
 
-## Quick start (development)
+This document focuses on running, configuring, and understanding the backend. Frontend integration lives in the `frontend/` folder. Matching features are intentionally paused and excluded from current docs except where referenced in code.
 
-From the `backend` folder you can build and run MongoDB + the FastAPI service with Docker Compose:
+docker compose up --build
+## Quick Start (Development)
 
+### Option A: Full stack with MongoDB (recommended for realistic flows)
 ```bash
 cd backend
 docker compose up --build
 ```
+Service: http://localhost:8000 (Swagger UI at /docs)
 
-The backend listens on port 8000 by default. In development many interactive helpers are used
-(verification links and invitation links are printed to the backend container logs).
+### Option B: Lightweight test mode (no Mongo required)
+Uses an in‑memory fake persistence layer for faster iteration & CI.
+```bash
+USE_FAKE_DB_FOR_TESTS=1 uvicorn app.main:app --reload
+```
+Data is ephemeral and not shared across processes.
 
-## Environment variables
+### Emails in Dev
+If no SMTP settings are present, verification & notification emails are printed to stdout (`[email dev-fallback]`). Copy verification links directly from logs.
 
-Key environment variables (can be placed in a `.env` file or injected by Docker Compose).
-An example file `backend/.env.example` is provided; copy it to `.env` and fill in secrets (never commit the filled `.env`).
+## Configuration & Settings
 
-- `MONGO_URI` — MongoDB connection string (default: `mongodb://localhost:27017/dinnerhopping`).
-- `JWT_SECRET` — secret key for JWT signing (default: `change-me`).
-- `BACKEND_BASE_URL` — base URL used in generated links (default: `http://localhost:8000`).
-- `ALLOWED_ORIGINS` — comma-separated CORS origins (default: `*`).
-- `TOKEN_PEPPER` — application-wide secret used to HMAC-token values (recommended, set to a long random string). When set, verification and invitation tokens are stored as a non-reversible hash in the database.
-- `STRIPE_API_KEY` — optional; when set the payments flow will create Stripe Checkout Sessions.
-- `STRIPE_WEBHOOK_SECRET` — optional; when set webhook requests will be verified.
- - PayPal (optional): set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `PAYPAL_ENV` (`sandbox`|`live`).
- - Wero (SEPA transfer): configure `WERO_IBAN`, `WERO_BIC`, `WERO_BENEFICIARY`, `WERO_PURPOSE_PREFIX`.
-- `SMTP_HOST` — optional; hostname of SMTP server (e.g. `ssl0.ovh.net` for OVH mail).
-- `SMTP_PORT` — optional; SMTP port (587 for STARTTLS, 465 for SSL). Default: 587 when `SMTP_HOST` set.
-- `SMTP_USER` — SMTP username (usually the full email address).
-- `SMTP_PASS` — SMTP password.
-- `SMTP_FROM_ADDRESS` — from address used when sending verification emails (default: `info@acrevon.fr`).
-- `SMTP_USE_TLS` — `true`/`false` whether to use STARTTLS (default: `true`).
- - `SMTP_TIMEOUT_SECONDS` — SMTP network timeout in seconds (default: `10`).
- - `SMTP_MAX_RETRIES` — retry attempts for transient send failures (default: `2`).
+Centralized in `app/settings.py` using `pydantic-settings`. All env vars have sane defaults for dev.
 
-### Email sending abstraction
+| Category | Key | Default | Notes |
+|----------|-----|---------|-------|
+| Core | `ENVIRONMENT` | development | Free form environment name |
+| Core | `APP_NAME` | DinnerHopping Backend | Display title |
+| Mongo | `MONGO_URI` | mongodb://mongo:27017/dinnerhopping | Overridden by `MONGO_URL` if not set |
+| Mongo | `MONGO_DB` | dinnerhopping | DB name |
+| Auth | `JWT_SECRET` | change-me | MUST change in prod |
+| Auth | `TOKEN_PEPPER` | (empty) | HMAC pepper for stored token hashes |
+| Security | `ENFORCE_HTTPS` | true | Adds HTTPS redirect middleware (disable in local http) |
+| CORS | `ALLOWED_ORIGINS` | * | Comma list. To use cookies set explicit origins + `CORS_ALLOW_CREDENTIALS=true` |
+| Email | `SMTP_HOST` + related | — | If unset, dev print fallback used |
+| Payments | `STRIPE_API_KEY` | — | Enables Stripe Checkout when present |
+| Payments | `STRIPE_WEBHOOK_SECRET` | — | Signature verification for webhooks |
+| Payments | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | — | Enables PayPal Orders API |
+| Payments | `PAYPAL_ENV` | sandbox | sandbox or live |
+| Manual Pay | `WERO_*` | — | IBAN/BIC beneficiary + purpose prefix |
+| Privacy | `ADDRESS_KEY` | — | Base64 AES-GCM key for address encryption |
+| Testing | `USE_FAKE_DB_FOR_TESTS` | 0 | Set to 1 to use in-memory DB |
 
-Email related utilities live in `app/utils.py`:
+Access settings via:
+```python
+from app.settings import get_settings
+settings = get_settings()
+```
 
-* `send_email(to, subject, body, ...)` – core async helper performing SMTP delivery with retries.
-* `generate_and_send_verification(email)` – creates + stores a verification token then sends an email (prints link in dev).
-* `send_notification(email, title, lines)` – convenience wrapper for future generic notifications.
+Settings are cached, so reading them is inexpensive.
 
-If no SMTP config is present the backend prints emails to stdout so flows remain testable locally. When adding new notification types prefer calling `send_notification` or building a custom body and calling `send_email` with an appropriate `category`.
+### Email & Notifications
+Primitive templates are in `app/notifications.py` and low-level delivery in `app/utils.py` (`send_email`). In absence of SMTP configuration, mail bodies are printed. Add new categories by reusing `send_email(category="your_feature")`.
 
-## High level API overview
+## High-Level API Map
 
-All endpoints are mounted at the root of the service. Below are the primary endpoints and their
-behaviour. Request/response shapes are intentionally flexible to reflect the proof-of-concept nature
-of this project; the tests accept multiple common shapes.
+Routers: users (`/register`, `/login`, `/logout`, `/refresh`, profile), events (`/events`), registrations (`/registrations/solo|/team`), invitations, payments, admin, matching (scaffold only), chats (scaffold), plus plan convenience endpoint.
 
-Authentication
+### Authentication
 - POST /register
 	- Body: { name, email, password }
 	- Creates a user, stores an email verification token and prints a verification link to logs.
@@ -76,7 +90,7 @@ Authentication
 	- Authorization: Bearer <token>
 	- Returns the authenticated user's profile.
 
-Events
+### Events
 - GET /events
 	- Returns a list of public events (supports query filters in the code).
 
@@ -86,7 +100,7 @@ Events
 - GET /events/{id}
 	- Returns event details (location is anonymized by default in list views).
 
-Registrations & Invitations
+### Registrations & Invitations
 - POST /events/{id}/register
 	- Registers the authenticated user (or invited user) for an event. Can create invitation
 		records when the request includes invited_emails and prints invitation links to logs.
@@ -94,7 +108,7 @@ Registrations & Invitations
 - POST /invitations/{token}/accept
 	- Accept an invitation (supports account creation for unauthenticated users).
 
-Payments
+### Payments
 - POST /payments/create
 	- Body: { registration_id, amount_cents, idempotency_key?, provider? }
 	- Behaviour:
@@ -109,7 +123,7 @@ Payments
 	- The implementation uses a DB atomic upsert to avoid duplicate-key races and supports
 		an optional `idempotency_key` to deduplicate client retries.
 
-PayPal Standard Checkout (Orders API)
+#### PayPal Orders API
 - GET /payments/paypal/config — returns `{ clientId, currency, env }` for initializing the JS SDK.
 - POST /payments/paypal/orders — body `{ registration_id, amount_cents?, idempotency_key?, currency? }` creates a PayPal order and returns `{ id }`.
 - POST /payments/paypal/orders/{order_id}/capture — captures an order; marks the linked registration as paid if completed.
@@ -126,95 +140,91 @@ PayPal Standard Checkout (Orders API)
  - GET /payments/paypal/return?payment_id=...&token=... — Captures PayPal order and marks paid.
  - POST /payments/{id}/confirm — Admin-only manual confirmation for bank transfers (Wero).
 
-Invited users and payments
+#### Invited Users & Payments
 - When an invitation is accepted, a Registration with status "invited" is created for the invited email. Invited participants must pay to be confirmed. The frontend can call POST /payments/create with that registration_id and present either PayPal, Stripe, or Wero options. On success, the Registration status becomes "paid".
 	- Receives Stripe webhooks. If `STRIPE_WEBHOOK_SECRET` is set it will verify signatures.
 	- Processes `checkout.session.completed` events and marks the DB payment as paid.
 	- The handler is resilient: it first looks up payments by provider id, and falls back to
 		the Stripe session metadata (payment_db_id) if necessary.
 
-Security & dev helpers
+### Security & Operational Hardening
+* Structured logging with per-request `X-Request-ID` header + middleware (logs `request.start` / `request.end`).
+* Global validation (422) and unhandled (500) handlers return JSON:
+```json
+{ "error": "validation_error", "detail": [...], "request_id": "uuid" }
+```
+```json
+{ "error": "internal_server_error", "detail": "An unexpected error occurred", "request_id": "uuid" }
+```
+* Security headers + CSRF double-submit cookie/header pattern when using cookie-based auth.
+* In-memory rate limit (development only; replace in prod).
+
+### Refund Reporting Endpoint
+`GET /payments/admin/events/{event_id}/refunds` (admin) returns registrations flagged eligible for refunds (based on event `refund_on_cancellation` + cancellation state). Use this to drive payout or refund processes externally.
+
+### Matching (Deferred)
+Code scaffolds exist (`/matching` router, distance utilities) but matching logic, grouping, and chat orchestration are intentionally postponed. These endpoints should be considered unstable/hidden until resumed.
 - Passwords are validated against a minimal policy and are hashed (bcrypt).
 - Failed login attempts are counted and a short lockout applied after repeated failures.
 - Basic security headers and a simple in-memory rate limiter are enabled for dev.
 - Verification and invitation emails are printed to the backend logs (no real email sending).
 
+docker compose up --build
 ## Testing
 
-There is a small Node-based end-to-end test located at `tests/api.e2e.test.js`. It uses
-`supertest` and `jest` to exercise the running backend at `http://localhost:8000`.
-
-To run the tests locally:
-
-1. Ensure the backend is running (Docker Compose):
-
+Python tests (pytest + httpx + in-memory DB) live under `backend/tests/`.
+Core flow example executed by CI / local run:
 ```bash
 cd backend
-docker compose up --build
+USE_FAKE_DB_FOR_TESTS=1 pytest -q
 ```
+This performs: user registration → forced verification → login → admin creates event → registration → cancellation attempt → refund report query.
 
-2. Install test dev dependencies and run the test suite (from `backend`):
+When running against a real Mongo instance omit `USE_FAKE_DB_FOR_TESTS` (data persists; ensure a clean DB or use a dedicated database name per test run).
 
+Add new tests by reusing fixtures in `tests/conftest.py` (admin token, verified user, async client).
+
+## Example Curl Flows (Dev)
 ```bash
-npm install
-npm test
-```
+# Register (verification link printed)
+curl -X POST http://localhost:8000/register \
+	-H 'Content-Type: application/json' \
+	-d '{"email":"t@example.com","password":"Testpass1","password_confirm":"Testpass1","first_name":"Test","last_name":"User","street":"S","street_no":"1","postal_code":"12345","city":"Town","gender":"prefer_not_to_say"}'
 
-Notes about the test harness:
-- The test generates a unique email per run and tolerates multiple API response shapes (this
-	makes it resilient across dev setups where some operations require admin or verified users).
-- The test expects the backend to be reachable at `http://localhost:8000`.
-
-## Example curl flows (dev)
-
-# Register (prints verification link in logs)
-curl -X POST http://localhost:8000/register -H "Content-Type: application/json" -d '{"name":"T","email":"t@example.com","password":"Testpass1"}'
-
-# Visit the printed verification URL (from container logs) or call:
+# After printing link, verify (replace <token>)
 curl "http://localhost:8000/verify-email?token=<token>"
 
 # Login
-curl -X POST http://localhost:8000/login -H "Content-Type: application/json" -d '{"username":"t@example.com","password":"Testpass1"}'
+curl -X POST http://localhost:8000/login -H 'Content-Type: application/json' -d '{"username":"t@example.com","password":"Testpass1"}'
 
-# Create an event (admin role required)
-curl -X POST http://localhost:8000/events/ -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"title":"My Event","date":"2025-09-20T19:00:00Z","location":{"name":"Venue"},"capacity":10}'
+# Create event (admin JWT required)
+curl -X POST http://localhost:8000/events \
+	-H 'Authorization: Bearer <admin_token>' -H 'Content-Type: application/json' \
+	-d '{"title":"My Event","date":"2030-01-01","capacity":20,"fee_cents":0,"status":"open"}'
 
-# Register for an event
-curl -X POST http://localhost:8000/events/<eventId>/register -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{}'
-
-# Dev-pay a payment
-curl -X GET http://localhost:8000/payments/<paymentId>/pay
-
-## Production notes
-
-- The current implementation uses an in-memory rate limiter and prints emails to logs — both
-	should be replaced for production (use Redis or a proper rate limiter and a real email provider).
-
-SMTP / OVH example
-- To send real verification emails via OVH, configure the SMTP variables (do not commit credentials):
-
-```
-# .env (example - keep secrets out of source control)
-SMTP_HOST=ssl0.ovh.net
-SMTP_PORT=587
-SMTP_USER=info@acrevon.fr
-SMTP_PASS=YOUR_OVH_SMTP_PASSWORD
-SMTP_FROM_ADDRESS=info@acrevon.fr
-SMTP_USE_TLS=true
-SMTP_TIMEOUT_SECONDS=10
-SMTP_MAX_RETRIES=2
-BACKEND_BASE_URL=http://localhost:8000
+# Solo registration (provide user token)
+curl -X POST http://localhost:8000/registrations/solo \
+	-H 'Authorization: Bearer <user_token>' -H 'Content-Type: application/json' \
+	-d '{"event_id":"<event_id>"}'
 ```
 
-With these set, registering a user will attempt to send the verification email via OVH SMTP. If
-sending fails (network, bad credentials), the service falls back to printing the verification URL
-to logs so you can still verify accounts in development.
-- For Stripe webhooks and strong idempotency you should run MongoDB as a replica set and/or
-	use provider metadata and transactions where appropriate.
+## Production Notes
+* Replace in-memory rate limiter with Redis / gateway policy.
+* Use real SMTP (or transactional provider API) – set all `SMTP_*` variables; enable DKIM/SPF.
+* Set strong values: `JWT_SECRET`, `TOKEN_PEPPER`, `ADDRESS_KEY` (32 bytes base64).
+* Run MongoDB as a replica set for transaction support (future matching & payment consistency).
+* Monitor logs: each response includes `X-Request-ID` and JSON errors embed `request_id`.
+* Consider structured JSON logging (current plain format is easy to parse already).
 
-If you want, I can:
-- Add automated tests for payments and webhook idempotency.
-- Create a Docker Compose profile that spins up the backend and runs the Node/Jest tests
-	automatically for CI.
+## Roadmap / Deferred
+| Area | Status |
+|------|--------|
+| Matching algorithm & travel optimization | Deferred (scaffold only) |
+| Chat group creation & message lifecycle | Partial scaffold |
+| Advanced refund automation (actual provider refund calls) | Future |
+| Rich HTML email templates | Future |
+
+---
+Maintainers: update this file when adding publicly reachable endpoints, new settings, or changing error schemas. Keep examples minimal and current.
 
 
