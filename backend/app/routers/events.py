@@ -43,6 +43,17 @@ def _fmt_date(v):
             return str(v)
     return v
 
+# Normalize legacy/unknown statuses to known set for response models
+_ALLOWED_STATUSES = {'draft', 'published', 'closed', 'cancelled'}
+
+def _normalize_status(v: Optional[str]) -> str:
+    if not v:
+        return 'draft'
+    s = str(v).strip().lower()
+    if s == 'open':
+        return 'published'
+    return s if s in _ALLOWED_STATUSES else 'draft'
+
 ######### Router / Endpoints #########
 
 router = APIRouter()
@@ -76,6 +87,8 @@ class EventCreate(BaseModel):
     status: Optional[Literal['draft','coming_soon','open','closed','matched','released','cancelled']] = 'draft'
     refund_on_cancellation: Optional[bool] = None
     chat_enabled: Optional[bool] = None
+    # New: restrict participation area by zip codes
+    valid_zip_codes: Optional[List[str]] = None
 
 class LocationOut(BaseModel):
     address_public: Optional[str] = None
@@ -105,6 +118,8 @@ class EventOut(BaseModel):
     updated_at: Optional[datetime.datetime] = None
     refund_on_cancellation: Optional[bool] = None
     chat_enabled: Optional[bool] = None
+    # New: expose allowed zip codes
+    valid_zip_codes: Optional[List[str]] = None
 
 @router.get("/", response_model=list[EventOut])
 async def list_events(date: Optional[str] = None, status: Optional[str] = None, lat: Optional[float] = None, lon: Optional[float] = None, radius_m: Optional[int] = None, participant: Optional[str] = None, current_user=Depends(get_current_user)):
@@ -195,7 +210,7 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
             fee_cents=e.get('fee_cents', 0),
             city=e.get('city'),
             attendee_count=e.get('attendee_count', 0),
-            status=e.get('status'),
+            status=_normalize_status(e.get('status')),
             organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
             created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
             after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
@@ -255,6 +270,9 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
     doc['matching_status'] = doc.get('matching_status', 'not_started')
     doc['created_at'] = now
     doc['updated_at'] = now
+    # pass-through of valid_zip_codes if provided
+    if payload.valid_zip_codes is not None:
+        doc['valid_zip_codes'] = payload.valid_zip_codes
     # set created_by to current user
     doc['created_by'] = current_user.get('_id')
 
@@ -277,7 +295,7 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         payment_deadline=_fmt_date(doc.get('payment_deadline')),
         after_party_location=doc.get('after_party_location'),
         attendee_count=0,
-        status=doc.get('status'),
+        status=_normalize_status(doc.get('status')),
         matching_status=doc.get('matching_status'),
         organizer_id=str(doc['organizer_id']) if doc.get('organizer_id') is not None else None,
         created_by=str(doc['created_by']) if doc.get('created_by') is not None else None,
@@ -348,7 +366,6 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
 
 @router.put('/{event_id}', response_model=EventOut)
 async def update_event(event_id: str, payload: EventCreate, _=Depends(require_admin)):
-    # Use model_dump (exclude_unset) instead of deprecated dict()
     update = payload.model_dump(exclude_unset=True)
 
     # handle after_party_location update (accept legacy 'location')
@@ -393,16 +410,16 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         title=e.get('title') or e.get('name'),
         description=e.get('description'),
         extra_info=e.get('extra_info'),
-    date=_fmt_date(e.get('date')),
-    start_at=_fmt_date(e.get('start_at')),
+        date=_fmt_date(e.get('date')),
+        start_at=_fmt_date(e.get('start_at')),
         capacity=e.get('capacity'),
     fee_cents=e.get('fee_cents', 0),
         city=e.get('city'),
-    registration_deadline=_fmt_date(e.get('registration_deadline')),
-    payment_deadline=_fmt_date(e.get('payment_deadline')),
+        registration_deadline=_fmt_date(e.get('registration_deadline')),
+        payment_deadline=_fmt_date(e.get('payment_deadline')),
         after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
         attendee_count=e.get('attendee_count', 0),
-        status=e.get('status'),
+        status=_normalize_status(e.get('status')),
         matching_status=e.get('matching_status', 'not_started'),
         organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
         created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
@@ -497,7 +514,7 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
     # handle invited_emails: create invitation records per email
     invited = payload.get('invited_emails') or []
     sent_invitations = []
-    from app.utils import generate_token_pair
+    from ..utils import generate_token_pair
     for em in invited:
         try:
             invite_bytes = int(os.getenv('INVITE_TOKEN_BYTES', os.getenv('TOKEN_BYTES', '18')))
