@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Literal, List
 from app import db as db_mod
 from app.auth import get_current_user, require_admin
-from app.utils import anonymize_address, encrypt_address, anonymize_public_address, require_event_published, require_event_registration_open
+from app.utils import anonymize_address, encrypt_address, anonymize_public_address, require_event_registration_open
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 from pymongo.errors import PyMongoError
@@ -63,13 +63,13 @@ class EventCreate(BaseModel):
     title: str
     description: Optional[str] = None
     extra_info: Optional[str] = None
-    date: Optional[str] = None
-    start_at: Optional[str] = None
+    date: Optional[datetime.date] = None
+    start_at: Optional[datetime.datetime] = None
     capacity: Optional[int] = None
     fee_cents: Optional[int] = 0
     city: Optional[str] = None
-    registration_deadline: Optional[str] = None
-    payment_deadline: Optional[str] = None
+    registration_deadline: Optional[datetime.datetime] = None
+    payment_deadline: Optional[datetime.datetime] = None
     valid_zip_codes: Optional[List[str]] = Field(default_factory=list, description="Whitelisted postal codes allowed to register")
     after_party_location: Optional[LocationIn] = None
     organizer_id: Optional[str] = None
@@ -87,13 +87,13 @@ class EventOut(BaseModel):
     title: str
     description: Optional[str] = None
     extra_info: Optional[str] = None
-    date: Optional[str] = None
-    start_at: Optional[str] = None
+    date: Optional[datetime.date] = None
+    start_at: Optional[datetime.datetime] = None
     capacity: Optional[int] = None
     fee_cents: Optional[int] = 0
     city: Optional[str] = None
-    registration_deadline: Optional[str] = None
-    payment_deadline: Optional[str] = None
+    registration_deadline: Optional[datetime.datetime] = None
+    payment_deadline: Optional[datetime.datetime] = None
     valid_zip_codes: List[str] = []
     after_party_location: Optional[LocationOut] = None
     attendee_count: int = 0

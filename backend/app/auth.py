@@ -14,6 +14,7 @@ from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
 
 from . import db as db_mod
+from .datetime_utils import now_iso, to_iso, parse_iso
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 auth_logger = logging.getLogger('auth')
@@ -76,11 +77,11 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict, expires_minutes: int | None = None):
     to_encode = data.copy()
-    now = datetime.datetime.utcnow()
+    now_dt = datetime.datetime.utcnow()  # still use datetime for JWT exp/iat numeric processing
     exp_minutes = expires_minutes if isinstance(expires_minutes, int) and expires_minutes > 0 else _access_token_ttl_minutes()
-    expire = now + datetime.timedelta(minutes=exp_minutes)
+    expire = now_dt + datetime.timedelta(minutes=exp_minutes)
     # Standard JWT claims
-    to_encode.update({"exp": expire, "iat": now})
+    to_encode.update({"exp": expire, "iat": now_dt})
     if JWT_ISSUER:
         to_encode["iss"] = JWT_ISSUER
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGO)
@@ -103,11 +104,16 @@ async def authenticate_user(email: str, password: str):
     lock_until = user.get('lockout_until')
     if lock_until:
         try:
-            if datetime.datetime.utcnow() < lock_until:
+            # lock_until may now be stored as ISO string -> parse for comparison
+            if isinstance(lock_until, str):
+                lock_until_dt = parse_iso(lock_until)
+            else:
+                lock_until_dt = lock_until
+            if lock_until_dt and datetime.datetime.utcnow().replace(tzinfo=None) < lock_until_dt.replace(tzinfo=None):
                 auth_logger.warning('auth.login.locked email=%s until=%s', email, lock_until)
                 return None
         except (TypeError, ValueError):
-            # if lock_until isn't a datetime (older records), ignore
+            # if lock_until isn't valid, ignore
             pass
 
     # Support legacy 'password' field and new 'password_hash'
@@ -124,7 +130,8 @@ async def authenticate_user(email: str, password: str):
         user = await get_user_by_email(email)
         if user.get('failed_login_attempts', 0) >= 5:
             # lock the account for 15 minutes
-            await db_mod.db.users.update_one({"email": email}, {"$set": {"lockout_until": datetime.datetime.utcnow() + datetime.timedelta(minutes=15)}})
+            lock_until_iso = to_iso(datetime.datetime.utcnow() + datetime.timedelta(minutes=15))
+            await db_mod.db.users.update_one({"email": email}, {"$set": {"lockout_until": lock_until_iso}})
             auth_logger.warning('auth.login.lockout email=%s attempts=%s', email, user.get('failed_login_attempts'))
         else:
             auth_logger.info('auth.login.failed reason=bad_credentials email=%s attempts=%s', email, user.get('failed_login_attempts'))

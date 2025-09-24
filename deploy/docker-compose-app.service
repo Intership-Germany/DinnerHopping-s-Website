@@ -1,0 +1,19 @@
+# /etc/systemd/system/docker-compose-app.service
+[Unit]
+Description=DinnerHopping Docker Compose App (backend + mongo)
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/dinnerhopping/deploy
+# Pull et build (optionnel) puis up
+ExecStart=/usr/bin/docker compose -f production-docker-compose.yml up -d --build
+ExecStop=/usr/bin/docker compose -f production-docker-compose.yml down
+TimeoutStartSec=0
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
