@@ -60,7 +60,7 @@ jobs:
           PORT=${DEPLOY_PORT:-22}
           rsync -az --delete -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" frontend/public/ ${DEPLOY_USER}@${DEPLOY_HOST}:/var/www/dinnerhopping/
 
-      - name: Remote deploy: git pull, pull image, restart service, healthcheck
+      - name: Remote deploy git pull, pull image, restart service, healthcheck
         env:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
