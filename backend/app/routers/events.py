@@ -526,6 +526,65 @@ async def change_event_status(event_id: str, new_status: str, _=Depends(require_
     await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'status': new_status, 'updated_at': datetime.datetime.utcnow()}})
     return {'status': new_status}
 
+@router.delete('/{event_id}')
+async def delete_event(event_id: str, cascade: bool = True, _=Depends(require_admin)):
+    """Delete an event. If cascade is True (default), remove related records:
+    - registrations (+ invitations & payments by registration)
+    - matches (by string event_id)
+    - plans (by ObjectId event_id)
+    - teams (by ObjectId event_id)
+    Returns counts of deleted documents.
+    """
+    try:
+      oid = ObjectId(event_id)
+    except (InvalidId, TypeError, ValueError):
+      raise HTTPException(status_code=400, detail='invalid event_id')
+
+    e = await db_mod.db.events.find_one({'_id': oid})
+    if not e:
+      raise HTTPException(status_code=404, detail='Event not found')
+
+    deleted = {
+      'event': 0,
+      'registrations': 0,
+      'invitations': 0,
+      'payments': 0,
+      'matches': 0,
+      'plans': 0,
+      'teams': 0,
+    }
+
+    if cascade:
+      # registrations and dependent docs
+      reg_ids = [r['_id'] async for r in db_mod.db.registrations.find({'event_id': oid}, {'_id': 1})]
+      if reg_ids:
+        # invitations by registration_id
+        inv_res = await db_mod.db.invitations.delete_many({'registration_id': {'$in': reg_ids}})
+        deleted['invitations'] = getattr(inv_res, 'deleted_count', 0)
+        # payments by registration_id
+        pay_res = await db_mod.db.payments.delete_many({'registration_id': {'$in': reg_ids}})
+        deleted['payments'] = getattr(pay_res, 'deleted_count', 0)
+        # registrations themselves
+        reg_res = await db_mod.db.registrations.delete_many({'_id': {'$in': reg_ids}})
+        deleted['registrations'] = getattr(reg_res, 'deleted_count', 0)
+      # matches store event_id as string
+      m_res = await db_mod.db.matches.delete_many({'event_id': event_id})
+      deleted['matches'] = getattr(m_res, 'deleted_count', 0)
+      # plans store event_id as ObjectId
+      pl_res = await db_mod.db.plans.delete_many({'event_id': oid})
+      deleted['plans'] = getattr(pl_res, 'deleted_count', 0)
+      # teams store event_id as ObjectId (if teams collection used)
+      try:
+        t_res = await db_mod.db.teams.delete_many({'event_id': oid})
+        deleted['teams'] = getattr(t_res, 'deleted_count', 0)
+      except Exception:
+        pass
+
+    ev_res = await db_mod.db.events.delete_one({'_id': oid})
+    deleted['event'] = getattr(ev_res, 'deleted_count', 0)
+
+    return {'status': 'deleted', 'deleted': deleted}
+
 @router.post("/{event_id}/register")
 async def register_for_event(event_id: str, payload: dict, current_user=Depends(get_current_user)):
     # payload may include team info, invited_emails and preferences override

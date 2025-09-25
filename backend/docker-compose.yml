@@ -33,7 +33,7 @@ services:
   mongo-init:
     build: .
     # Use an authenticated URI so the init script can run against an auth-enabled server.
-    command: ["/bin/sh", "-c", "python3 scripts/mongo_init.py --mongo-uri=mongodb://dinnerhopping:babyschnaps@mongo:27017/dinnerhopping?authSource=admin"]
+    command: [ "/bin/sh", "-c", "python3 scripts/mongo_init.py --mongo-uri=mongodb://dinnerhopping:babyschnaps@mongo:27017/dinnerhopping?authSource=admin" ]
     environment:
       - MONGO_URI=mongodb://dinnerhopping:babyschnaps@mongo:27017/dinnerhopping?authSource=admin
       - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
