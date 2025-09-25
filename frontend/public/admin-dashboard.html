@@ -17,8 +17,13 @@
     .tag { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 12px; }
     .tag-draft { background: #eee; color: #555; }
     .tag-published { background: #e0f7f7; color: #026; }
+    /* Map 'open' to published style and add more statuses used by backend */
+    .tag-open { background: #e0f7f7; color: #026; }
+    .tag-coming_soon { background: #edf3ff; color: #123; }
     .tag-closed { background: #ffe5d0; color: #6b4000; }
     .tag-cancelled { background: #fde2e1; color: #7a0916; }
+    .tag-matched { background: #e8f5e9; color: #1b5e20; }
+    .tag-released { background: #e8f5e9; color: #1b5e20; }
     .tag-proposed { background: #edf3ff; color: #123; }
     .tag-finalized { background: #e8f5e9; color: #1b5e20; }
   </style>
@@ -28,28 +33,67 @@
   <div data-include="partials/header.html"></div>
 
   <main class="flex-grow max-w-6xl mx-auto w-full px-4 py-10 space-y-8">
-    <!-- Create Event Section -->
+    <!-- Create/Edit Event Section -->
     <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
-      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Create New Event</h2>
+      <div class="flex items-center justify-between mb-4">
+        <h2 id="create-form-title" class="text-xl font-bold text-[#f46f47]">Create New Event</h2>
+        <button id="btn-cancel-edit" class="hidden bg-[#4a5568] text-white rounded-xl px-3 py-2 text-sm hover:opacity-90">Cancel edit</button>
+      </div>
+
       <form id="create-event-form" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <input name="title" type="text" placeholder="Event Name" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
-        <input name="date" type="date" placeholder="Date" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none">
-        <input name="start_at" type="datetime-local" placeholder="Start at" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none">
-        <input name="city" type="text" placeholder="City" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none">
-        <input name="capacity" type="number" placeholder="Capacity (people)" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none">
-        <input name="fee_cents" type="number" placeholder="Fee (¢ cents)" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none">
-        <input name="registration_deadline" type="datetime-local" placeholder="Registration deadline" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none md:col-span-2">
-        <input name="valid_zip_codes" type="text" placeholder="Valid ZIP codes (comma-separated)" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none md:col-span-1">
-        <input name="after_party_address" type="text" placeholder="Final Party Address (optional)" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none md:col-span-2">
-        <textarea name="extra_info" placeholder="Additional info (optional)" class="border border-[#f0f4f7] rounded-xl p-3 md:col-span-3 focus:ring-2 focus:ring-[#f46f47] outline-none" rows="2"></textarea>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-semibold mb-1">Event title</label>
+          <input name="title" type="text" placeholder="e.g., Summer Dinner Hop" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none" required>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">City</label>
+          <input name="city" type="text" placeholder="e.g., Berlin" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+
+        <div>
+          <label class="block text-sm font-semibold mb-1">Event day</label>
+          <input name="date" type="date" placeholder="YYYY-MM-DD" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Start time</label>
+          <input name="start_at" type="datetime-local" placeholder="YYYY-MM-DDTHH:MM" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Registration deadline</label>
+          <input name="registration_deadline" type="datetime-local" placeholder="YYYY-MM-DDTHH:MM" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Payment deadline (optional)</label>
+          <input name="payment_deadline" type="datetime-local" placeholder="YYYY-MM-DDTHH:MM" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Capacity</label>
+          <input name="capacity" type="number" placeholder="Total number of people" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Fee (in cents)</label>
+          <input name="fee_cents" type="number" placeholder="e.g., 500 for 5.00 €" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div class="md:col-span-3">
+          <label class="block text-sm font-semibold mb-1">Valid ZIP codes (optional)</label>
+          <input name="valid_zip_codes" type="text" placeholder="Comma-separated: 37073, 37075, ..." class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div class="md:col-span-3">
+          <label class="block text-sm font-semibold mb-1">Final party address (optional)</label>
+          <input name="after_party_address" type="text" placeholder="Street and city, e.g., Alva-Myrdal-Weg, Göttingen" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div class="md:col-span-3">
+          <label class="block text-sm font-semibold mb-1">Additional info (optional)</label>
+          <textarea name="extra_info" placeholder="Notes for participants, logistics, etc." class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none" rows="2"></textarea>
+        </div>
         <div class="flex items-center gap-3 md:col-span-3">
           <label class="flex items-center gap-2"><input type="checkbox" name="refund_on_cancellation" class="accent-[#f46f47]"> Refund on cancellation</label>
           <label class="flex items-center gap-2"><input type="checkbox" name="chat_enabled" class="accent-[#f46f47]"> Enable chat</label>
         </div>
-        <div class="md:col-span-3 flex gap-3">
-          <button type="submit" class="bg-[#f46f47] text-white rounded-xl px-4 py-3 font-bold shadow-lg hover:bg-[#ff8c42] transition">Create Event (Draft)</button>
+        <div class="md:col-span-3 flex gap-3 items-center">
+          <button type="submit" id="btn-submit-event" class="bg-[#f46f47] text-white rounded-xl px-4 py-3 font-bold shadow-lg hover:bg-[#ff8c42] transition">Create Event (Draft)</button>
+          <span id="create-event-msg" class="text-sm text-[#008080]"></span>
         </div>
-        <p id="create-event-msg" class="text-sm text-[#008080] md:col-span-3"></p>
       </form>
     </section>
 
@@ -103,12 +147,18 @@
           <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-local" > Local search</label>
           <button id="btn-start-matching" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Start Matching</button>
           <button id="btn-refresh-matches" class="bg-[#ffc241] text-[#172a3a] rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#ffe5d0] transition">Refresh Proposals</button>
+          <button id="btn-delete-all-matches" class="bg-[#e53e3e] text-white rounded-xl px-4 py-2 font-semibold shadow hover:opacity-90 transition">Delete All Matches</button>
           <span id="matching-msg" class="text-sm"></span>
         </div>
       </div>
       <div class="mt-4">
         <h3 class="font-semibold mb-2">Proposals</h3>
         <div id="proposals" class="space-y-3"></div>
+      </div>
+      <div class="mt-6">
+        <h3 class="font-semibold mb-2">Match Details</h3>
+        <div id="match-details" class="space-y-4"></div>
+        <div id="match-details-msg" class="text-sm text-[#4a5568]"></div>
       </div>
     </section>
 
