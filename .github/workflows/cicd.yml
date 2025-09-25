@@ -9,15 +9,18 @@ permissions:
   contents: read
   packages: write
 
-env:
-  IMAGE_NAME: ghcr.io/${{ toLower(github.repository_owner) }}/dinnerhopping-backend
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Determine lowercase repository owner
+        id: owner
+        run: |
+          # Force lowercase of the repo owner (e.g. Intership-Germany -> intership-germany)
+          echo "lower_owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU and Buildx
         uses: docker/setup-buildx-action@v3
@@ -36,8 +39,8 @@ jobs:
           file: ./backend/Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ghcr.io/${{ steps.owner.outputs.lower_owner }}/dinnerhopping-backend:latest
+            ghcr.io/${{ steps.owner.outputs.lower_owner }}/dinnerhopping-backend:${{ github.sha }}
 
   deploy:
     needs: build-and-push
@@ -65,12 +68,10 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-          # Secrets to use on the remote server for docker login (optional; set these in the repo secrets if image is private)
           REMOTE_GHCR_USER: ${{ secrets.REMOTE_GHCR_USER }}
           REMOTE_GHCR_PAT: ${{ secrets.REMOTE_GHCR_PAT }}
         run: |
           PORT=${DEPLOY_PORT:-22}
-          # Pass REMOTE_GHCR_USER / REMOTE_GHCR_PAT into remote shell
           ssh -o StrictHostKeyChecking=no -p ${PORT} ${DEPLOY_USER}@${DEPLOY_HOST} "REMOTE_GHCR_USER='${{ secrets.REMOTE_GHCR_USER }}' REMOTE_GHCR_PAT='${{ secrets.REMOTE_GHCR_PAT }}' bash -s" <<'EOF'
           set -euo pipefail
           cd /opt/dinnerhopping || exit 1
