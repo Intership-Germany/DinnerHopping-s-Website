@@ -69,40 +69,40 @@ jobs:
           DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
-        run: |
-          PORT=${DEPLOY_PORT:-22}
-          ssh -o StrictHostKeyChecking=no -p ${PORT} ${DEPLOY_USER}@${DEPLOY_HOST} "GHCR_USERNAME='${{ secrets.GHCR_USERNAME }}' GHCR_PAT='${{ secrets.GHCR_PAT }}' bash -s" <<'EOF'
-          set -euo pipefail
-          cd /opt/dinnerhopping || exit 1
-          # Ensure we are on main and up-to-date
-          if git show-ref --verify --quiet refs/heads/main; then
-            git checkout main
-          else
-            git fetch origin main:main
-            git checkout main
-          fi
-          git fetch --all --prune
-          git pull --ff-only
+concurrency: |
+  PORT=${DEPLOY_PORT:-22}
+  ssh -o StrictHostKeyChecking=no -p ${PORT} ${DEPLOY_USER}@${DEPLOY_HOST} "GHCR_USERNAME='${{ secrets.GHCR_USERNAME }}' GHCR_PAT='${{ secrets.GHCR_PAT }}' bash -s" <<'EOF'
+  set -euo pipefail
+  cd /opt/dinnerhopping || exit 1
+  # Ensure we are on main and up-to-date
+  if git show-ref --verify --quiet refs/heads/main; then
+    git checkout main
+  else
+    git fetch origin main:main
+    git checkout main
+  fi
+  git fetch --all --prune
+  git pull --ff-only
 
-          # Optional: login to GHCR if GHCR_USERNAME / GHCR_PAT provided
-          if [ -n "${GHCR_PAT:-}" ] && [ -n "${GHCR_USERNAME:-}" ]; then
-            echo "${GHCR_PAT}" | sudo docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin || true
-          fi
+  # Optional: login to GHCR if GHCR_USERNAME / GHCR_PAT provided
+  if [ -n "${GHCR_PAT:-}" ] && [ -n "${GHCR_USERNAME:-}" ]; then
+    echo "${GHCR_PAT}" | sudo docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin || true
+  fi
 
-          # Restart service using latest image
-          sudo systemctl stop docker-compose-app.service || true
-          sudo docker-compose -f deploy/production-docker-compose.yml pull || true
-          sudo systemctl start docker-compose-app.service
+  # Restart service using latest image
+  sudo systemctl stop docker-compose-app.service || true
+  sudo docker-compose -f deploy/production-docker-compose.yml pull || true
+  sudo systemctl start docker-compose-app.service
 
-          # Healthcheck
-          for i in 1 2 3 4 5; do
-            code=$(curl -sk -o /dev/null -w "%{http_code}" https://dinnerhoppings.acrevon.fr/api/openapi.json || true)
-            if [ "$code" = "200" ]; then
-              echo "Healthcheck ok"
-              exit 0
-            fi
-            sleep 3
-          done
-          echo "Healthcheck failed" >&2
-          exit 1
-EOF
+  # Healthcheck
+  for i in 1 2 3 4 5; do
+    code=$(curl -sk -o /dev/null -w "%{http_code}" https://dinnerhoppings.acrevon.fr/api/openapi.json || true)
+    if [ "$code" = "200" ]; then
+      echo "Healthcheck ok"
+      exit 0
+    fi
+    sleep 3
+  done
+  echo "Healthcheck failed" >&2
+  exit 1
+  EOF
