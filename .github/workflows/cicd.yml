@@ -105,4 +105,4 @@ jobs:
           done
           echo "Healthcheck failed" >&2
           exit 1
-EOFtest
+EOF
