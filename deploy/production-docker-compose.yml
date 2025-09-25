@@ -10,7 +10,7 @@ services:
     volumes:
       - mongo-data:/data/db
   backend:
-    image: ghcr.io/steeven-1002/dinnerhopping-backend:latest
+    image: ghcr.io/intership-germany/dinnerhopping-backend:latest
     pull_policy: always
     restart: unless-stopped
     env_file:
