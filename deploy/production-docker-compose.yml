@@ -1,7 +1,12 @@
 services:
   mongo:
-    image: mongo:6.0
+    image: mongodb/mongodb-community-server:6.0-ubi8
     restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
+      - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
     volumes:
       - mongo-data:/data/db
   backend:

@@ -116,7 +116,26 @@ class MongoDB:
             return
         # establish real client/db if not already
         if not self.client:
-            mongo_url = os.getenv('MONGO_URI') or os.getenv('MONGO_URL') or 'mongodb://mongo:27017/dinnerhopping'
+            # Prefer explicit full URI if provided
+            mongo_url = os.getenv('MONGO_URI') or os.getenv('MONGO_URL')
+
+            # If no full URI, try to construct one from host/port and optional credentials.
+            if not mongo_url:
+                host = os.getenv('MONGO_HOST', 'mongo')
+                port = os.getenv('MONGO_PORT', '27017')
+                db_name = os.getenv('MONGO_DB', 'dinnerhopping')
+
+                # Credentials: prefer explicit MONGO_USER/MONGO_PASSWORD, then the docker-style MONGO_INITDB_ROOT_* vars
+                user = os.getenv('MONGO_USER') or os.getenv('MONGO_INITDB_ROOT_USERNAME')
+                password = os.getenv('MONGO_PASSWORD') or os.getenv('MONGO_INITDB_ROOT_PASSWORD')
+
+                if user and password:
+                    # include authSource=admin for root user credentials in Docker images
+                    mongo_url = f'mongodb://{user}:{password}@{host}:{port}/{db_name}?authSource=admin'
+                else:
+                    mongo_url = f'mongodb://{host}:{port}/{db_name}'
+
+            # create client and select DB
             self.client = AsyncIOMotorClient(mongo_url)
             db_name = os.getenv('MONGO_DB', 'dinnerhopping')
             self.db = self.client[db_name]
