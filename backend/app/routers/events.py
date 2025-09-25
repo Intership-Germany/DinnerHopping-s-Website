@@ -184,13 +184,18 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
         # format date-like fields as strings to match EventOut typing
         date_val = _fmt_date(e.get('date')) or ''
         start_val = _fmt_date(e.get('start_at'))
+        registration_deadline_val = _fmt_date(e.get('registration_deadline'))
+        end_val = _fmt_date(e.get('end_at'))
+        
         events_resp.append(EventOut(
             id=str(e.get('_id')),
             title=e.get('title') or e.get('name') or 'Untitled',
             description=e.get('description'),
             extra_info=e.get('extra_info'),
             date=date_val,
+            registration_deadline=registration_deadline_val,
             start_at=start_val,
+            end_at=end_val,
             capacity=e.get('capacity'),
             fee_cents=e.get('fee_cents', 0),
             city=e.get('city'),
