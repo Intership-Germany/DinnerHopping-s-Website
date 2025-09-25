@@ -1,6 +1,6 @@
 services:
   mongo:
-    image: mongo:6.0
+    image: mongodb/mongodb-community-server:6.0-ubi8
     restart: unless-stopped
     ports:
       - "27017:27017"
