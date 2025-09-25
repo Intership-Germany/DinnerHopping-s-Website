@@ -43,6 +43,28 @@ def _fmt_date(v):
             return str(v)
     return v
 
+
+def _normalize_location_for_output(loc):
+    """Ensure location shape is suitable for LocationOut: keep address_public and ensure point is a dict or None.
+
+    Some legacy/buggy records store a numeric value in point (e.g. 1234). This helper
+    converts such values to None so Pydantic doesn't raise when expecting a dict.
+    """
+    if loc is None:
+        return None
+    if not isinstance(loc, dict):
+        return None
+    out = {}
+    if 'address_public' in loc:
+        out['address_public'] = loc.get('address_public')
+    # normalize point: must be a dict with type and coordinates or None
+    pt = loc.get('point')
+    if isinstance(pt, dict):
+        out['point'] = pt
+    else:
+        out['point'] = None
+    return out
+
 ######### Router / Endpoints #########
 
 router = APIRouter()
@@ -181,9 +203,11 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
             user_zip = (current_user.get('postal_code') or '').strip()
             if valid_zips and user_zip and user_zip not in valid_zips:
                 continue
+
         # format date-like fields as strings to match EventOut typing
         date_val = _fmt_date(e.get('date')) or ''
         start_val = _fmt_date(e.get('start_at'))
+<<<<<<< Updated upstream
         registration_deadline_val = _fmt_date(e.get('registration_deadline'))
         end_val = _fmt_date(e.get('end_at'))
         
@@ -210,6 +234,39 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
             chat_enabled=e.get('chat_enabled'),
             valid_zip_codes=e.get('valid_zip_codes', []),
         ))
+=======
+        reg_deadline = _fmt_date(e.get('registration_deadline'))
+        pay_deadline = _fmt_date(e.get('payment_deadline'))
+
+        location_src = e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')
+
+        events_resp.append(
+            EventOut(
+                id=str(e.get('_id')),
+                title=e.get('title') or e.get('name') or 'Untitled',
+                description=e.get('description'),
+                extra_info=e.get('extra_info'),
+                date=date_val,
+                start_at=start_val,
+                registration_deadline=reg_deadline,
+                payment_deadline=pay_deadline,
+                capacity=e.get('capacity'),
+                fee_cents=e.get('fee_cents', 0),
+                city=e.get('city'),
+                attendee_count=e.get('attendee_count', 0),
+                status=e.get('status'),
+                organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
+                created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
+                after_party_location=_normalize_location_for_output(location_src),
+                created_at=e.get('created_at'),
+                updated_at=e.get('updated_at'),
+                refund_on_cancellation=e.get('refund_on_cancellation'),
+                chat_enabled=e.get('chat_enabled'),
+                valid_zip_codes=e.get('valid_zip_codes', []),
+            )
+        )
+
+>>>>>>> Stashed changes
     return events_resp
 
 
@@ -232,13 +289,13 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
             after_party_location = {
                 'address_encrypted': encrypt_address(address),
                 'address_public': anonymize_public_address(address),
-                'point': {'type': 'Point', 'coordinates': [lon, lat]} if lat is not None and lon is not None else None
+                'zip': {'type': 'Point', 'coordinates': [lon, lat]} if lat is not None and lon is not None else None
             }
         elif lat is not None and lon is not None:
             after_party_location = {
                 'address_encrypted': None,
                 'address_public': None,
-                'point': {'type': 'Point', 'coordinates': [lon, lat]}
+                'zip': {'type': 'Point', 'coordinates': [lon, lat]}
             }
     if after_party_location is not None:
         doc['after_party_location'] = after_party_location
@@ -280,7 +337,7 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         city=doc.get('city'),
         registration_deadline=_fmt_date(doc.get('registration_deadline')),
         payment_deadline=_fmt_date(doc.get('payment_deadline')),
-        after_party_location=doc.get('after_party_location'),
+    after_party_location=_normalize_location_for_output(doc.get('after_party_location')),
         attendee_count=0,
         status=doc.get('status'),
         matching_status=doc.get('matching_status'),
@@ -369,13 +426,13 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
             after_party_location = {
                 'address_encrypted': encrypt_address(address),
                 'address_public': anonymize_public_address(address),
-                'point': {'type': 'Point', 'coordinates': [lon, lat]} if lat is not None and lon is not None else None
+                'zip': {'type': 'Point', 'coordinates': [lon, lat]} if lat is not None and lon is not None else None
             }
         elif lat is not None and lon is not None:
             after_party_location = {
                 'address_encrypted': None,
                 'address_public': None,
-                'point': {'type': 'Point', 'coordinates': [lon, lat]}
+                'zip': {'type': 'Point', 'coordinates': [lon, lat]}
             }
     if after_party_location is not None:
         update['after_party_location'] = after_party_location
@@ -398,14 +455,14 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         title=e.get('title') or e.get('name'),
         description=e.get('description'),
         extra_info=e.get('extra_info'),
-    date=_fmt_date(e.get('date')),
-    start_at=_fmt_date(e.get('start_at')),
+        date=_fmt_date(e.get('date')),
+        start_at=_fmt_date(e.get('start_at')),
         capacity=e.get('capacity'),
-    fee_cents=e.get('fee_cents', 0),
+        fee_cents=e.get('fee_cents', 0),
         city=e.get('city'),
-    registration_deadline=_fmt_date(e.get('registration_deadline')),
-    payment_deadline=_fmt_date(e.get('payment_deadline')),
-        after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
+        registration_deadline=_fmt_date(e.get('registration_deadline')),
+        payment_deadline=_fmt_date(e.get('payment_deadline')),
+        after_party_location=_normalize_location_for_output(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
         attendee_count=e.get('attendee_count', 0),
         status=e.get('status'),
         matching_status=e.get('matching_status', 'not_started'),
