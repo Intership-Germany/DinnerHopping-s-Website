@@ -6,13 +6,22 @@ set -euo pipefail
 # branch par défaut: dev
 # service_name systemd par défaut: docker-compose-app.service
 
-BRANCH=${1:-dev}
+BRANCH=${1:-main}
 SERVICE=${2:-docker-compose-app.service}
 APP_DIR=/opt/dinnerhopping
 COMPOSE_DIR="$APP_DIR/deploy"
 COMPOSE_FILE=production-docker-compose.yml
 
 log() { echo "[deploy] $(date +'%Y-%m-%dT%H:%M:%S') $*"; }
+
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  DC_CMD="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  DC_CMD="docker-compose"
+else
+  log "ERREUR: ni 'docker compose' ni 'docker-compose' disponible" >&2
+  exit 1
+fi
 
 if [[ ! -d "$APP_DIR/.git" ]]; then
   log "ERREUR: repo git non trouvé dans $APP_DIR" >&2
@@ -39,14 +48,15 @@ fi
 LAST_COMMIT=$(git rev-parse --short HEAD)
 log "Code à commit $LAST_COMMIT"
 
-log "Construction / mise à jour des containers"
+log "Mise à jour des containers (pull)"
 cd "$COMPOSE_DIR"
-# Build et up (mongo est persistant via volume nommé)
-docker compose -f "$COMPOSE_FILE" pull || true
-if ! docker compose -f "$COMPOSE_FILE" build --pull; then
-  log "Échec build" >&2
-  exit 1
+"$(${DC_CMD% *})" >/dev/null 2>&1 # no-op to satisfy shellcheck (variable use)
+# Optional GHCR login for private registry (provide GHCR_USERNAME and GHCR_PAT)
+if [ -n "${GHCR_USERNAME:-}" ] && [ -n "${GHCR_PAT:-}" ]; then
+  log "Login GHCR (optionnel)"
+  echo "$GHCR_PAT" | sudo docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin || log "Login GHCR échoué (on continue si image publique)"
 fi
+eval "$DC_CMD -f $COMPOSE_FILE pull" || true
 
 log "Redémarrage via systemd ($SERVICE)"
 if systemctl is-enabled --quiet "$SERVICE"; then
@@ -54,13 +64,18 @@ if systemctl is-enabled --quiet "$SERVICE"; then
   sudo systemctl start "$SERVICE"
 else
   log "Service systemd pas encore installé, lancement direct compose"
-  docker compose -f "$COMPOSE_FILE" up -d
+  # Déployer aussi le frontend statique si présent
+  if [ -d "$APP_DIR/frontend/public" ]; then
+    sudo mkdir -p /var/www/dinnerhopping
+    sudo rsync -a --delete "$APP_DIR/frontend/public/" /var/www/dinnerhopping/
+  fi
+  eval "$DC_CMD -f $COMPOSE_FILE up -d"
 fi
 
 log "Attente 5s pour démarrage backend"
 sleep 5
 
-HEALTH_URL=${HEALTH_URL:-"https://api.example.com/docs"}
+HEALTH_URL=${HEALTH_URL:-"https://dinnerhoppings.acrevon.fr/api/openapi.json"}
 log "Healthcheck $HEALTH_URL"
 if curl -k -fsS -o /dev/null "$HEALTH_URL"; then
   log "Healthcheck OK"

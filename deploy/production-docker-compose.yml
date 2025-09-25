@@ -5,8 +5,8 @@ services:
     volumes:
       - mongo-data:/data/db
   backend:
-    build:
-      context: ../backend
+    image: ghcr.io/steeven-1002/dinnerhopping-backend:latest
+    pull_policy: always
     restart: unless-stopped
     env_file:
       - ../backend/app/.env
@@ -15,7 +15,6 @@ services:
       - LOG_DIR=/var/log/dinnerhopping
     depends_on:
       - mongo
-    # On ne publie PAS le port vers l'extérieur, Apache reverse proxynera en local
     ports:
       - "127.0.0.1:8000:8000"
     volumes:

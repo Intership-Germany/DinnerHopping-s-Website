@@ -1,8 +1,12 @@
 .git
-.github
+!.github/
 
 # Local env files
 /backend/app/.env
+cookies.txt
+backend/logs/
+backend/app/data/
+!backend/app/data/database.csv
 .env
 # Created by https://www.toptal.com/developers/gitignore/api/macos,windows,node,python
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,windows,node,python
