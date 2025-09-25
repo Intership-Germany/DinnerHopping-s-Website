@@ -48,20 +48,6 @@ jobs:
     steps:
       - name: Checkout (for frontend files)
         uses: actions/checkout@v4
-
-      - name: Start SSH agent and add key
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
-
-      - name: Rsync frontend to server
-        env:
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-        run: |
-          PORT=${DEPLOY_PORT:-22}
-          rsync -az --delete -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" frontend/public/ ${DEPLOY_USER}@${DEPLOY_HOST}:/var/www/dinnerhopping/
           
       - name: Debug DEPLOY_SSH_KEY (non destructif)
         run: |
@@ -80,6 +66,20 @@ jobs:
           fi
           echo "Event: ${{ github.event_name }}"
           echo "== Fin debug =="
+          
+      - name: Start SSH agent and add key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          
+      - name: Rsync frontend to server
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          PORT=${DEPLOY_PORT:-22}
+          rsync -az --delete -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" frontend/public/ ${DEPLOY_USER}@${DEPLOY_HOST}:/var/www/dinnerhopping/
 
       - name: Remote deploy git pull, pull image, restart service, healthcheck
         env:
