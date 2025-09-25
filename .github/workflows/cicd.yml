@@ -62,6 +62,24 @@ jobs:
         run: |
           PORT=${DEPLOY_PORT:-22}
           rsync -az --delete -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" frontend/public/ ${DEPLOY_USER}@${DEPLOY_HOST}:/var/www/dinnerhopping/
+          
+      - name: Debug DEPLOY_SSH_KEY (non destructif)
+        run: |
+          echo "== Debug DEPLOY_SSH_KEY =="
+          if [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
+            echo "ERROR: Le secret DEPLOY_SSH_KEY est vide ou inexistant dans ce contexte."
+            exit 1
+          fi
+          echo "OK: DEPLOY_SSH_KEY présent."
+          len=$(echo -n "${{ secrets.DEPLOY_SSH_KEY }}" | wc -c)
+          echo "Taille (octets) du secret: $len"
+          if echo "${{ secrets.DEPLOY_SSH_KEY }}" | head -n1 | grep -qi "PRIVATE KEY"; then
+            echo "Format: en-tête PRIVATE KEY détecté (OK)."
+          else
+            echo "WARNING: Pas d'en-tête PRIVATE KEY. Vérifie que tu as collé la clé privée complète."
+          fi
+          echo "Event: ${{ github.event_name }}"
+          echo "== Fin debug =="
 
       - name: Remote deploy git pull, pull image, restart service, healthcheck
         env:
