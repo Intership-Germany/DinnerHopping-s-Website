@@ -48,8 +48,9 @@ jobs:
             cd ..
           else
             echo "No frontend/.env found, copying from .env.example..."
-            cp frontend/.env.example frontend/.env
             cd frontend
+            echo "BACKEND_BASE=https://dinnerhoppings.acrevon.fr/api/
+              DEBUG_BANNER=falsefrontend/.env" >> .env
             node generate-config.js
             cd ..
           fi
