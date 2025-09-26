@@ -9,6 +9,12 @@ services:
     working_dir: /usr/local/apache2/htdocs
     env_file:
       - .env
+    # Regenerate config.js inside the bind-mounted volume before launching Apache so BACKEND_BASE_URL is always defined
+    command: >
+      sh -c "node /app/generate-config.js \
+      && mkdir -p /usr/local/apache2/htdocs/js \
+      && cp /app/public/js/config.js /usr/local/apache2/htdocs/js/config.js \
+      && httpd-foreground"
     # Optionally, copy custom config if needed
     # - ./my-httpd.conf:/usr/local/apache2/conf/httpd.conf
 
