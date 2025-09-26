@@ -16,7 +16,11 @@ from passlib.exc import UnknownHashError
 from . import db as db_mod
 from .datetime_utils import now_iso, to_iso, parse_iso
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["bcrypt_sha256", "bcrypt"],
+    default="bcrypt_sha256",
+    deprecated="auto",
+)
 auth_logger = logging.getLogger('auth')
 # Make the OAuth2 scheme optional in dependency so the OpenAPI docs
 # include the Bearer auth scheme (shows Authorize button) but runtime
