@@ -106,6 +106,20 @@ jobs:
           git fetch --all --prune
           git pull --ff-only
 
+          # Generate frontend config from .env after git operations
+          if [ -f frontend/.env ]; then
+            echo "Generating frontend config from .env..."
+            cd frontend
+            node generate-config.js
+            cd ..
+          else
+            echo "No frontend/.env found, copying from .env.example..."
+            cp frontend/.env.example frontend/.env
+            cd frontend
+            node generate-config.js
+            cd ..
+          fi
+
           # If REMOTE_GHCR_PAT/user provided, login to GHCR on the remote host so 'docker-compose pull' can pull private images
           if [ -n "${REMOTE_GHCR_PAT:-}" ] && [ -n "${REMOTE_GHCR_USER:-}" ]; then
             echo "${REMOTE_GHCR_PAT}" | sudo docker login ghcr.io -u "${REMOTE_GHCR_USER}" --password-stdin || true
