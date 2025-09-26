@@ -43,7 +43,7 @@ jobs:
         run: |
           if [ -f frontend/.env ]; then
             echo "Generating frontend config from .env..."
-            cd frontend
+            cd /opt/dinnerhopping/frontend/
             node generate-config.js
             cd ..
           else
