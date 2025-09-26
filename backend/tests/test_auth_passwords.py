@@ -16,3 +16,11 @@ def test_verify_password_accepts_legacy_bcrypt_hash():
     legacy_hash = legacy_bcrypt.hash(password)
 
     assert verify_password(password, legacy_hash)
+
+
+def test_verify_password_accepts_long_legacy_bcrypt_hash():
+    long_password = "A" * 200
+    truncated = long_password.encode("utf-8")[:72]
+    legacy_hash = legacy_bcrypt.hash(truncated)
+
+    assert verify_password(long_password, legacy_hash)

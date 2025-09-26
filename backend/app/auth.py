@@ -17,8 +17,13 @@ from . import db as db_mod
 from .datetime_utils import now_iso, to_iso, parse_iso
 
 pwd_context = CryptContext(
-    schemes=["bcrypt_sha256", "bcrypt"],
+    schemes=["bcrypt_sha256"],
     default="bcrypt_sha256",
+    deprecated="auto",
+)
+
+legacy_pwd_context = CryptContext(
+    schemes=["bcrypt"],
     deprecated="auto",
 )
 auth_logger = logging.getLogger('auth')
@@ -77,7 +82,22 @@ def validate_password(password: str):
         raise HTTPException(status_code=400, detail='Password must contain a special character')
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    try:
+        return pwd_context.verify(plain, hashed)
+    except UnknownHashError:
+        return _verify_legacy_password(plain, hashed)
+    except ValueError:
+        # bcrypt backend may reject >72 byte secrets; fall back to legacy handling
+        return _verify_legacy_password(plain, hashed)
+
+
+def _verify_legacy_password(plain: str, hashed: str) -> bool:
+    try:
+        return legacy_pwd_context.verify(plain, hashed)
+    except ValueError:
+        # mimic historical bcrypt behaviour which truncated to 72 bytes silently
+        truncated = plain.encode("utf-8")[:72]
+        return legacy_pwd_context.verify(truncated, hashed)
 
 def create_access_token(data: dict, expires_minutes: int | None = None):
     to_encode = data.copy()
