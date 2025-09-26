@@ -116,7 +116,47 @@ class MongoDB:
             return
         # establish real client/db if not already
         if not self.client:
-            mongo_url = os.getenv('MONGO_URI') or os.getenv('MONGO_URL') or 'mongodb://mongo:27017/dinnerhopping'
+            # Prefer explicit full URI if provided
+            mongo_url = os.getenv('MONGO_URI') or os.getenv('MONGO_URL')
+
+            # If a URI is provided but missing credentials, and creds exist in env, augment the URI.
+            if mongo_url:
+                try:
+                    from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode, quote
+
+                    parts = urlsplit(mongo_url)
+                    # Only modify mongodb scheme URLs
+                    if parts.scheme.startswith('mongodb') and '@' not in parts.netloc:
+                        user = os.getenv('MONGO_USER') or os.getenv('MONGO_INITDB_ROOT_USERNAME')
+                        password = os.getenv('MONGO_PASSWORD') or os.getenv('MONGO_INITDB_ROOT_PASSWORD')
+                        if user and password:
+                            userinfo = f"{quote(user)}:{quote(password)}@"
+                            netloc = userinfo + parts.netloc
+                            # Ensure authSource present (default admin when using root creds)
+                            q = dict(parse_qsl(parts.query, keep_blank_values=True))
+                            q.setdefault('authSource', 'admin')
+                            mongo_url = urlunsplit((parts.scheme, netloc, parts.path, urlencode(q), parts.fragment))
+                except Exception as _:
+                    # Best-effort; if parsing fails, continue with given URI
+                    pass
+
+            # If no full URI, try to construct one from host/port and optional credentials.
+            if not mongo_url:
+                host = os.getenv('MONGO_HOST', 'mongo')
+                port = os.getenv('MONGO_PORT', '27017')
+                db_name = os.getenv('MONGO_DB', 'dinnerhopping')
+
+                # Credentials: prefer explicit MONGO_USER/MONGO_PASSWORD, then the docker-style MONGO_INITDB_ROOT_* vars
+                user = os.getenv('MONGO_USER') or os.getenv('MONGO_INITDB_ROOT_USERNAME')
+                password = os.getenv('MONGO_PASSWORD') or os.getenv('MONGO_INITDB_ROOT_PASSWORD')
+
+                if user and password:
+                    # include authSource=admin for root user credentials in Docker images
+                    mongo_url = f'mongodb://{user}:{password}@{host}:{port}/{db_name}?authSource=admin'
+                else:
+                    mongo_url = f'mongodb://{host}:{port}/{db_name}'
+
+            # create client and select DB
             self.client = AsyncIOMotorClient(mongo_url)
             db_name = os.getenv('MONGO_DB', 'dinnerhopping')
             self.db = self.client[db_name]

@@ -1,7 +1,11 @@
-"""Authentication utilities for FastAPI application."""
+"""Authentication utilities for FastAPI application.
+
+Adds structured logging around authentication attempts for observability.
+"""
 import datetime
 import os
 import re
+import logging
 
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
@@ -10,8 +14,19 @@ from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
 
 from . import db as db_mod
+from .datetime_utils import now_iso, to_iso, parse_iso
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["bcrypt_sha256"],
+    default="bcrypt_sha256",
+    deprecated="auto",
+)
+
+legacy_pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+)
+auth_logger = logging.getLogger('auth')
 # Make the OAuth2 scheme optional in dependency so the OpenAPI docs
 # include the Bearer auth scheme (shows Authorize button) but runtime
 # code can still fall back to cookie-based auth.
@@ -67,15 +82,30 @@ def validate_password(password: str):
         raise HTTPException(status_code=400, detail='Password must contain a special character')
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    try:
+        return pwd_context.verify(plain, hashed)
+    except UnknownHashError:
+        return _verify_legacy_password(plain, hashed)
+    except ValueError:
+        # bcrypt backend may reject >72 byte secrets; fall back to legacy handling
+        return _verify_legacy_password(plain, hashed)
+
+
+def _verify_legacy_password(plain: str, hashed: str) -> bool:
+    try:
+        return legacy_pwd_context.verify(plain, hashed)
+    except ValueError:
+        # mimic historical bcrypt behaviour which truncated to 72 bytes silently
+        truncated = plain.encode("utf-8")[:72]
+        return legacy_pwd_context.verify(truncated, hashed)
 
 def create_access_token(data: dict, expires_minutes: int | None = None):
     to_encode = data.copy()
-    now = datetime.datetime.utcnow()
+    now_dt = datetime.datetime.utcnow()  # still use datetime for JWT exp/iat numeric processing
     exp_minutes = expires_minutes if isinstance(expires_minutes, int) and expires_minutes > 0 else _access_token_ttl_minutes()
-    expire = now + datetime.timedelta(minutes=exp_minutes)
+    expire = now_dt + datetime.timedelta(minutes=exp_minutes)
     # Standard JWT claims
-    to_encode.update({"exp": expire, "iat": now})
+    to_encode.update({"exp": expire, "iat": now_dt})
     if JWT_ISSUER:
         to_encode["iss"] = JWT_ISSUER
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGO)
@@ -88,18 +118,26 @@ async def get_user_by_email(email: str):
 async def authenticate_user(email: str, password: str):
     user = await get_user_by_email(email)
     if not user:
+        auth_logger.info('auth.login.failed reason=not_found email=%s', email)
         return None
     # deny soft-deleted accounts
     if user.get('deleted_at') is not None:
+        auth_logger.info('auth.login.failed reason=deleted email=%s', email)
         return None
     # check lockout
     lock_until = user.get('lockout_until')
     if lock_until:
         try:
-            if datetime.datetime.utcnow() < lock_until:
+            # lock_until may now be stored as ISO string -> parse for comparison
+            if isinstance(lock_until, str):
+                lock_until_dt = parse_iso(lock_until)
+            else:
+                lock_until_dt = lock_until
+            if lock_until_dt and datetime.datetime.utcnow().replace(tzinfo=None) < lock_until_dt.replace(tzinfo=None):
+                auth_logger.warning('auth.login.locked email=%s until=%s', email, lock_until)
                 return None
         except (TypeError, ValueError):
-            # if lock_until isn't a datetime (older records), ignore
+            # if lock_until isn't valid, ignore
             pass
 
     # Support legacy 'password' field and new 'password_hash'
@@ -116,7 +154,11 @@ async def authenticate_user(email: str, password: str):
         user = await get_user_by_email(email)
         if user.get('failed_login_attempts', 0) >= 5:
             # lock the account for 15 minutes
-            await db_mod.db.users.update_one({"email": email}, {"$set": {"lockout_until": datetime.datetime.utcnow() + datetime.timedelta(minutes=15)}})
+            lock_until_iso = to_iso(datetime.datetime.utcnow() + datetime.timedelta(minutes=15))
+            await db_mod.db.users.update_one({"email": email}, {"$set": {"lockout_until": lock_until_iso}})
+            auth_logger.warning('auth.login.lockout email=%s attempts=%s', email, user.get('failed_login_attempts'))
+        else:
+            auth_logger.info('auth.login.failed reason=bad_credentials email=%s attempts=%s', email, user.get('failed_login_attempts'))
         return None
 
     # successful login: reset failed attempts and remove lockout
@@ -127,6 +169,7 @@ async def authenticate_user(email: str, password: str):
         updates['password_hash'] = hash_password(password)
         unset['password'] = ""
     await db_mod.db.users.update_one({"email": email}, {"$set": updates, "$unset": unset})
+    auth_logger.info('auth.login.success email=%s', email)
     return user
 
 async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)):

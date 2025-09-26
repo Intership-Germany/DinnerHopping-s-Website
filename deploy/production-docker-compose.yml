@@ -1,0 +1,29 @@
+services:
+  mongo:
+    image: mongodb/mongodb-community-server:6.0-ubi8
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
+      - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
+    volumes:
+      - mongo-data:/data/db
+  backend:
+    image: ghcr.io/steeven-1002/dinnerhopping-backend:latest
+    pull_policy: always
+    restart: unless-stopped
+    env_file:
+      - ../backend/app/.env
+    environment:
+      - LOG_TO_FILES=true
+      - LOG_DIR=/var/log/dinnerhopping
+    depends_on:
+      - mongo
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ../backend/logs:/var/log/dinnerhopping
+volumes:
+  mongo-data:
+    name: dinnerhopping-mongo-data
