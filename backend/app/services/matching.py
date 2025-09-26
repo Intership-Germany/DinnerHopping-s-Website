@@ -45,6 +45,8 @@ async def _user_profile(email: str) -> Optional[dict]:
 async def _team_location(team: dict) -> Tuple[Optional[float], Optional[float]]:
     """Determine representative lat/lon for a team; try explicit member coords then geocode their address_struct.
 
+    If a user's coordinates are missing and we successfully geocode their address, persist the lat/lon back to the user document.
+
     Returns (lat, lon) or (None, None) if unresolved.
     """
     members = team.get('members') or []
@@ -71,7 +73,14 @@ async def _team_location(team: dict) -> Tuple[Optional[float], Optional[float]]:
         if addr:
             latlon = await geocode_address(addr)
             if latlon:
-                coords.append(latlon)
+                glat, glon = latlon
+                coords.append((glat, glon))
+                # persist to user document for future runs
+                try:
+                    now = __import__('datetime').datetime.utcnow()
+                    await db_mod.db.users.update_one({'_id': u['_id']}, {'$set': {'lat': float(glat), 'lon': float(glon), 'geocoded_at': now}})
+                except Exception:
+                    pass
     if coords:
         # average
         lat = sum(c[0] for c in coords)/len(coords)
@@ -162,6 +171,12 @@ async def _build_teams(event_oid) -> List[dict]:
             elif len(members) > 1:
                 can_main = bool(members[1].get('main_course_possible'))
         t['can_host_main'] = can_main
+        # broader kitchen capability (avoid hosting anyone without kitchen for any course)
+        has_kitchen = team_doc.get('has_kitchen')
+        if has_kitchen is None:
+            # Fallback heuristic: if can main, assume kitchen exists
+            has_kitchen = bool(can_main)
+        t['can_host_any'] = bool(has_kitchen)
     return teams
 
 
@@ -187,6 +202,10 @@ def _score_group_phase(host: dict, guests: List[dict], meal: str, weights: dict)
     if meal == 'main' and not host.get('can_host_main'):
         score -= weights.get('cap_penalty', W_PREF)
         warnings.append('host_cannot_main')
+    # Host capability for any course (kitchen availability)
+    if meal in ('appetizer', 'dessert') and not host.get('can_host_any', True):
+        score -= weights.get('cap_penalty', W_PREF)
+        warnings.append('host_no_kitchen')
     # Diet compatibility
     for g in guests:
         if not _compatible_diet(host.get('team_diet'), g.get('team_diet')):
@@ -221,8 +240,17 @@ def _pair_key(a: str, b: str) -> Tuple[str, str]:
 
 
 def _triad_pairs(triad: List[str]) -> List[Tuple[str,str]]:
-    a,b,c = triad
-    return [ _pair_key(a,b), _pair_key(a,c), _pair_key(b,c) ]
+    """Return all unordered pair keys for a group of size >= 2.
+    For n<2, returns empty list.
+    """
+    n = len(triad)
+    if n < 2:
+        return []
+    pairs: List[Tuple[str,str]] = []
+    for i in range(n):
+        for j in range(i+1, n):
+            pairs.append(_pair_key(triad[i], triad[j]))
+    return pairs
 
 
 def _shuffle(seed: int, arr: List[Any]) -> List[Any]:
@@ -232,99 +260,298 @@ def _shuffle(seed: int, arr: List[Any]) -> List[Any]:
     return out
 
 
+async def _member_emails_for_team(team: dict, members_regs: List[dict]) -> List[str]:
+    emails: List[str] = []
+    mlist = (team.get('members') if isinstance(team, dict) else None) or []
+    for m in mlist:
+        em = m.get('email')
+        if em:
+            emails.append(em)
+    if not emails and members_regs:
+        # fallback to registration snapshot
+        for r in members_regs:
+            em = r.get('user_email_snapshot')
+            if em:
+                emails.append(em)
+    return list(dict.fromkeys(emails))  # dedupe, preserve order
+
+
+def _splits_needed(unit_count: int) -> int:
+    r = unit_count % 3
+    if r == 0:
+        return 0
+    if r == 1:
+        return 2
+    return 1  # r == 2
+
+
+async def _build_units_from_teams(teams: List[dict]) -> Tuple[List[dict], Dict[str, List[str]]]:
+    """Construct unit list and mapping unit_id -> emails.
+
+    - Duo team (size>=2) -> single unit: id=str(team_id), size=2
+    - Solo team (size==1) -> single unit: id=str(team_id) or 'solo:regid', size=1
+    Splitting is handled later.
+    """
+    units: List[dict] = []
+    u2e: Dict[str, List[str]] = {}
+    for t in teams:
+        tid = str(t['team_id'])
+        size = int(t.get('size') or 1)
+        unit_id = tid
+        unit = {
+            'unit_id': unit_id,
+            'origin_id': tid,   # used to prevent placing split siblings together (for non-split, origin=itself)
+            'size': 2 if size >= 2 else 1,
+            'lat': t.get('lat'),
+            'lon': t.get('lon'),
+            'team_diet': t.get('team_diet') or t.get('diet'),
+            'course_preference': t.get('course_preference'),
+            'can_host_main': t.get('can_host_main'),
+            'can_host_any': t.get('can_host_any'),
+            'members_regs': t.get('member_regs') or [],
+            'team_doc': t.get('team_doc') or {},
+        }
+        units.append(unit)
+        emails = await _member_emails_for_team(unit['team_doc'], unit['members_regs'])
+        u2e[unit_id] = emails
+    return units, u2e
+
+
+async def _apply_minimal_splits(units: List[dict], unit_emails: Dict[str, List[str]]) -> Tuple[List[dict], Dict[str, List[str]]]:
+    """If total units not divisible by 3, split minimal number of duo units.
+
+    Splitting a duo unit produces two units with ids 'split:<email>' where email comes
+    from the team's member list; both inherit lat/lon and attributes from the team, with size=1.
+
+    Note: We only split as a last resort to reach a multiple of 3 teams, to keep solos rare.
+    """
+    need = _splits_needed(len(units))
+    if need == 0:
+        return units, unit_emails
+    # candidates: duo units with at least 2 member emails
+    cands = [u for u in units if u.get('size', 1) >= 2 and len(unit_emails.get(u['unit_id'], [])) >= 2]
+    if len(cands) < need:
+        # not enough duos to split; best-effort: no split
+        return units, unit_emails
+    rnd = random.Random(int(os.getenv('MATCH_SPLIT_SEED', '777')))
+    # Prefer splitting duos that are geographically isolated (no coords) to keep good duos intact
+    cands.sort(key=lambda u: (u.get('lat') is None or u.get('lon') is None))
+    to_split = cands[:need]
+    remaining: List[dict] = [u for u in units if u not in to_split]
+    for u in to_split:
+        emails = unit_emails.get(u['unit_id'], [])
+        mems = emails[:2]
+        if len(mems) < 2:
+            # safety
+            remaining.append(u)
+            continue
+        for em in mems:
+            uid = f"split:{em.lower()}"
+            remaining.append({
+                'unit_id': uid,
+                'origin_id': u['unit_id'],
+                'size': 1,
+                'lat': u.get('lat'),
+                'lon': u.get('lon'),
+                'team_diet': u.get('team_diet'),
+                'course_preference': u.get('course_preference'),
+                'can_host_main': u.get('can_host_main'),
+                'can_host_any': u.get('can_host_any'),
+                'members_regs': u.get('members_regs'),
+                'team_doc': u.get('team_doc'),
+            })
+            unit_emails[uid] = [em]
+        # remove original mapping (already removed from remaining)
+        unit_emails.pop(u['unit_id'], None)
+    return remaining, unit_emails
+
+
+def _group_units_in_triads(units: List[dict]) -> List[List[dict]]:
+    """Group units into triads of 3 TEAMS prioritizing duos, keeping solos rare.
+
+    Strategy:
+    - Prefer groups with 3 duos when possible.
+    - Otherwise, form groups with 2 duos + 1 solo.
+    - If necessary, form 1 duo + 2 solos, and as last resort 3 solos.
+    - Avoid placing siblings (same origin_id) together when possible.
+    Assumes len(units) % 3 == 0 ideally (minimal split performed upstream).
+    """
+    # Work on copies
+    duos = [u for u in units if int(u.get('size') or 1) >= 2]
+    solos = [u for u in units if int(u.get('size') or 1) == 1]
+
+    # Preserve input relative order but we will pop from front
+    def pop_first(pool: List[dict], cond) -> Optional[dict]:
+        for i, x in enumerate(pool):
+            if cond(x):
+                return pool.pop(i)
+        return None
+
+    groups: List[List[dict]] = []
+
+    def fill_with_any(grp: List[dict]):
+        """Fill group up to 3 with any remaining units if constraints impossible."""
+        nonlocal duos, solos
+        while len(grp) < 3 and (duos or solos):
+            if duos:
+                grp.append(duos.pop(0))
+            elif solos:
+                grp.append(solos.pop(0))
+        return grp
+
+    # Phase 1: 3 duos groups
+    while len(duos) >= 3:
+        g: List[dict] = []
+        a = duos.pop(0)
+        g.append(a)
+        b = pop_first(duos, lambda u: u['origin_id'] != a['origin_id']) or (duos.pop(0) if duos else None)
+        if b:
+            g.append(b)
+        c = None
+        if b:
+            c = pop_first(duos, lambda u: u['origin_id'] not in (a['origin_id'], b['origin_id']))
+        if not c:
+            # try a solo instead to avoid siblings
+            c = pop_first(solos, lambda u: u['origin_id'] not in (a['origin_id'], *( [b['origin_id']] if b else [])))
+        if not c and duos:
+            c = duos.pop(0)
+        if c:
+            g.append(c)
+        g = fill_with_any(g)
+        groups.append(g)
+
+    # Phase 2: 2 duos + 1 solo
+    while len(duos) >= 2 and solos:
+        g: List[dict] = []
+        a = duos.pop(0)
+        g.append(a)
+        b = pop_first(duos, lambda u: u['origin_id'] != a['origin_id']) or (duos.pop(0) if duos else None)
+        if b:
+            g.append(b)
+        c = pop_first(solos, lambda u: u['origin_id'] not in (a['origin_id'], *( [b['origin_id']] if b else []))) or (solos.pop(0) if solos else None)
+        if c:
+            g.append(c)
+        g = fill_with_any(g)
+        groups.append(g)
+
+    # Phase 3: 1 duo + 2 solos
+    while duos and len(solos) >= 2:
+        g: List[dict] = []
+        a = duos.pop(0)
+        g.append(a)
+        s1 = pop_first(solos, lambda u: u['origin_id'] != a['origin_id']) or (solos.pop(0) if solos else None)
+        if s1:
+            g.append(s1)
+        s2 = pop_first(solos, lambda u: u['origin_id'] not in (a['origin_id'], *( [s1['origin_id']] if s1 else []))) or (solos.pop(0) if solos else None)
+        if s2:
+            g.append(s2)
+        g = fill_with_any(g)
+        groups.append(g)
+
+    # Phase 4: leftovers (all duos or all solos or mix) - just fill respecting size priority
+    rest = duos + solos
+    while rest:
+        g: List[dict] = []
+        while rest and len(g) < 3:
+            g.append(rest.pop(0))
+        groups.append(g)
+
+    return groups
+
+
+def _unit_ids(group: List[dict]) -> List[str]:
+    return [u['unit_id'] for u in group]
+
+
+async def _phase_groups(units: List[dict], phase: str, used_pairs: Set[Tuple[str,str]], weights: dict) -> List[dict]:
+    # form triads (3 teams)
+    triads = _group_units_in_triads(units)
+    groups: List[dict] = []
+    for tri in triads:
+        if len(tri) < 2:
+            continue
+        tri_ids = _unit_ids(tri)
+        # avoid duplicate pairs by rotation if possible
+        rot_attempts = 0
+        while any(pk in used_pairs for pk in _triad_pairs(tri_ids)) and rot_attempts < 3:
+            tri = tri[1:] + tri[:1]
+            tri_ids = _unit_ids(tri)
+            rot_attempts += 1
+        # host selection
+        candidates = tri[:]
+        # Prefer capability first, then preference match
+        def host_sort_key(t: dict) -> Tuple[int, int]:
+            pref = -1 if (str(t.get('course_preference') or '').lower() == phase) else 0
+            if phase == 'main':
+                cap = -1 if t.get('can_host_main') else 1
+            else:
+                cap = -1 if t.get('can_host_any', True) else 1
+            return (cap, pref)
+        candidates.sort(key=host_sort_key)
+        host = candidates[0]
+        if phase == 'main' and not host.get('can_host_main'):
+            for c in candidates[1:]:
+                if c.get('can_host_main'):
+                    host = c
+                    break
+        if phase in ('appetizer','dessert') and not host.get('can_host_any', True):
+            for c in candidates[1:]:
+                if c.get('can_host_any', True):
+                    host = c
+                    break
+        guests = [t for t in tri if t['unit_id'] != host['unit_id']]
+        base_score, warns = _score_group_phase(host, guests, phase, weights)
+        travel = await _travel_time_for_phase(host, guests)
+        rec = {
+            'phase': phase,
+            'host_team_id': host['unit_id'],
+            'guest_team_ids': [g['unit_id'] for g in guests],
+            'score': base_score - weights.get('dist', W_DIST) * (travel or 0.0),
+            'travel_seconds': travel,
+            'warnings': warns,
+        }
+        groups.append(rec)
+        for pk in _triad_pairs([host['unit_id'], *[g['unit_id'] for g in guests]]):
+            used_pairs.add(pk)
+    return groups
+
+
 async def algo_greedy(event_oid, weights: dict, seed: int = 42) -> dict:
     teams = await _build_teams(event_oid)
-    # Build three phase groupings without repeating pairs
+    # Convert to units and split if needed to make count divisible by 3
+    units, unit_emails = await _build_units_from_teams(teams)
+    units, unit_emails = await _apply_minimal_splits(units, unit_emails)
+    # Shuffle base ordering
+    rnd = random.Random(seed)
+    rnd.shuffle(units)
     phases = ['appetizer','main','dessert']
     used_pairs: Set[Tuple[str,str]] = set()
-    groups: List[dict] = []
-    # base ordering
-    order = _shuffle(seed, teams)
-    for phase in phases:
-        chunk = [order[i:i+3] for i in range(0, len(order), 3)]
-        if len(chunk) and len(chunk[-1]) != 3:
-            # if remainder, redistribute greedily by moving last teams to earlier chunks
-            while len(chunk) and len(chunk[-1]) != 3:
-                leftover = chunk.pop()
-                for i, t in enumerate(leftover):
-                    chunk[i % len(chunk)].append(t)
-        for tri in chunk:
-            if len(tri) < 3:
-                continue
-            tri_ids = [t['team_id'] for t in tri]
-            # avoid duplicate pairs; if conflict, rotate triad
-            rot_attempts = 0
-            while any(pk in used_pairs for pk in _triad_pairs(tri_ids)) and rot_attempts < 3:
-                tri = tri[1:] + tri[:1]
-                tri_ids = [t['team_id'] for t in tri]
-                rot_attempts += 1
-            # choose host for phase: prefer team pref == phase; for main require can_host_main
-            candidates = tri[:]
-            candidates.sort(key=lambda t: (
-                -1 if (t.get('course_preference') or '').lower()==phase else 0,
-                -1 if (phase!='main' or t.get('can_host_main')) else 1,
-            ))
-            host = candidates[0]
-            if phase == 'main' and not host.get('can_host_main'):
-                # pick next who can main
-                for c in candidates[1:]:
-                    if c.get('can_host_main'):
-                        host = c
-                        break
-            guest_list = [t for t in tri if t['team_id'] != host['team_id']]
-            # compute score and travel
-            base_score, warns = _score_group_phase(host, guest_list, phase, weights)
-            travel = await _travel_time_for_phase(host, guest_list)
-            groups.append({
-                'phase': phase,
-                'host_team_id': host['team_id'],
-                'guest_team_ids': [g['team_id'] for g in guest_list],
-                'score': base_score - weights.get('dist', W_DIST) * (travel or 0.0),
-                'travel_seconds': travel,
-                'warnings': warns,
-            })
-            for pk in _triad_pairs([host['team_id'], *[g['team_id'] for g in guest_list]]):
-                used_pairs.add(pk)
-        # rotate order for next phase
-        order = order[1:] + order[:1]
-    metrics = _compute_metrics(groups, weights)
-    return { 'algorithm': 'greedy', 'groups': groups, 'metrics': metrics }
+    all_groups: List[dict] = []
+    for idx, phase in enumerate(phases):
+        # rotate units between phases to diversify
+        if idx > 0:
+            units = units[1:] + units[:1]
+        groups = await _phase_groups(units, phase, used_pairs, weights)
+        all_groups.extend(groups)
+    metrics = _compute_metrics(all_groups, weights)
+    return { 'algorithm': 'greedy', 'groups': all_groups, 'metrics': metrics }
 
 
 async def algo_random(event_oid, weights: dict, seed: int = 99) -> dict:
     teams = await _build_teams(event_oid)
+    units, unit_emails = await _build_units_from_teams(teams)
+    units, unit_emails = await _apply_minimal_splits(units, unit_emails)
     rnd = random.Random(seed)
-    order = teams[:]
-    rnd.shuffle(order)
+    rnd.shuffle(units)
     phases = ['appetizer','main','dessert']
     used_pairs: Set[Tuple[str,str]] = set()
-    groups: List[dict] = []
+    all_groups: List[dict] = []
     for phase in phases:
-        chunk = [order[i:i+3] for i in range(0, len(order), 3)]
-        for tri in chunk:
-            if len(tri) < 3:
-                continue
-            host = rnd.choice(tri)
-            if phase == 'main' and not host.get('can_host_main'):
-                others = [t for t in tri if t != host and t.get('can_host_main')]
-                if others:
-                    host = rnd.choice(others)
-            guests = [t for t in tri if t['team_id'] != host['team_id']]
-            base_score, warns = _score_group_phase(host, guests, phase, weights)
-            travel = await _travel_time_for_phase(host, guests)
-            groups.append({
-                'phase': phase,
-                'host_team_id': host['team_id'],
-                'guest_team_ids': [g['team_id'] for g in guests],
-                'score': base_score - weights.get('dist', W_DIST) * (travel or 0.0),
-                'travel_seconds': travel,
-                'warnings': warns,
-            })
-            for pk in _triad_pairs([host['team_id'], *[g['team_id'] for g in guests]]):
-                used_pairs.add(pk)
-        rnd.shuffle(order)
-    metrics = _compute_metrics(groups, weights)
-    return { 'algorithm': 'random', 'groups': groups, 'metrics': metrics }
+        rnd.shuffle(units)
+        groups = await _phase_groups(units, phase, used_pairs, weights)
+        all_groups.extend(groups)
+    metrics = _compute_metrics(all_groups, weights)
+    return { 'algorithm': 'random', 'groups': all_groups, 'metrics': metrics }
 
 
 async def algo_local_search(event_oid, weights: dict, seed: int = 7) -> dict:
@@ -469,6 +696,7 @@ async def refunds_overview(event_id: str) -> dict:
 
 async def _team_emails_map(event_id: str) -> Dict[str, List[str]]:
     """Return mapping team_id(str)->list of member emails; include pseudo-team for solo regs.
+    Also supports split units: keys of the form 'split:<email>' map to [email].
     """
     out: Dict[str, List[str]] = {}
     # real teams
@@ -485,6 +713,18 @@ async def _team_emails_map(event_id: str) -> Dict[str, List[str]]:
     return out
 
 
+def _augment_emails_map_with_splits(base: Dict[str, List[str]], groups: List[dict]) -> Dict[str, List[str]]:
+    """Extend mapping with any split:<email> ids seen in groups."""
+    out = dict(base)
+    for g in groups:
+        ids = [g.get('host_team_id'), *(g.get('guest_team_ids') or [])]
+        for tid in ids:
+            if isinstance(tid, str) and tid.startswith('split:'):
+                email = tid.split(':', 1)[1]
+                out.setdefault(tid, []).append(email)
+    return out
+
+
 async def generate_plans_from_matches(event_id: str, version: int) -> int:
     """Generate per-user plans documents from a proposed/finalized match version.
 
@@ -493,8 +733,9 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
     m = await db_mod.db.matches.find_one({'event_id': event_id, 'version': int(version)})
     if not m:
         return 0
-    team_to_emails = await _team_emails_map(event_id)
+    base_map = await _team_emails_map(event_id)
     groups = m.get('groups') or []
+    team_to_emails = _augment_emails_map_with_splits(base_map, groups)
     # per user sections
     sections_by_email: Dict[str, List[dict]] = {}
     def _meal_time(meal: str) -> str:
@@ -504,19 +745,17 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
         host = g.get('host_team_id')
         guests = g.get('guest_team_ids') or []
         host_emails = team_to_emails.get(str(host), [])
-        guest_emails = []
+        guest_emails: List[str] = []
         for tid in guests:
             guest_emails.extend(team_to_emails.get(str(tid), []))
-        # For each participant (host or guest), add a section
-        # Host section for all participants: identify host email of group (first host email or None)
         host_email = host_emails[0] if host_emails else None
         sec = {
             'meal': meal,
             'time': _meal_time(meal),
-            'host': {'email': host_email},
+            'host': {'email': host_email, 'emails': host_emails},  # include all host emails for duo transparency
             'guests': guest_emails,
         }
-        for em in set(host_emails + guest_emails):
+        for em in set((host_emails or []) + guest_emails):
             sections_by_email.setdefault(em, []).append(sec)
     # write plans
     written = 0
