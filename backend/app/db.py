@@ -4,6 +4,7 @@ import logging
 from pymongo.errors import PyMongoError
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson.objectid import ObjectId
+from urllib.parse import urlparse, urlunparse, urlencode, parse_qsl, quote
 
 # ---------------- In-memory Fake DB (test mode) -----------------
 if os.getenv('USE_FAKE_DB_FOR_TESTS'):
@@ -116,49 +117,37 @@ class MongoDB:
             return
         # establish real client/db if not already
         if not self.client:
-            # Prefer explicit full URI if provided
-            mongo_url = os.getenv('MONGO_URI') or os.getenv('MONGO_URL')
-
-            # If a URI is provided but missing credentials, and creds exist in env, augment the URI.
-            if mongo_url:
-                try:
-                    from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode, quote
-
-                    parts = urlsplit(mongo_url)
-                    # Only modify mongodb scheme URLs
-                    if parts.scheme.startswith('mongodb') and '@' not in parts.netloc:
-                        user = os.getenv('MONGO_USER') or os.getenv('MONGO_INITDB_ROOT_USERNAME')
-                        password = os.getenv('MONGO_PASSWORD') or os.getenv('MONGO_INITDB_ROOT_PASSWORD')
-                        if user and password:
-                            userinfo = f"{quote(user)}:{quote(password)}@"
-                            netloc = userinfo + parts.netloc
-                            # Ensure authSource present (default admin when using root creds)
-                            q = dict(parse_qsl(parts.query, keep_blank_values=True))
-                            q.setdefault('authSource', 'admin')
-                            mongo_url = urlunsplit((parts.scheme, netloc, parts.path, urlencode(q), parts.fragment))
-                except Exception as _:
-                    # Best-effort; if parsing fails, continue with given URI
-                    pass
-
-            # If no full URI, try to construct one from host/port and optional credentials.
-            if not mongo_url:
-                host = os.getenv('MONGO_HOST', 'mongo')
-                port = os.getenv('MONGO_PORT', '27017')
-                db_name = os.getenv('MONGO_DB', 'dinnerhopping')
-
-                # Credentials: prefer explicit MONGO_USER/MONGO_PASSWORD, then the docker-style MONGO_INITDB_ROOT_* vars
-                user = os.getenv('MONGO_USER') or os.getenv('MONGO_INITDB_ROOT_USERNAME')
-                password = os.getenv('MONGO_PASSWORD') or os.getenv('MONGO_INITDB_ROOT_PASSWORD')
-
-                if user and password:
-                    # include authSource=admin for root user credentials in Docker images
-                    mongo_url = f'mongodb://{user}:{password}@{host}:{port}/{db_name}?authSource=admin'
-                else:
-                    mongo_url = f'mongodb://{host}:{port}/{db_name}'
-
-            # create client and select DB
-            self.client = AsyncIOMotorClient(mongo_url)
+            base_url = os.getenv('MONGO_URI') or os.getenv('MONGO_URL') or 'mongodb://mongo:27017/dinnerhopping'
             db_name = os.getenv('MONGO_DB', 'dinnerhopping')
+            user = os.getenv('MONGO_USER')
+            pwd = os.getenv('MONGO_PASSWORD')
+            # Normalize quotes if values are provided as 'value' or "value"
+            def _strip_quotes(s: str | None) -> str | None:
+                if not s:
+                    return s
+                if (s.startswith("'") and s.endswith("'")) or (s.startswith('"') and s.endswith('"')):
+                    return s[1:-1]
+                return s
+            user = _strip_quotes(user)
+            pwd = _strip_quotes(pwd)
+            # If user/pass provided separately and URI lacks credentials, inject them and set authSource
+            if user and '@' not in base_url:
+                p = urlparse(base_url)
+                # ensure path has DB name
+                path = p.path if p.path and p.path != '/' else f'/{db_name}'
+                # rebuild netloc with credentials
+                netloc = f"{quote(user)}:{quote(pwd or '')}@{p.hostname or 'localhost'}"
+                if p.port:
+                    netloc += f":{p.port}"
+                # merge query params and set authSource if missing
+                q = dict(parse_qsl(p.query, keep_blank_values=True))
+                if 'authSource' not in q:
+                    q['authSource'] = os.getenv('MONGO_AUTH_SOURCE', path.lstrip('/'))
+                built_url = urlunparse((p.scheme or 'mongodb', netloc, path, '', urlencode(q), ''))
+                mongo_url = built_url
+            else:
+                mongo_url = base_url
+            self.client = AsyncIOMotorClient(mongo_url)
             self.db = self.client[db_name]
             globals()['db'] = self.db
 

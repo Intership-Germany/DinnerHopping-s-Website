@@ -201,6 +201,22 @@ class EventOut(BaseModel):
     refund_on_cancellation: Optional[bool] = None
     chat_enabled: Optional[bool] = None
 
+def _safe_location(loc: Optional[dict]) -> Optional[dict]:
+    """Coerce location-like dict to API-friendly shape.
+
+    Ensures 'point' is a dict or None; drops invalid types to prevent Pydantic errors.
+    Accepts both after_party_location and legacy 'location' shapes.
+    """
+    if not isinstance(loc, dict):
+        return None
+    out: dict = {}
+    ap = loc.get('address_public')
+    if ap is not None:
+        out['address_public'] = ap if isinstance(ap, str) else str(ap)
+    pt = loc.get('point')
+    out['point'] = pt if isinstance(pt, dict) else None
+    return out
+
 @router.get("/", response_model=list[EventOut])
 async def list_events(date: Optional[str] = None, status: Optional[str] = None, lat: Optional[float] = None, lon: Optional[float] = None, radius_m: Optional[int] = None, participant: Optional[str] = None, current_user=Depends(get_current_user)):
     """List events with optional filters:
@@ -275,7 +291,7 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
             status=_normalize_status(e.get('status')),
             organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
             created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
-            after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
+            after_party_location=_safe_location(e.get('after_party_location') or e.get('location')),
             created_at=e.get('created_at'),
             updated_at=e.get('updated_at'),
             refund_on_cancellation=e.get('refund_on_cancellation'),
@@ -300,6 +316,15 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         address = loc_in.get('address')
         lat = loc_in.get('lat')
         lon = loc_in.get('lon')
+        # Attempt geocoding if address present but no coordinates
+        if address and (lat is None or lon is None):
+            try:
+                from app.services.geocoding import geocode_address  # local import to avoid circular imports at module load
+                latlon = await geocode_address(address)
+                if latlon:
+                    lat, lon = latlon
+            except Exception:
+                pass
         if address:
             after_party_location = {
                 'address_encrypted': encrypt_address(address),
@@ -354,11 +379,11 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         date=_fmt_date(doc.get('date')) or '',
         start_at=_fmt_date(doc.get('start_at')),
         capacity=doc.get('capacity'),
-    fee_cents=doc.get('fee_cents', 0),
+        fee_cents=doc.get('fee_cents', 0),
         city=doc.get('city'),
         registration_deadline=_fmt_date(doc.get('registration_deadline')),
         payment_deadline=_fmt_date(doc.get('payment_deadline')),
-        after_party_location=doc.get('after_party_location'),
+        after_party_location=_safe_location(doc.get('after_party_location')),
         attendee_count=0,
         status=_normalize_status(doc.get('status')),
         matching_status=doc.get('matching_status'),
@@ -441,6 +466,15 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         address = loc_in.get('address')
         lat = loc_in.get('lat')
         lon = loc_in.get('lon')
+        # Attempt geocoding if address present but no coordinates
+        if address and (lat is None or lon is None):
+            try:
+                from app.services.geocoding import geocode_address
+                latlon = await geocode_address(address)
+                if latlon:
+                    lat, lon = latlon
+            except Exception:
+                pass
         if address:
             after_party_location = {
                 'address_encrypted': encrypt_address(address),
@@ -480,11 +514,11 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         date=_fmt_date(e.get('date')),
         start_at=_fmt_date(e.get('start_at')),
         capacity=e.get('capacity'),
-    fee_cents=e.get('fee_cents', 0),
+        fee_cents=e.get('fee_cents', 0),
         city=e.get('city'),
         registration_deadline=_fmt_date(e.get('registration_deadline')),
         payment_deadline=_fmt_date(e.get('payment_deadline')),
-        after_party_location=(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
+        after_party_location=_safe_location(e.get('after_party_location') or e.get('location')),
         attendee_count=e.get('attendee_count', 0),
         status=_normalize_status(e.get('status')),
         matching_status=e.get('matching_status', 'not_started'),

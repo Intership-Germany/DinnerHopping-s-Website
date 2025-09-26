@@ -19,11 +19,6 @@ services:
     environment:
       - LOG_TO_FILES=true
       - LOG_DIR=/var/log/dinnerhopping
-      # Ensure backend has Mongo credentials available from docker-compose
-      - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
-      - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
-      - MONGO_HOST=mongo
-      - MONGO_PORT=27017
     depends_on:
       - mongo
     volumes:
@@ -32,12 +27,12 @@ services:
 
   mongo-init:
     build: .
-    # Use an authenticated URI so the init script can run against an auth-enabled server.
-    command: [ "/bin/sh", "-c", "python3 scripts/mongo_init.py --mongo-uri=mongodb://dinnerhopping:babyschnaps@mongo:27017/dinnerhopping?authSource=admin" ]
+    # Let the script read env and construct the final URI (supports MONGO_USER/PASSWORD/AUTH_SOURCE)
+    command: ["/bin/sh", "-c", "python3 scripts/mongo_init.py --mongo-uri=mongodb://dinnerhopping:babyschnaps@mongo:27017/dinnerhopping?authSource=admin"]
     environment:
       - MONGO_URI=mongodb://dinnerhopping:babyschnaps@mongo:27017/dinnerhopping?authSource=admin
-      - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
-      - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
+      - MONGO_USER=dinnerhopping
+      - MONGO_PASSWORD=babyschnaps
     depends_on:
       - mongo
     restart: "no"

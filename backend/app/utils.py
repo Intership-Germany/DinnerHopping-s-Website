@@ -295,7 +295,8 @@ async def send_email(
                     if result:
                         logger.warning("SMTP partial failures: %s", result)
             return True, None
-        except smtplib.SMTPException as exc:
+        except Exception as exc:
+            # Catch all network/SMTP exceptions (e.g., socket.gaierror) and surface as (False, exc)
             return False, exc
 
     if not (smtp_host and smtp_port):
@@ -309,7 +310,10 @@ async def send_email(
     last_exc = None
     while attempt <= max_retries:
         attempt += 1
-        ok, exc = await asyncio.to_thread(_send_once)
+        try:
+            ok, exc = await asyncio.to_thread(_send_once)
+        except Exception as exc:  # defensive: to_thread or underlying raised unexpectedly
+            ok, exc = False, exc
         if ok:
             logger.info("Email sent category=%s to=%s attempt=%d", category, recipients, attempt)
             return True
