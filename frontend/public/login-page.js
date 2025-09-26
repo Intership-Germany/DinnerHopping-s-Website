@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // hide forgot form if switching tabs
     if (forgotForm) forgotForm.classList.add('hidden');
   });
-  const BACKEND_BASE = window.BACKEND_BASE_URL || 'http://localhost:8000';
+  const BACKEND_BASE = window.BACKEND_BASE_URL; // fallback removed
   // Keep geocode state for signup
   let signupGeo = { lat: null, lon: null, matchedLabel: null };
   function showMessage(text, type = 'info') {
@@ -143,35 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
       list.className = 'mt-2 space-y-1';
       status.after(list);
     }
-    function renderSuggestions(features) {
-      list.innerHTML = '';
-      if (!features || features.length === 0) {
-        status.textContent = 'No matches found.';
-        return;
-      }
-      status.textContent = `Found ${features.length} place(s). Choose one:`;
-      features.slice(0, 5).forEach(f => {
-        const props = f.properties || {};
-        const center = f.center || (f.geometry && f.geometry.type === 'Point' ? f.geometry.coordinates : null);
-        const lat = center ? center[1] : (typeof props.lat === 'number' ? props.lat : null);
-        const lon = center ? center[0] : (typeof props.lon === 'number' ? props.lon : null);
-        const label = props.label || props.name || [props.housenumber, props.street, props.postalcode, props.locality || props.city].filter(Boolean).join(' ');
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'block w-full text-left p-2 rounded-md border hover:bg-gray-50';
-        btn.textContent = label || 'Unknown place';
-        btn.addEventListener('click', () => {
-          if (typeof lat === 'number' && typeof lon === 'number') {
-            signupGeo.lat = lat;
-            signupGeo.lon = lon;
-          }
-          signupGeo.matchedLabel = label;
-          status.textContent = `Matched: ${label}`;
-          list.innerHTML = '';
-        });
-        list.appendChild(btn);
-      });
-    }
+
     // Autocomplete dropdowns for Street and City using Pelias /v1/autocomplete
     function createDropdown(anchorEl) {
       const wrap = document.createElement('div');
@@ -187,8 +159,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const peliasBase = 'https://pelias.cephlabs.de/v1';
-    const streetDD = createDropdown(streetEl);
-    const cityDD = createDropdown(cityEl);
+  const streetDD = createDropdown(streetEl);
+  const cityDD = createDropdown(cityEl);
+  const postalDD = createDropdown(postalEl);
 
     function hideDD(dd) { dd.classList.add('hidden'); }
     function showDD(dd) { dd.classList.remove('hidden'); }
@@ -224,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const q = [numEl.value.trim(), streetEl.value.trim()].filter(Boolean).join(' ');
         const nearCity = cityEl.value.trim();
         if (q.length < 2) return;
-        const features = await fetchAutocomplete({ text: q + (nearCity ? ` ${nearCity}` : ''), size: '6' });
+        const features = await fetchAutocomplete({ text: q + (nearCity ? ` ${nearCity}` : ''), size: '6', layers: 'address,street' });
         renderDD(streetDD, features, (f, props) => {
           // Try to split housenumber/street
           if (props.housenumber) numEl.value = props.housenumber;
@@ -232,8 +205,6 @@ document.addEventListener('DOMContentLoaded', () => {
           if (props.locality || props.city) cityEl.value = props.locality || props.city;
           if (props.postalcode) postalEl.value = props.postalcode;
           hideDD(streetDD);
-          // Trigger verification refresh
-          verify();
         });
       }, 300);
     });
@@ -243,19 +214,19 @@ document.addEventListener('DOMContentLoaded', () => {
       cityDeb = setTimeout(async () => {
         const q = cityEl.value.trim();
         if (q.length < 2) return;
-        const features = await fetchAutocomplete({ text: q, size: '6', layers: 'locality,localadmin,county,region' });
+        const features = await fetchAutocomplete({ text: q, size: '6', layers: 'locality,localadmin,borough,county,region,macroregion' });
         renderDD(cityDD, features, (f, props) => {
           if (props.locality || props.city) cityEl.value = props.locality || props.city;
           if (props.postalcode) postalEl.value = props.postalcode;
           hideDD(cityDD);
-          verify();
         });
       }, 300);
     });
     // Postal code -> suggest cities
+    let postalCityCache = [];
     postalEl.addEventListener('input', () => {
       clearTimeout(postalDeb);
-      hideDD(cityDD);
+      hideDD(postalDD);
       postalDeb = setTimeout(async () => {
         const postal = postalEl.value.trim();
         if (postal.length < 2) return;
@@ -288,71 +259,43 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           }
           const uniqueCities = Array.from(byCity.values());
-          renderDD(cityDD, uniqueCities, (f, props) => {
+          postalCityCache = uniqueCities;
+          // If the postal maps uniquely to a single city, auto-fill
+          if (uniqueCities.length === 1) {
+            const props = uniqueCities[0].properties || {};
             if (props.locality) cityEl.value = props.locality;
             if (props.postalcode) postalEl.value = props.postalcode;
-            hideDD(cityDD);
-            verify();
+            hideDD(postalDD);
+            return;
+          }
+          renderDD(postalDD, uniqueCities, (f, props) => {
+            if (props.locality) cityEl.value = props.locality;
+            if (props.postalcode) postalEl.value = props.postalcode;
+            hideDD(postalDD);
           });
         } catch (e) {
           // ignore
         }
       }, 300);
     });
+    // Enter on postal when unique city exists
+    postalEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        if (postalDD.classList.contains('hidden') && postalCityCache && postalCityCache.length === 1) {
+          const props = (postalCityCache[0] && postalCityCache[0].properties) || {};
+          if (props.locality) cityEl.value = props.locality;
+          if (props.postalcode) postalEl.value = props.postalcode;
+          e.preventDefault();
+        }
+      } else if (e.key === 'Escape') {
+        hideDD(postalDD);
+      }
+    });
     // Hide dropdowns when clicking outside
     document.addEventListener('click', (ev) => {
       if (!streetEl.parentElement.contains(ev.target)) hideDD(streetDD);
       if (!cityEl.parentElement.contains(ev.target)) hideDD(cityDD);
-    });
-    async function verify() {
-      const street = streetEl.value.trim();
-      const number = numEl.value.trim();
-      const postal = postalEl.value.trim();
-      const city = cityEl.value.trim();
-      signupGeo = { lat: null, lon: null, matchedLabel: null };
-      if (!street || !number || !postal || !city) {
-        status.textContent = '';
-        list.innerHTML = '';
-        return;
-      }
-      status.textContent = 'Verifying address…';
-      list.innerHTML = '';
-      try {
-        // Prefer structured search
-        const base = 'https://pelias.cephlabs.de/v1';
-        const structuredParams = new URLSearchParams({
-          street: `${number} ${street}`,
-          postalcode: postal,
-          locality: city,
-          size: '5'
-        });
-        const urlStructured = `${base}/search/structured?${structuredParams.toString()}`;
-        let res = await fetch(urlStructured, { headers: { 'Accept': 'application/json' } });
-        let json = res.ok ? await res.json() : null;
-        // Fallback to free-text search if needed
-        if (!json || !json.features || json.features.length === 0) {
-          const text = `${street} ${number}, ${postal} ${city}`;
-          const freeParams = new URLSearchParams({ text, size: '5' });
-          const urlFree = `${base}/search?${freeParams.toString()}`;
-          res = await fetch(urlFree, { headers: { 'Accept': 'application/json' } });
-          json = res.ok ? await res.json() : null;
-        }
-        const features = (json && Array.isArray(json.features)) ? json.features : [];
-        renderSuggestions(features);
-      } catch (e) {
-        status.textContent = 'Address verification failed (network or rate limit). You can still proceed.';
-      }
-    }
-    function scheduleVerify() {
-      clearTimeout(debounce);
-      debounce = setTimeout(verify, 600);
-    }
-    ;[streetEl, numEl, postalEl, cityEl].forEach(el => {
-      el.addEventListener('blur', scheduleVerify);
-      el.addEventListener('input', () => {
-        // reset match when editing
-        signupGeo = { lat: null, lon: null, matchedLabel: null };
-      });
+      if (!postalEl.parentElement.contains(ev.target)) hideDD(postalDD);
     });
   }
 
@@ -440,6 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showMessage('Login did not return a token', 'error');
         return;
       }
+      try { localStorage.setItem('dh_access_token', token); } catch {}
       if (window.auth && typeof window.auth.setCookie === 'function') {
         window.auth.setCookie('dh_token', token, 7);
       } else {
@@ -540,6 +484,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (password.length < 8) {
       showMessage('Password must be at least 8 characters.', 'error');
+      return;
+    }
+    // Enforce password complexity: require lowercase, uppercase, and special character
+    const missingReqs = [];
+    if (!/[a-z]/.test(password)) missingReqs.push('a lowercase letter');
+    if (!/[A-Z]/.test(password)) missingReqs.push('an uppercase letter');
+    if (!/[^A-Za-z0-9]/.test(password)) missingReqs.push('a special character');
+    if (missingReqs.length > 0) {
+      // Build a readable list like "an uppercase letter, a lowercase letter and a special character"
+      const prettyList = missingReqs.length === 1
+        ? missingReqs[0]
+        : missingReqs.length === 2
+          ? missingReqs.join(' and ')
+          : missingReqs.slice(0, -1).join(', ') + ' and ' + missingReqs.slice(-1);
+      showMessage(`Password must include ${prettyList}.`, 'error');
       return;
     }
     if (!street || !number || !postal || !city) {

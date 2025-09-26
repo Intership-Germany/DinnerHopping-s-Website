@@ -1,6 +1,6 @@
 // Minimal UI wiring for listing active events and registering (solo/team)
 (function(){
-  const BASE = (typeof window !== 'undefined' && window.BACKEND_BASE_URL) || 'http://localhost:8000';
+  const BASE = window.BACKEND_BASE_URL; // fallback removed
 
   async function fetchActiveEvents(){
     const res = await fetch(`${BASE}/registrations/events/active`, { credentials: 'include' });

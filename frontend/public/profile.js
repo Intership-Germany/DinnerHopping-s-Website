@@ -144,6 +144,153 @@
 				return [left, right].filter(Boolean).join(', ');
 			}
 
+			// ---------- Address autocomplete (Pelias) ----------
+			(function setupAddressAutocomplete(){
+				const streetEl = document.getElementById('profile-street');
+				const numEl = document.getElementById('profile-number');
+				const postalEl = document.getElementById('profile-postal');
+				const cityEl = document.getElementById('profile-city');
+				if (!streetEl || !numEl || !postalEl || !cityEl) return;
+
+				const peliasBase = 'https://pelias.cephlabs.de/v1';
+
+				function ensureRelativeParent(el){
+					if (!el?.parentElement) return;
+					const p = el.parentElement;
+					if (!p.classList.contains('relative')) p.classList.add('relative');
+				}
+
+				function createDropdown(anchorEl){
+					ensureRelativeParent(anchorEl);
+					const dd = document.createElement('div');
+					dd.className = 'absolute z-20 left-0 right-0 mt-1 bg-white border rounded-md shadow max-h-60 overflow-auto hidden';
+					anchorEl.parentElement.appendChild(dd);
+					return dd;
+				}
+
+				const streetDD = createDropdown(streetEl);
+				const cityDD = createDropdown(cityEl);
+				const postalDD = createDropdown(postalEl);
+
+				function hideDD(dd){ dd && dd.classList.add('hidden'); }
+				function showDD(dd){ dd && dd.classList.remove('hidden'); }
+				function clearDD(dd){ if (dd) dd.innerHTML = ''; }
+
+				function renderDD(dd, items, onPick){
+					clearDD(dd);
+					if (!items || !items.length){ hideDD(dd); return; }
+					items.forEach((f)=>{
+						const p = f.properties || {};
+						const div = document.createElement('div');
+						div.className = 'px-2 py-1.5 hover:bg-gray-100 cursor-pointer text-sm';
+						div.textContent = p.label || p.name || 'Unknown';
+						div.addEventListener('click', () => { onPick && onPick(f); hideDD(dd); });
+						dd.appendChild(div);
+					});
+					showDD(dd);
+				}
+
+				async function fetchPelias(path){
+					try {
+						const res = await fetch(path, { headers: { 'Accept': 'application/json' } });
+						if (!res.ok) return [];
+						const json = await res.json();
+						return Array.isArray(json?.features) ? json.features : [];
+					} catch { return []; }
+				}
+
+				function setFromFeature(f){
+					const p = f?.properties || {};
+					// Try to map typical Pelias props safely without overwriting good values with undefined
+					if (p.street || p.name) streetEl.value = (p.street || p.name || streetEl.value);
+					if (p.housenumber) numEl.value = p.housenumber;
+					if (p.postalcode) postalEl.value = p.postalcode;
+					const cityVal = p.locality || p.localadmin || p.county || p.region;
+					if (cityVal) cityEl.value = cityVal;
+					// Trigger change detection and update the read-only composed address
+					const evt = new Event('input', { bubbles: true });
+					streetEl.dispatchEvent(evt);
+					postalEl.dispatchEvent(evt);
+					cityEl.dispatchEvent(evt);
+				}
+
+				let streetDeb, cityDeb, postalDeb;
+				streetEl.addEventListener('input', () => {
+					if (!isEditing){ hideDD(streetDD); return; }
+					clearTimeout(streetDeb); hideDD(streetDD);
+					const q = streetEl.value.trim();
+					if (q.length < 3){ return; }
+					streetDeb = setTimeout(async () => {
+						const params = new URLSearchParams({ text: [q, cityEl.value.trim(), postalEl.value.trim()].filter(Boolean).join(' ') });
+						const features = await fetchPelias(`${peliasBase}/autocomplete?${params.toString()}`);
+						renderDD(streetDD, features.slice(0, 8), setFromFeature);
+					}, 250);
+				});
+
+				cityEl.addEventListener('input', () => {
+					if (!isEditing){ hideDD(cityDD); return; }
+					clearTimeout(cityDeb); hideDD(cityDD);
+					const q = cityEl.value.trim();
+					if (q.length < 2){ return; }
+					cityDeb = setTimeout(async () => {
+						const params = new URLSearchParams({ text: q });
+						const features = await fetchPelias(`${peliasBase}/autocomplete?${params.toString()}`);
+						renderDD(cityDD, features.filter(f => (f.properties?.locality || f.properties?.localadmin || f.properties?.region)).slice(0, 8), (f)=>{
+							const p = f.properties || {};
+							cityEl.value = p.locality || p.localadmin || p.region || p.name || cityEl.value;
+							// Keep postal if present on feature
+							if (p.postalcode) postalEl.value = p.postalcode;
+							const evt = new Event('input', { bubbles: true });
+							cityEl.dispatchEvent(evt);
+							postalEl.dispatchEvent(evt);
+						});
+					}, 250);
+				});
+
+				postalEl.addEventListener('input', () => {
+					if (!isEditing){ hideDD(postalDD); return; }
+					clearTimeout(postalDeb); hideDD(postalDD);
+					const q = postalEl.value.trim();
+					if (q.length < 3){ return; }
+					postalDeb = setTimeout(async () => {
+						const params = new URLSearchParams({ text: q });
+						const features = await fetchPelias(`${peliasBase}/autocomplete?${params.toString()}`);
+						// Prefer postalcode layer results first
+						const sorted = features.sort((a,b)=>{
+							const la = a.properties?.layer === 'postalcode' ? 0 : 1;
+							const lb = b.properties?.layer === 'postalcode' ? 0 : 1;
+							return la - lb;
+						});
+						renderDD(postalDD, sorted.slice(0, 8), (f)=>{
+							const p = f.properties || {};
+							if (p.postalcode) postalEl.value = p.postalcode;
+							const cityVal = p.locality || p.localadmin || p.county || p.region;
+							if (cityVal) cityEl.value = cityVal;
+							const evt = new Event('input', { bubbles: true });
+							postalEl.dispatchEvent(evt);
+							cityEl.dispatchEvent(evt);
+						});
+					}, 300);
+				});
+
+				// Enter on postal: accept first suggestion if any visible
+				postalEl.addEventListener('keydown', (e)=>{
+					if (e.key === 'Enter' && !postalDD.classList.contains('hidden')){
+						e.preventDefault();
+						const first = postalDD.firstElementChild;
+						if (first) first.click();
+					}
+				});
+
+				// Hide dropdowns when clicking outside
+				document.addEventListener('click', (ev)=>{
+					const targets = [streetEl, cityEl, postalEl, streetDD, cityDD, postalDD];
+					if (!targets.some(n => n && (n === ev.target || n.contains(ev.target)))){
+						hideDD(streetDD); hideDD(cityDD); hideDD(postalDD);
+					}
+				});
+			})();
+
 			/** Normalize preferences value for simple comparison (change detection) */
 			function canonicalizePrefs(p){
 				try {

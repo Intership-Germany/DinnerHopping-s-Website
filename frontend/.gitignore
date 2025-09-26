@@ -2,3 +2,6 @@
 .env
 .git
 .github
+
+public/tests/*
+archived_do_not_touch/*
