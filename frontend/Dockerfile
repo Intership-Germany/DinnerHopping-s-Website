@@ -18,7 +18,7 @@ RUN rm -rf /usr/local/apache2/htdocs/* && cp -r public/* /usr/local/apache2/htdo
 COPY public/.htaccess /usr/local/apache2/htdocs/.htaccess
 
 # Copy custom Apache configuration into conf.d/
-COPY my-httpd.conf /usr/local/apache2/conf/conf.d/my-httpd.conf
+COPY my-httpd.conf /usr/local/apache2/conf/conf.d/my-httpd.conf0
 
 # Add ServerName localhost and include conf.d/*.conf in the main httpd.conf
 RUN echo "" >> /usr/local/apache2/conf/httpd.conf \

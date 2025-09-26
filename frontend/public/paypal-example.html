@@ -30,7 +30,7 @@
 
   <script>
     (async function () {
-      const backend = (window.BACKEND_BASE_URL || window.location.origin).replace(/\/$/, '');
+  const backend = window.BACKEND_BASE_URL.replace(/\/$/, ''); // fallback removed
       const res = document.getElementById('result');
       function log(msg, obj) {
         res.textContent = (msg || '') + (obj ? '\n' + JSON.stringify(obj, null, 2) : '');

@@ -58,12 +58,16 @@
 
   function deleteTokenCookie(){
     try {
+      if (window.auth && window.auth.deleteTokenCookie) {
+        window.auth.deleteTokenCookie();
+        return;
+      }
       if (window.auth && window.auth.deleteCookie) {
         window.auth.deleteCookie('dh_token');
-      } else {
-        var secure = (location && location.protocol === 'https:') ? '; Secure' : '';
-        document.cookie = 'dh_token=; Path=/; SameSite=Strict' + secure + '; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        return;
       }
+      var secure = (location && location.protocol === 'https:') ? '; Secure' : '';
+      document.cookie = 'dh_token=; Path=/; SameSite=Strict' + secure + '; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
     } catch {}
   }
 

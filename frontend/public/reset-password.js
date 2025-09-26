@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const msg = document.getElementById('rp-msg');
   const pwd = document.getElementById('rp-password');
   const conf = document.getElementById('rp-password-confirm');
-  const BACKEND_BASE = window.BACKEND_BASE_URL || 'http://localhost:8000';
+  const BACKEND_BASE = window.BACKEND_BASE_URL; // fallback removed
 
   function setMsg(text, type='info'){
     if (!msg) return;

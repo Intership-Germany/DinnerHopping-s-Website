@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,126 +21,175 @@
             -moz-osx-font-smoothing: grayscale;
             background-color: #f0f4f7;
         }
+
         .hero-gradient {
             background-image: linear-gradient(135deg, #172a3a, #f46f47);
         }
+
         [hidden] {
             display: none !important;
         }
     </style>
- </head>
- <body class="text-[#172a3a] flex flex-col min-h-screen">
-     <div id="app" class="flex flex-col flex-grow">
-         <!-- Site Header -->
-         <div data-include="partials/header.html"></div>
+</head>
 
-         <main class="flex-grow w-full px-6 pt-10 pb-20 mt-16">
-             <!-- Login/Sign-up Section -->
-             <section id="login-page" class="max-w-xl mx-auto">
-                 <h1 class="text-3xl font-bold mb-8 text-center">Join the fun.</h1>
-                 <div class="bg-white p-6 rounded-2xl shadow-xl">
-                     <div class="flex justify-center mb-6 gap-2 bg-gray-100 p-1 rounded-full">
-                         <button id="show-login-btn" class="px-6 py-2 font-semibold text-sm rounded-full transition-colors duration-300 bg-[#f46f47] text-white">Login</button>
-                         <button id="show-signup-btn" class="px-6 py-2 font-semibold text-sm rounded-full transition-colors duration-300 text-[#4c4c4c] hover:bg-white">Sign Up</button>
-                     </div>
+<body class="text-[#172a3a] flex flex-col min-h-screen">
+    <div id="app" class="flex flex-col flex-grow">
+        <!-- Site Header -->
+        <div data-include="partials/header.html"></div>
 
-                     <!-- Login Form -->
-                     <form id="login-form" class="space-y-4" aria-label="Login form">
-                         <div>
-                             <label for="login-email" class="block mb-1 text-sm font-semibold text-[#172a3a]">Email address</label>
-                             <input id="login-email" type="email" placeholder="Enter your email" autocomplete="email" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                         </div>
-                         <div>
-                             <label for="login-password" class="block mb-1 text-sm font-semibold text-[#172a3a]">Password</label>
-                             <input id="login-password" type="password" placeholder="Enter your password" autocomplete="current-password" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                         </div>
-                         <div class="flex justify-end -mt-2">
-                             <button id="forgotpw-toggle" type="button" class="text-sm text-[#f46f47] hover:underline">Forgot your password?</button>
-                         </div>
-                         <!-- Forgot Password mini-form (hidden by default) -->
-                         <div id="forgotpw-form" class="hidden mt-2 p-3 border rounded-xl bg-gray-50">
-                             <label for="forgot-email" class="block mb-1 text-sm font-semibold text-[#172a3a]">Enter your email</label>
-                             <div class="flex gap-2">
-                                 <input id="forgot-email" type="email" placeholder="name@example.com" autocomplete="email" class="flex-1 p-3 border rounded-lg focus:ring-2 focus:ring-[#f46f47] outline-none bg-white">
-                                 <button id="forgotpw-submit" type="button" class="px-4 py-3 bg-[#f46f47] text-white font-semibold rounded-lg hover:opacity-95">Send reset link</button>
-                             </div>
-                             <p class="text-xs text-gray-500 mt-2">We'll email you a secure link to reset your password. The link expires after a short time.</p>
-                         </div>
-                         <button type="submit" class="w-full py-4 bg-[#f46f47] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-[#f46f47]/40">Login</button>
-                         <button type="button" id="resend-verif-btn" class="hidden w-full py-3 border border-[#f46f47] text-[#f46f47] font-semibold rounded-xl transition-colors duration-300 hover:bg-[#f46f47] hover:text-white">Resend verification email</button>
-                         <p class="text-xs text-center text-gray-500">By logging in you agree to our <a href="#" class="text-[#f46f47] font-semibold hover:underline">Terms</a>.</p>
-                     </form>
+        <main class="flex-grow w-full px-6 pt-10 pb-20 mt-16">
+            <!-- Login/Sign-up Section -->
+            <section id="login-page" class="max-w-xl mx-auto">
+                <h1 class="text-3xl font-bold mb-8 text-center">Join the fun.</h1>
+                <div class="bg-white p-6 rounded-2xl shadow-xl">
+                    <div class="flex justify-center mb-6 gap-2 bg-gray-100 p-1 rounded-full">
+                        <button id="show-login-btn"
+                            class="px-6 py-2 font-semibold text-sm rounded-full transition-colors duration-300 bg-[#f46f47] text-white">Login</button>
+                        <button id="show-signup-btn"
+                            class="px-6 py-2 font-semibold text-sm rounded-full transition-colors duration-300 text-[#4c4c4c] hover:bg-white">Sign
+                            Up</button>
+                    </div>
 
-                     <!-- Sign-up Form (hidden by default) -->
-                     <form id="signup-form" class="space-y-4" hidden aria-label="Sign up form">
-                         <div class="flex gap-3">
-                             <div class="flex-1">
-                                 <label for="signup-lastname" class="block mb-1 text-sm font-semibold text-[#172a3a]">Last name</label>
-                                 <input id="signup-lastname" type="text" placeholder="Grimm" autocomplete="family-name" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                             </div>
-                             <div class="flex-1">
-                                 <label for="signup-firstname" class="block mb-1 text-sm font-semibold text-[#172a3a]">First name</label>
-                                 <input id="signup-firstname" type="text" placeholder="Arthur" autocomplete="given-name" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                             </div>
-                         </div>
-                         <div>
-                             <label for="signup-email" class="block mb-1 text-sm font-semibold text-[#172a3a]">Email address</label>
-                             <input id="signup-email" type="email" placeholder="arthur.g@email.de" autocomplete="email" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                         </div>
-                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                             <div>
-                                 <label for="signup-password" class="block mb-1 text-sm font-semibold text-[#172a3a]">Password</label>
-                                 <input id="signup-password" type="password" placeholder="Create a password" autocomplete="new-password" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                             </div>
-                             <div>
-                                 <label for="signup-password-confirm" class="block mb-1 text-sm font-semibold text-[#172a3a]">Confirm password</label>
-                                 <input id="signup-password-confirm" type="password" placeholder="Re-enter password" autocomplete="new-password" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                             </div>
-                         </div>
-                         <div>
-                             <label class="block mb-1 text-sm font-semibold text-[#172a3a]">Address</label>
-                             <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <!-- Login Form -->
+                    <form id="login-form" class="space-y-4" aria-label="Login form">
+                        <div>
+                            <label for="login-email" class="block mb-1 text-sm font-semibold text-[#172a3a]">Email
+                                address</label>
+                            <input id="login-email" type="email" placeholder="Enter your email" autocomplete="email"
+                                required
+                                class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                        </div>
+                        <div>
+                            <label for="login-password"
+                                class="block mb-1 text-sm font-semibold text-[#172a3a]">Password</label>
+                            <input id="login-password" type="password" placeholder="Enter your password"
+                                autocomplete="current-password" required
+                                class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                        </div>
+                        <div class="flex justify-end -mt-2">
+                            <button id="forgotpw-toggle" type="button"
+                                class="text-sm text-[#f46f47] hover:underline">Forgot your password?</button>
+                        </div>
+                        <!-- Forgot Password mini-form (hidden by default) -->
+                        <div id="forgotpw-form" class="hidden mt-2 p-3 border rounded-xl bg-gray-50">
+                            <label for="forgot-email" class="block mb-1 text-sm font-semibold text-[#172a3a]">Enter your
+                                email</label>
+                            <div class="flex gap-2">
+                                <input id="forgot-email" type="email" placeholder="name@example.com"
+                                    autocomplete="email"
+                                    class="flex-1 p-3 border rounded-lg focus:ring-2 focus:ring-[#f46f47] outline-none bg-white">
+                                <button id="forgotpw-submit" type="button"
+                                    class="px-4 py-3 bg-[#f46f47] text-white font-semibold rounded-lg hover:opacity-95">Send
+                                    reset link</button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">We'll email you a secure link to reset your password.
+                                The link expires after a short time.</p>
+                        </div>
+                        <button type="submit"
+                            class="w-full py-4 bg-[#f46f47] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-[#f46f47]/40">Login</button>
+                        <button type="button" id="resend-verif-btn"
+                            class="hidden w-full py-3 border border-[#f46f47] text-[#f46f47] font-semibold rounded-xl transition-colors duration-300 hover:bg-[#f46f47] hover:text-white">Resend
+                            verification email</button>
+                        <p class="text-xs text-center text-gray-500">By logging in you agree to our <a href="#"
+                                class="text-[#f46f47] font-semibold hover:underline">Terms</a>.</p>
+                    </form>
+
+                    <!-- Sign-up Form (hidden by default) -->
+                    <form id="signup-form" class="space-y-4" hidden aria-label="Sign up form">
+                        <div class="flex gap-3">
+                            <div class="flex-1">
+                                <label for="signup-firstname"
+                                    class="block mb-1 text-sm font-semibold text-[#172a3a]">First name</label>
+                                <input id="signup-firstname" type="text" placeholder="Arthur" autocomplete="given-name"
+                                    required
+                                    class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                            </div>
+                            <div class="flex-1">
+                                <label for="signup-lastname"
+                                    class="block mb-1 text-sm font-semibold text-[#172a3a]">Last name</label>
+                                <input id="signup-lastname" type="text" placeholder="Grimm" autocomplete="family-name"
+                                    required
+                                    class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                            </div>
+                        </div>
+                        <div>
+                            <label for="signup-email" class="block mb-1 text-sm font-semibold text-[#172a3a]">Email
+                                address</label>
+                            <input id="signup-email" type="email" placeholder="arthur.g@email.de" autocomplete="email"
+                                required
+                                class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label for="signup-password"
+                                    class="block mb-1 text-sm font-semibold text-[#172a3a]">Password</label>
+                                <input id="signup-password" type="password" placeholder="Create a password"
+                                    autocomplete="new-password" required
+                                    class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                            </div>
+                            <div>
+                                <label for="signup-password-confirm"
+                                    class="block mb-1 text-sm font-semibold text-[#172a3a]">Confirm password</label>
+                                <input id="signup-password-confirm" type="password" placeholder="Re-enter password"
+                                    autocomplete="new-password" required
+                                    class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block mb-1 text-sm font-semibold text-[#172a3a]">Address</label>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
                                 <div class="md:col-span-2">
-                                     <input id="signup-city" type="text" placeholder="City" autocomplete="address-level2" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                                 </div>
-                                 <div>
-                                     <input id="signup-postal" type="text" placeholder="Postal Code" inputmode="numeric" autocomplete="postal-code" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                                 </div>
-                                 <div class="md:col-span-2">
-                                     <input id="signup-street" type="text" placeholder="Street" autocomplete="address-line1" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                                 </div>
-                                 <div>
-                                     <input id="signup-number" type="text" placeholder="No." autocomplete="address-line2" required class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
-                                 </div>
-                                 
-                                 
-                             </div>
-                         </div>
-                         <div>
-                             <label for="signup-gender" class="block mb-1 text-sm font-semibold text-[#172a3a]">Gender</label>
-                             <select id="signup-gender" required class="w-full p-4 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-[#f46f47] outline-none">
-                                 <option value="" disabled selected>Select an option</option>
-                                 <option value="female">Female</option>
-                                 <option value="male">Male</option>
-                                 <option value="diverse">Diverse</option>
-                                 <option value="prefer_not_to_say">Prefer not to say</option>
-                             </select>
-                         </div>
-                         <button type="submit" class="w-full py-4 bg-[#f46f47] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-[#f46f47]/40">Create Account</button>
-                         <p class="text-xs text-center text-gray-500">Creating an account means you accept our <a href="#" class="text-[#f46f47] font-semibold hover:underline">Privacy Policy</a>.</p>
-                     </form>
-                 </div>
-             </section>
-         </main>
+                                    <input id="signup-street" type="text" placeholder="Street"
+                                        autocomplete="address-line1" required
+                                        class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                                </div>
+                                <div>
+                                    <input id="signup-number" type="text" placeholder="No." autocomplete="address-line2"
+                                        required
+                                        class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                                </div>
+                                <div class="md:col-span-2">
+                                    <input id="signup-city" type="text" placeholder="City" autocomplete="address-level2"
+                                        required
+                                        class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                                </div>
+                                <div>
+                                    <input id="signup-postal" type="text" placeholder="Postal Code" inputmode="numeric"
+                                        autocomplete="postal-code" required
+                                        class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50">
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="signup-gender"
+                                class="block mb-1 text-sm font-semibold text-[#172a3a]">Gender</label>
+                            <select id="signup-gender" required
+                                class="w-full p-4 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-[#f46f47] outline-none">
+                                <option value="" disabled selected>Select an option</option>
+                                <option value="female">Female</option>
+                                <option value="male">Male</option>
+                                <option value="diverse">Diverse</option>
+                                <option value="prefer_not_to_say">Prefer not to say</option>
+                            </select>
+                        </div>
+                        <button type="submit"
+                            class="w-full py-4 bg-[#f46f47] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-[#f46f47]/40">Create
+                            Account</button>
+                        <p class="text-xs text-center text-gray-500">Creating an account means you accept our <a
+                                href="#" class="text-[#f46f47] font-semibold hover:underline">Privacy Policy</a>.</p>
+                    </form>
+                </div>
+            </section>
+        </main>
 
-         <!-- Footer -->
-         <div data-include="partials/footer.html"></div>
-     </div>
+        <!-- Footer -->
+        <div data-include="partials/footer.html"></div>
+    </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const loginPage = document.getElementById('login-page');
-            
+
             const loginForm = document.getElementById('login-form');
             const signupForm = document.getElementById('signup-form');
             const showLoginBtn = document.getElementById('show-login-btn');
@@ -174,8 +224,8 @@
             });
 
             // Using token-based auth for now (no CSRF/cookies) until backend exposes /csrf & /refresh
-            const BACKEND_BASE = window.BACKEND_BASE_URL || 'http://localhost:8000';
-            
+            const BACKEND_BASE = window.BACKEND_BASE_URL; // fallback removed
+
             // Helper to show a temporary message under the forms
             function showMessage(text, type = 'info') {
                 let el = document.getElementById('global-msg');
@@ -250,8 +300,8 @@
                         window.auth.setCookie('dh_token', token, 7);
                     } else {
                         // Fallback, Strict + Secure on HTTPS
-                        const maxAge = `; Max-Age=${7*86400}`;
-                        const attrs = `Path=/; SameSite=Strict${location.protocol==='https:'?'; Secure':''}${maxAge}`;
+                        const maxAge = `; Max-Age=${7 * 86400}`;
+                        const attrs = `Path=/; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}${maxAge}`;
                         document.cookie = `dh_token=${encodeURIComponent(token)}; ${attrs}`;
                     }
                     showMessage('Logged in successfully');
@@ -333,4 +383,5 @@
         });
     </script>
 </body>
+
 </html>

@@ -15,20 +15,8 @@
         return node ? node.cloneNode(true) : null;
     }
 
-    function withAuthHeader(headers) {
-        const out = { ...(headers || {}) };
-        try {
-            if (window.auth && typeof window.auth.getCookie === 'function') {
-                const token = window.auth.getCookie('dh_token');
-                if (token) out['Authorization'] = `Bearer ${token}`;
-            } else {
-                const m = document.cookie.match(/(?:^|; )dh_token=([^;]*)/);
-                const token = m ? decodeURIComponent(m[1]) : null;
-                if (token) out['Authorization'] = `Bearer ${token}`;
-            }
-        } catch {}
-        return out;
-    }
+    // Session cookie + CSRF are handled globally by apiFetch; Authorization header no longer required.
+    function withAuthHeader(headers) { return { ...(headers || {}) }; }
 
     // Provider modal helpers
     function openProviderModal() {
@@ -132,7 +120,7 @@
 
             // ZIP eligibility hint (client-side only)
             try {
-                if (zipBadgeEl && __USER_ZIP && Array.isArray(e.allowed_zips) && !e.allowed_zips.includes(__USER_ZIP)) {
+                if (zipBadgeEl && __USER_ZIP && Array.isArray(e.valid_zip_codes) && e.valid_zip_codes.length > 0 && !e.valid_zip_codes.includes(__USER_ZIP)) {
                     zipBadgeEl.classList.remove('hidden');
                 }
             } catch {}
@@ -219,7 +207,7 @@
                 const payload = buildRegistrationPayload(form, __USER_PROFILE);
                 const headers = withAuthHeader({ 'Accept': 'application/json', 'Content-Type': 'application/json' });
                 const path = `/events/${encodeURIComponent(payload.event_id)}/register`;
-                const res = await fetch((window.BACKEND_BASE_URL || '') + path, {
+                const res = await fetch(window.BACKEND_BASE_URL + path, { // fallback removed
                     method: 'POST',
                     headers,
                     body: JSON.stringify(payload.body),
@@ -233,7 +221,34 @@
                 const body = await res.json();
                 const paymentLink = body.payment_link || (body.payment && (body.payment.link || body.payment.url));
 
-                // Optimistic UI update
+                // Persist lightweight registration snapshot locally to power "My registrations" banner.
+                // This is necessary because the public /events?participant=me endpoint does not include
+                // the registration_id or payment details. We store minimal info keyed by event id.
+                try {
+                    const regId = body.registration_id || body.registrationId || (Array.isArray(body.registration_ids) && body.registration_ids[0]) || (Array.isArray(body.registrationIds) && body.registrationIds[0]);
+                    if (regId) {
+                        const snapshot = {
+                            registration_id: String(regId),
+                            status: body.status || 'registered',
+                            // We don't know the provider-specific payment status yet; assume pending if fee exists
+                            payment_status: paymentLink ? 'pending' : undefined,
+                            payment_link: paymentLink || undefined,
+                            saved_at: Date.now()
+                        };
+                        const evId = payload.event_id;
+                        if (evId) {
+                            localStorage.setItem(`dh:lastReg:${evId}`, JSON.stringify(snapshot));
+                        }
+                    }
+                } catch {}
+
+                // Refresh "My registrations" banner immediately
+                try {
+                    const myEventsNow = await fetchMyEvents();
+                    renderMyRegistrations(Array.isArray(myEventsNow) ? myEventsNow : []);
+                } catch {}
+
+                // Optimistic availability update on the event card
                 if (spotsEl) {
                     const left = Math.max((placeLeft || 1) - 1, 0);
                     if (left <= 0) {
@@ -248,7 +263,7 @@
 
                 // Direct payment link
                 if (paymentLink) {
-                    const base = window.BACKEND_BASE_URL || '';
+                    const base = window.BACKEND_BASE_URL; // fallback removed
                     window.location.href = paymentLink.startsWith('http') ? paymentLink : base + paymentLink;
                     return;
                 }
@@ -257,13 +272,20 @@
                 const regId = body.registration_id || body.registrationId || (Array.isArray(body.registration_ids) && body.registration_ids[0]) || (Array.isArray(body.registrationIds) && body.registrationIds[0]);
                 const amountCents = typeof eventObj.fee_cents === 'number' ? eventObj.fee_cents : 0;
                 if (amountCents > 0 && regId) {
-                    const base = window.BACKEND_BASE_URL || '';
+                    const base = window.BACKEND_BASE_URL; // fallback removed
                     let providers = ['paypal','stripe','wero'];
                     try {
-                        const provRes = await fetch(base + '/payments/providers', { method: 'GET', credentials: 'omit', headers: withAuthHeader({ 'Accept': 'application/json' }) });
-                        if (provRes.ok) {
-                            const provs = await provRes.json();
-                            providers = (provs && provs.providers) ? provs.providers : (Array.isArray(provs) ? provs : providers);
+                        if (window.apiGet) {
+                            const { res: pr, data: provs } = await window.apiGet('/payments/providers');
+                            if (pr.ok) {
+                                providers = (provs && provs.providers) ? provs.providers : (Array.isArray(provs) ? provs : providers);
+                            }
+                        } else {
+                            const provRes = await fetch(base + '/payments/providers', { method: 'GET', credentials: 'include', headers: { 'Accept':'application/json' } });
+                            if (provRes.ok) {
+                                const provs = await provRes.json();
+                                providers = (provs && provs.providers) ? provs.providers : (Array.isArray(provs) ? provs : providers);
+                            }
                         }
                     } catch {}
 
@@ -278,13 +300,10 @@
                         });
                         const onChoose = async (provider) => {
                             try {
-                                const createRes = await fetch(base + '/payments/create', {
-                                    method: 'POST',
-                                    headers: withAuthHeader({ 'Accept': 'application/json', 'Content-Type': 'application/json' }),
-                                    body: JSON.stringify({ registration_id: regId, provider })
-                                });
+                                const { res: createRes, data: created } = await (window.apiPost
+                                    ? window.apiPost('/payments/create', { registration_id: regId, provider })
+                                    : (async()=>{ const rr = await fetch(base + '/payments/create', { method:'POST', headers:{'Accept':'application/json','Content-Type':'application/json'}, body: JSON.stringify({ registration_id: regId, provider }), credentials:'include'}); return { res: rr, data: await rr.clone().json().catch(()=>({})) }; })());
                                 if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
-                                const created = await createRes.json();
                                 const link = created.payment_link || (created.instructions && (created.instructions.approval_link || created.instructions.link));
                                 if (link) {
                                     window.location.href = link.startsWith('http') ? link : base + link;
@@ -386,6 +405,8 @@
     let __ALL_EVENTS = [];
     let __PAGE = 1;
     const PAGE_SIZE = 6;
+    // Track events the current user is registered in
+    let __MY_EVENT_IDS = new Set();
 
     // --- URL <-> state helpers ---
     function parseFiltersFromURL() {
@@ -488,6 +509,11 @@
     function applyFilters() {
     const { q, maxFee, deadline, onlyAvail, sort } = readFilters();
         let filtered = (__ALL_EVENTS || []).filter(e => {
+            // ZIP-based eligibility: only show events that include user's ZIP when a whitelist exists
+            if (Array.isArray(e.valid_zip_codes) && e.valid_zip_codes.length > 0) {
+                if (!__USER_ZIP) return false; // user ZIP unknown -> cannot verify, hide
+                if (!e.valid_zip_codes.includes(__USER_ZIP)) return false;
+            }
             // title
             const title = (e.title || e.name || '').toLowerCase();
             if (q && !title.includes(q)) return false;
@@ -566,26 +592,13 @@
     }
 
     async function fetchPublishedEvents() {
-        // Proactively include Bearer token on first request and use apiFetch helper.
-        // Also normalize URL with trailing slash to avoid a 307 redirect.
-        const path = '/events/?status=open';
-        const token = (function () {
-            try {
-                if (window.auth && typeof window.auth.getCookie === 'function') {
-                    return window.auth.getCookie('dh_token');
-                }
-                const m = document.cookie.match(/(?:^|; )dh_token=([^;]*)/);
-                return m ? decodeURIComponent(m[1]) : null;
-            } catch { return null; }
-        })();
-
+        // Cookie + CSRF flow: no legacy dh_token bearer. Let apiFetch include credentials.
+        const path = '/events?status=open';
         const headers = { 'Accept': 'application/json' };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-
-        const res = await (window.apiFetch ? window.apiFetch(path, { method: 'GET', headers, credentials: 'omit' })
-            : fetch(((window.BACKEND_BASE_URL || '') + path), { method: 'GET', credentials: 'omit', headers }));
+        const res = await (window.apiFetch
+            ? window.apiFetch(path, { method: 'GET', headers })
+            : fetch((window.BACKEND_BASE_URL + path), { method: 'GET', credentials: 'include', headers }));
         if (!res.ok) {
-            // If unauthorized, trigger redirect and surface an error to break the flow
             if (res.status === 401 || res.status === 419) {
                 if (typeof window.handleUnauthorized === 'function') window.handleUnauthorized();
                 const err = new Error(`HTTP ${res.status}`);
@@ -598,21 +611,11 @@
     }
 
     async function fetchMyEvents() {
-        // Use participant=me filter exposed by backend list_events implementation
         const path = '/events?participant=me';
-        const token = (function () {
-            try {
-                if (window.auth && typeof window.auth.getCookie === 'function') {
-                    return window.auth.getCookie('dh_token');
-                }
-                const m = document.cookie.match(/(?:^|; )dh_token=([^;]*)/);
-                return m ? decodeURIComponent(m[1]) : null;
-            } catch { return null; }
-        })();
         const headers = { 'Accept': 'application/json' };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const res = await (window.apiFetch ? window.apiFetch(path, { method: 'GET', headers, credentials: 'omit' })
-            : fetch(((window.BACKEND_BASE_URL || '') + path), { method: 'GET', credentials: 'omit', headers }));
+        const res = await (window.apiFetch
+            ? window.apiFetch(path, { method: 'GET', headers })
+            : fetch((window.BACKEND_BASE_URL + path), { method: 'GET', credentials: 'include', headers }));
         if (!res.ok) return [];
         return res.json();
     }
@@ -635,6 +638,8 @@
             const match = node.querySelector('.reg-match');
             const note = node.querySelector('.reg-note');
             const btnPay = node.querySelector('.reg-pay');
+            const btnShowId = node.querySelector('.reg-show-id');
+            const spanPaymentId = node.querySelector('.reg-payment-id');
             const aGo = node.querySelector('.reg-go');
             const eventId = ev.id || ev._id || ev.eventId;
             aGo.href = `/event.html?id=${encodeURIComponent(eventId)}`;
@@ -652,25 +657,30 @@
                 badge.textContent = 'registered';
             }
 
-            // Payment hint
+            // Payment hint + actions (Pay now / Show payment ID)
             if (typeof ev.fee_cents === 'number' && ev.fee_cents > 0) {
-                if (!regInfo || (regInfo.payment_status && regInfo.payment_status !== 'succeeded')) {
+                const base = window.BACKEND_BASE_URL; // fallback removed
+                // If we don't know payment status or it's not succeeded, offer actions
+                const notPaid = !regInfo || !regInfo.payment_status || (regInfo.payment_status && regInfo.payment_status !== 'succeeded');
+                if (notPaid) {
                     note.classList.remove('hidden');
                     note.textContent = "You haven't paid the fee yet.";
                     if (regInfo && regInfo.registration_id) {
+                        // Pay now button opens/creates provider payment and navigates
                         btnPay.classList.remove('hidden');
                         btnPay.addEventListener('click', async () => {
                             try {
-                                const base = window.BACKEND_BASE_URL || '';
-                                const headers = withAuthHeader({ 'Accept': 'application/json', 'Content-Type': 'application/json' });
-                                const r = await fetch(base + '/payments/create', {
-                                    method: 'POST',
-                                    headers,
-                                    credentials: 'omit',
-                                    body: JSON.stringify({ registration_id: regInfo.registration_id })
-                                });
+                                const { res: r, data } = await (window.apiPost
+                                    ? window.apiPost('/payments/create', { registration_id: regInfo.registration_id })
+                                    : (async()=>{ const rr = await fetch(base + '/payments/create', { method:'POST', headers:{'Accept':'application/json','Content-Type':'application/json'}, body: JSON.stringify({ registration_id: regInfo.registration_id }), credentials:'include'}); return { res: rr, data: await rr.clone().json().catch(()=>({})) }; })());
                                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                                const data = await r.json();
+                                // Persist payment_id for later display
+                                try {
+                                    const stored = regInfo || {};
+                                    if (data.payment_id) stored.payment_id = String(data.payment_id);
+                                    if (data.status) stored.payment_status = data.status;
+                                    localStorage.setItem(`dh:lastReg:${eventId}`,(JSON.stringify(stored)));
+                                } catch {}
                                 const link = data.payment_link || (data.instructions && (data.instructions.approval_link || data.instructions.link));
                                 if (link) {
                                     window.location.assign(link.startsWith('http') ? link : (base + link));
@@ -679,6 +689,46 @@
                                 alert('Could not create payment.');
                             }
                         });
+
+                        // Show payment ID (for manual payment follow-ups)
+                        btnShowId.classList.remove('hidden');
+                        const revealPaymentId = async () => {
+                            try {
+                                // If we already have it, just show
+                                if (regInfo && regInfo.payment_id) {
+                                    spanPaymentId.textContent = `Payment ID: ${regInfo.payment_id}`;
+                                    spanPaymentId.classList.remove('hidden');
+                                    btnShowId.classList.add('hidden');
+                                    return;
+                                }
+                                const { res: r, data } = await (window.apiPost
+                                    ? window.apiPost('/payments/create', { registration_id: regInfo.registration_id })
+                                    : (async()=>{ const rr = await fetch(base + '/payments/create', { method:'POST', headers:{'Accept':'application/json','Content-Type':'application/json'}, body: JSON.stringify({ registration_id: regInfo.registration_id }), credentials:'include'}); return { res: rr, data: await rr.clone().json().catch(()=>({})) }; })());
+                                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                                const pid = data.payment_id;
+                                if (pid) {
+                                    spanPaymentId.textContent = `Payment ID: ${pid}`;
+                                    spanPaymentId.classList.remove('hidden');
+                                    btnShowId.classList.add('hidden');
+                                    try {
+                                        const stored = regInfo || {};
+                                        stored.payment_id = String(pid);
+                                        if (data.status) stored.payment_status = data.status;
+                                        localStorage.setItem(`dh:lastReg:${eventId}`,(JSON.stringify(stored)));
+                                    } catch {}
+                                }
+                            } catch {
+                                alert('Unable to retrieve payment id right now.');
+                            }
+                        };
+                        btnShowId.addEventListener('click', (e) => { e.preventDefault(); revealPaymentId(); });
+
+                        // If payment_id already cached, show it immediately
+                        if (regInfo && regInfo.payment_id) {
+                            spanPaymentId.textContent = `Payment ID: ${regInfo.payment_id}`;
+                            spanPaymentId.classList.remove('hidden');
+                            btnShowId.classList.add('hidden');
+                        }
                     }
                 }
             }
@@ -703,9 +753,19 @@
         // Preload profile for ZIP eligibility and defaults
         try {
             const path = '/profile';
-            const headers = withAuthHeader({ 'Accept': 'application/json' });
-            const res = await (window.apiFetch ? window.apiFetch(path, { method: 'GET', headers, credentials: 'omit' })
-                : fetch(((window.BACKEND_BASE_URL || '') + path), { method: 'GET', credentials: 'omit', headers }));
+            const headers = { 'Accept': 'application/json' };
+            let res = await (window.apiFetch
+                ? window.apiFetch(path, { method: 'GET', headers })
+                : fetch((window.BACKEND_BASE_URL + path), { method: 'GET', credentials: 'include', headers }));
+            // If blocked by CORS (network error caught above) apiFetch already retried; if not ok and cross-origin, try bearer directly
+            if (!res.ok && window.BACKEND_BASE_URL && window.location && new URL(window.BACKEND_BASE_URL).origin !== window.location.origin) {
+                const token = (function(){ try { return localStorage.getItem('dh_access_token'); } catch { return null; } })();
+                if (token) {
+                    try {
+                        res = await fetch(window.BACKEND_BASE_URL + path, { method:'GET', headers: { 'Accept':'application/json', 'Authorization': 'Bearer ' + token } , credentials:'omit'});
+                    } catch { /* ignore */ }
+                }
+            }
             if (res.ok) {
                 __USER_PROFILE = await res.json();
                 const addr = __USER_PROFILE.address || __USER_PROFILE.address_public || {};
@@ -728,7 +788,18 @@
         // Load my registrations banner (best-effort)
         try {
             const myEvents = await fetchMyEvents();
+            // Normalize and store my event IDs for quick checks in listing
+            try {
+                __MY_EVENT_IDS = new Set(
+                    (Array.isArray(myEvents) ? myEvents : [])
+                        .map(ev => ev && (ev.id || ev._id || ev.eventId))
+                        .filter(Boolean)
+                        .map(String)
+                );
+            } catch {}
             renderMyRegistrations(Array.isArray(myEvents) ? myEvents : []);
+            // Re-render events to reflect registered state on CTAs
+            try { applyFilters(); } catch {}
         } catch {}
     });
 })();
