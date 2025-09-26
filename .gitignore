@@ -1,5 +1,6 @@
 .git
-.github
+!.github/
+.github/copilot-instructions.md
 
 # Local env files
 /backend/app/.env
