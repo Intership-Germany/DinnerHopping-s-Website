@@ -1,0 +1,130 @@
+name: CI/CD DinnerHopping
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    environment: VPS_HOST
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine lowercase repository owner
+        id: owner
+        run: |
+          # Force lowercase of the repo owner (e.g. Intership-Germany -> intership-germany)
+          echo "lower_owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU and Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.lower_owner }}/dinnerhopping-backend:latest
+            ghcr.io/${{ steps.owner.outputs.lower_owner }}/dinnerhopping-backend:${{ github.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: VPS_HOST
+    steps:
+      - name: Checkout (for frontend files)
+        uses: actions/checkout@v4
+          
+      - name: Debug DEPLOY_SSH_KEY (non destructif)
+        run: |
+          echo "== Debug DEPLOY_SSH_KEY =="
+          if [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
+            echo "ERROR: Le secret DEPLOY_SSH_KEY est vide ou inexistant dans ce contexte."
+            exit 1
+          fi
+          echo "OK: DEPLOY_SSH_KEY présent."
+          len=$(echo -n "${{ secrets.DEPLOY_SSH_KEY }}" | wc -c)
+          echo "Taille (octets) du secret: $len"
+          if echo "${{ secrets.DEPLOY_SSH_KEY }}" | head -n1 | grep -qi "PRIVATE KEY"; then
+            echo "Format: en-tête PRIVATE KEY détecté (OK)."
+          else
+            echo "WARNING: Pas d'en-tête PRIVATE KEY. Vérifie que tu as collé la clé privée complète."
+          fi
+          echo "Event: ${{ github.event_name }}"
+          echo "== Fin debug =="
+          
+      - name: Start SSH agent and add key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          
+      - name: Rsync frontend to server
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          PORT=${DEPLOY_PORT:-22}
+          rsync -az --delete -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" frontend/public/ ${DEPLOY_USER}@${DEPLOY_HOST}:/var/www/dinnerhopping/
+
+      - name: Remote deploy git pull, pull image, restart service, healthcheck
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          REMOTE_GHCR_USER: ${{ secrets.REMOTE_GHCR_USER }}
+          REMOTE_GHCR_PAT: ${{ secrets.REMOTE_GHCR_PAT }}
+        run: |
+          PORT=${DEPLOY_PORT:-22}
+          ssh -o StrictHostKeyChecking=no -p ${PORT} ${DEPLOY_USER}@${DEPLOY_HOST} "REMOTE_GHCR_USER='${{ secrets.REMOTE_GHCR_USER }}' REMOTE_GHCR_PAT='${{ secrets.REMOTE_GHCR_PAT }}' bash -s" <<'EOF'
+          set -euo pipefail
+          cd /opt/dinnerhopping || exit 1
+
+          # Ensure we are on main and up-to-date
+          if git show-ref --verify --quiet refs/heads/main; then
+            git checkout main
+          else
+            git fetch origin main:main
+            git checkout main
+          fi
+          git fetch --all --prune
+          git pull --ff-only
+
+          # If REMOTE_GHCR_PAT/user provided, login to GHCR on the remote host so 'docker-compose pull' can pull private images
+          if [ -n "${REMOTE_GHCR_PAT:-}" ] && [ -n "${REMOTE_GHCR_USER:-}" ]; then
+            echo "${REMOTE_GHCR_PAT}" | sudo docker login ghcr.io -u "${REMOTE_GHCR_USER}" --password-stdin || true
+          fi
+
+          # Restart service using latest image
+          sudo systemctl stop docker-compose-app.service || true
+          sudo docker-compose -f deploy/production-docker-compose.yml pull || true
+          sudo systemctl start docker-compose-app.service
+
+          # Healthcheck
+          for i in {1..10}; do
+            code=$(curl -sk -o /dev/null -w "%{http_code}" https://dinnerhoppings.acrevon.fr/api/health || true)
+            if [ "$code" = "200" ]; then
+              echo "Healthcheck ok"
+              exit 0
+            fi
+            sleep 6
+          done
+          echo "Healthcheck failed" >&2
+          exit 1
+          EOF
