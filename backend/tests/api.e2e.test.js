@@ -12,6 +12,22 @@
  */
 
 const request = require('supertest')('http://localhost:8000');
+
+const normalizeApiPrefix = (value) => {
+  if (!value) return '';
+  const trimmed = String(value).trim();
+  if (!trimmed || trimmed === '/') return '';
+  return `/${trimmed.replace(/^\/+/g, '').replace(/\/+$/g, '')}`;
+};
+
+const API_PREFIX = normalizeApiPrefix(process.env.API_PREFIX || '/');
+
+const apiPath = (path) => {
+  const ensured = path.startsWith('/') ? path : `/${path}`;
+  if (!API_PREFIX) return ensured;
+  if (ensured === '/') return API_PREFIX;
+  return `${API_PREFIX}${ensured}`;
+};
 jest.setTimeout(20000); // increase timeout for slower dev machines
 
 describe('Backend minimal flow (auth + events + registration)', () => {
@@ -32,7 +48,7 @@ describe('Backend minimal flow (auth + events + registration)', () => {
     };
 
     const res = await request
-      .post('/register')
+      .post(apiPath('/register'))
       .send(payload)
       .set('Accept', 'application/json');
 
@@ -46,7 +62,7 @@ describe('Backend minimal flow (auth + events + registration)', () => {
 
   test('POST /login -> 200 & returns token', async () => {
     const res = await request
-      .post('/login')
+      .post(apiPath('/login'))
       .send({ username: testEmail, password: PASSWORD })
       .set('Accept', 'application/json');
 
@@ -65,7 +81,7 @@ describe('Backend minimal flow (auth + events + registration)', () => {
 
   test('GET /events -> 200 and returns an array', async () => {
     const res = await request
-      .get('/events/')
+      .get(apiPath('/events/'))
       .set('Accept', 'application/json');
 
     expect([200, 201]).toContain(res.status);
@@ -89,7 +105,7 @@ describe('Backend minimal flow (auth + events + registration)', () => {
     };
 
     const res = await request
-      .post('/events/')
+      .post(apiPath('/events/'))
       .send(eventPayload)
       .set('Accept', 'application/json')
       .set('Authorization', authToken ? `Bearer ${authToken}` : '');
@@ -123,7 +139,7 @@ describe('Backend minimal flow (auth + events + registration)', () => {
     };
 
     const res = await request
-      .post(`/events/${createdEventId}/register`)
+      .post(apiPath(`/events/${createdEventId}/register`))
       .send(regPayload)
       .set('Accept', 'application/json')
       .set('Authorization', authToken ? `Bearer ${authToken}` : '');

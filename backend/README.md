@@ -23,7 +23,7 @@ docker compose up --build
 cd backend
 docker compose up --build
 ```
-Service: http://localhost:8000 (Swagger UI at /docs)
+Service: http://localhost:8000 (Swagger UI at /docs by default, or `/api/docs` if `API_PREFIX=/api`)
 
 ### Option B: Lightweight test mode (no Mongo required)
 Uses an in‑memory fake persistence layer for faster iteration & CI.
@@ -43,6 +43,7 @@ Centralized in `app/settings.py` using `pydantic-settings`. All env vars have sa
 |----------|-----|---------|-------|
 | Core | `ENVIRONMENT` | development | Free form environment name |
 | Core | `APP_NAME` | DinnerHopping Backend | Display title |
+| Routing | `API_PREFIX` | `/` | Base path applied to every API endpoint (e.g. set to `/api` when served behind a reverse proxy prefix) |
 | Mongo | `MONGO_URI` | mongodb://mongo:27017/dinnerhopping | Overridden by `MONGO_URL` if not set |
 | Mongo | `MONGO_DB` | dinnerhopping | DB name |
 | Auth | `JWT_SECRET` | change-me | MUST change in prod |

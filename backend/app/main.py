@@ -47,6 +47,33 @@ logging.setLogRecordFactory(_record_factory)
 configure_logging()
 settings = get_settings()
 
+
+def _normalize_api_prefix(raw: Optional[str]) -> str:
+    if not raw:
+        return ""
+    stripped = raw.strip()
+    if not stripped or stripped == "/":
+        return ""
+    normalized = stripped.strip("/")
+    if not normalized:
+        return ""
+    return f"/{normalized}"
+
+
+API_PREFIX = _normalize_api_prefix(getattr(settings, "api_prefix", None))
+
+
+def _prefixed_path(path: str) -> str:
+    if not path:
+        return API_PREFIX or "/"
+    if not path.startswith("/"):
+        path = f"/{path}"
+    if not API_PREFIX:
+        return path
+    if path == "/":
+        return API_PREFIX
+    return f"{API_PREFIX}{path}"
+
 # Compatibility shim: some bcrypt distributions expose `__version__` but not
 # `__about__.__version__`. passlib sometimes attempts to read
 # `bcrypt.__about__.__version__` and this can trigger noisy tracebacks.
@@ -64,7 +91,12 @@ except (ImportError, AttributeError):
     pass
 
 
-app = FastAPI(title=settings.app_name)
+app = FastAPI(
+    title=settings.app_name,
+    docs_url=_prefixed_path("docus"),
+    redoc_url=_prefixed_path("redocu"),
+    openapi_url=_prefixed_path("openapi.json"),
+)
 
 
 ######## Structured Logging & Request ID Middleware ########
@@ -165,11 +197,17 @@ def custom_swagger_ui_html(*, openapi_url: str, title: str):
     headers = dict(resp.headers)
     return HTMLResponse(content=content, status_code=resp.status_code, headers=headers)
 
-@app.get('/', include_in_schema=False)
+prefixed_router = APIRouter(prefix=API_PREFIX or "")
+
+
+@prefixed_router.get('/', include_in_schema=False)
 async def root():
     return {"message": "Hello! If you're seeing this, there are two possibilities: - Something went really wrong - or - You're trying to do something you shouldn't be doing."}
 
-@app.get('/docs', include_in_schema=False)
+DOCS_ROUTE_PATH = _prefixed_path("docs")
+
+
+@app.get(DOCS_ROUTE_PATH, include_in_schema=False)
 async def overridden_swagger(request: Request):
     root_path = (request.scope.get('root_path') or '').rstrip('/')
     openapi_url = f"{root_path}{app.openapi_url}" if root_path else app.openapi_url
@@ -213,27 +251,27 @@ async def shutdown():
     """Disconnect from MongoDB on shutdown."""
     await close_mongo()
 
-# Expose the users router at the root so endpoints like /register, /login, /profile exist
-app.include_router(users.router, prefix="", tags=["users"])
-app.include_router(events.router, prefix="/events", tags=["events"])
-app.include_router(admin.router, prefix="/admin", tags=["admin"])
-app.include_router(invitations.router, prefix="/invitations", tags=["invitations"])
-app.include_router(payments.router, prefix="/payments", tags=["payments"])
-app.include_router(matching.router, prefix="/matching", tags=["matching"])
-app.include_router(chats.router, prefix="/chats", tags=["chats"])
-app.include_router(registrations.router, prefix="/registrations", tags=["registrations"])
+# Expose the users router at the root of the configured prefix so endpoints like /register, /login, /profile exist
+prefixed_router.include_router(users.router, prefix="", tags=["users"])
+prefixed_router.include_router(events.router, prefix="/events", tags=["events"])
+prefixed_router.include_router(admin.router, prefix="/admin", tags=["admin"])
+prefixed_router.include_router(invitations.router, prefix="/invitations", tags=["invitations"])
+prefixed_router.include_router(payments.router, prefix="/payments", tags=["payments"])
+prefixed_router.include_router(matching.router, prefix="/matching", tags=["matching"])
+prefixed_router.include_router(chats.router, prefix="/chats", tags=["chats"])
+prefixed_router.include_router(registrations.router, prefix="/registrations", tags=["registrations"])
 
-api_router = APIRouter()
 
-@api_router.get('/api/my-plan', tags=["plan"]) 
+@prefixed_router.get('/my-plan', tags=["plan"]) 
 async def my_plan(current_user=Depends(get_current_user)):
     """Get the current user's plan."""
     # proxy to events module
     return await events.get_my_plan(current_user)
 
-app.include_router(api_router)
-
 # Healthcheck rapide (pas d'accès DB lourd). Optionnel: ajouter ping DB.
-@app.get('/health', tags=["health"], include_in_schema=False)
+@prefixed_router.get('/health', tags=["health"], include_in_schema=False)
 async def health():
     return {"status": "ok"}
+
+
+app.include_router(prefixed_router)
