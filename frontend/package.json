@@ -1,0 +1,17 @@
+{
+  "name": "dinnerhopping-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "lint": "eslint \"public/js/**/*.js\" --max-warnings=0",
+    "lint:fix": "eslint \"public/js/**/*.js\" --fix",
+    "format": "prettier \"public/**/*.html\" \"public/js/**/*.js\" --write",
+    "check": "npm run lint && prettier \"public/js/**/*.js\" --check"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "prettier": "^3.2.5"
+  }
+}
