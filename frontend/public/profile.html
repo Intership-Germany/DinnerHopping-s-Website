@@ -207,39 +207,8 @@
                 <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Allergies</h2>
                 <p class="text-xs text-gray-600 mb-2">Select your allergies to help with event matching. This information will be shared with hosts and other participants.</p>
                 <div class="space-y-3">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <label class="flex items-center space-x-2">
-                            <input type="checkbox" id="allergy-nuts" name="allergies" value="nuts" class="rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]" disabled>
-                            <span class="text-sm">Nuts</span>
-                        </label>
-                        <label class="flex items-center space-x-2">
-                            <input type="checkbox" id="allergy-shellfish" name="allergies" value="shellfish" class="rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]" disabled>
-                            <span class="text-sm">Shellfish</span>
-                        </label>
-                        <label class="flex items-center space-x-2">
-                            <input type="checkbox" id="allergy-dairy" name="allergies" value="dairy" class="rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]" disabled>
-                            <span class="text-sm">Dairy</span>
-                        </label>
-                        <label class="flex items-center space-x-2">
-                            <input type="checkbox" id="allergy-eggs" name="allergies" value="eggs" class="rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]" disabled>
-                            <span class="text-sm">Eggs</span>
-                        </label>
-                        <label class="flex items-center space-x-2">
-                            <input type="checkbox" id="allergy-gluten" name="allergies" value="gluten" class="rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]" disabled>
-                            <span class="text-sm">Gluten</span>
-                        </label>
-                        <label class="flex items-center space-x-2">
-                            <input type="checkbox" id="allergy-soy" name="allergies" value="soy" class="rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]" disabled>
-                            <span class="text-sm">Soy</span>
-                        </label>
-                        <label class="flex items-center space-x-2">
-                            <input type="checkbox" id="allergy-fish" name="allergies" value="fish" class="rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]" disabled>
-                            <span class="text-sm">Fish</span>
-                        </label>
-                        <label class="flex items-center space-x-2">
-                            <input type="checkbox" id="allergy-sesame" name="allergies" value="sesame" class="rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]" disabled>
-                            <span class="text-sm">Sesame</span>
-                        </label>
+                    <div id="allergies-grid" class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <!-- Allergy checkboxes will be populated dynamically -->
                     </div>
                     <div class="space-y-2">
                         <label class="flex items-center space-x-2">

@@ -34,7 +34,8 @@
 				addrStreet: document.getElementById('profile-street'),
 				addrNumber: document.getElementById('profile-number'),
 				// Allergies
-				allergyCheckboxes: document.querySelectorAll('input[name="allergies"]'),
+				allergiesGrid: document.getElementById('allergies-grid'),
+				allergyCheckboxes: [], // Will be populated dynamically
 				allergyOtherCheckbox: document.getElementById('allergy-other-checkbox'),
 				allergyOtherInput: document.getElementById('allergy-other-input'),
 				// Optional profile fields
@@ -93,6 +94,87 @@
 				return ((((u?.first_name||'') + ' ' + (u?.last_name||'')).trim()) || (u?.name || ''));
 			}
 
+			/** Load valid allergies from API and create dynamic checkboxes */
+			async function loadAllergies(){
+				try {
+					const response = await window.apiFetch('/allergies');
+					const data = await response.json();
+					
+					if (!data.allergies || !Array.isArray(data.allergies)) {
+						console.error('Invalid allergies data received from API');
+						return;
+					}
+
+					// Clear existing checkboxes
+					el.allergiesGrid.innerHTML = '';
+					el.allergyCheckboxes = [];
+
+					// Create checkboxes for each valid allergy
+					data.allergies.forEach(allergy => {
+						const label = document.createElement('label');
+						label.className = 'flex items-center space-x-2';
+						
+						const checkbox = document.createElement('input');
+						checkbox.type = 'checkbox';
+						checkbox.id = `allergy-${allergy}`;
+						checkbox.name = 'allergies';
+						checkbox.value = allergy;
+						checkbox.className = 'rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]';
+						checkbox.disabled = true; // Will be enabled in edit mode
+						
+						const span = document.createElement('span');
+						span.className = 'text-sm';
+						span.textContent = allergy.charAt(0).toUpperCase() + allergy.slice(1);
+						
+						label.appendChild(checkbox);
+						label.appendChild(span);
+						el.allergiesGrid.appendChild(label);
+						
+						// Keep reference to checkbox
+						el.allergyCheckboxes.push(checkbox);
+					});
+
+					// Store valid allergies for validation
+					window.validAllergies = data.allergies;
+					
+				} catch (error) {
+					console.error('Failed to load allergies:', error);
+					// Fallback to hardcoded list if API fails
+					window.validAllergies = ['nuts', 'shellfish', 'dairy', 'eggs', 'gluten', 'soy', 'fish', 'sesame'];
+					createFallbackAllergies();
+				}
+			}
+
+			/** Create fallback allergies if API fails */
+			function createFallbackAllergies(){
+				const fallbackAllergies = ['nuts', 'shellfish', 'dairy', 'eggs', 'gluten', 'soy', 'fish', 'sesame'];
+				el.allergiesGrid.innerHTML = '';
+				el.allergyCheckboxes = [];
+
+				fallbackAllergies.forEach(allergy => {
+					const label = document.createElement('label');
+					label.className = 'flex items-center space-x-2';
+					
+					const checkbox = document.createElement('input');
+					checkbox.type = 'checkbox';
+					checkbox.id = `allergy-${allergy}`;
+					checkbox.name = 'allergies';
+					checkbox.value = allergy;
+					checkbox.className = 'rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]';
+					checkbox.disabled = true;
+					
+					const span = document.createElement('span');
+					span.className = 'text-sm';
+					span.textContent = allergy.charAt(0).toUpperCase() + allergy.slice(1);
+					
+					label.appendChild(checkbox);
+					label.appendChild(span);
+					el.allergiesGrid.appendChild(label);
+					
+					el.allergyCheckboxes.push(checkbox);
+				});
+			}
+
 			/** Set allergies from backend data */
 			function setAllergies(allergiesList){
 				// Clear all checkboxes first
@@ -105,7 +187,7 @@
 
 				if (!allergiesList || !Array.isArray(allergiesList)) return;
 
-				const knownAllergies = ['nuts', 'shellfish', 'dairy', 'eggs', 'gluten', 'soy', 'fish', 'sesame'];
+				const knownAllergies = window.validAllergies || ['nuts', 'shellfish', 'dairy', 'eggs', 'gluten', 'soy', 'fish', 'sesame'];
 				const otherAllergies = [];
 
 				allergiesList.forEach(allergy => {
@@ -536,6 +618,9 @@
 			/** Load the profile (cookie+CSRF by default, dh_token Bearer fallback) */
 			async function loadProfile(){
 				try { await (window.initCsrf ? window.initCsrf() : Promise.resolve()); } catch {}
+
+				// Load allergies list from API first
+				await loadAllergies();
 
 				const bearer = getDhToken();
 				const baseOpts = bearer ? { headers: { 'Authorization': `Bearer ${bearer}` }, credentials: 'omit' } : {};

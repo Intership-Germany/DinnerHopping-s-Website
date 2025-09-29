@@ -8,12 +8,26 @@ Migration note (2025-09):
 Existing records may still contain 'name' or 'is_verified'; they are ignored.
 """
 import os
-from pydantic import BaseModel, EmailStr
-from typing import Optional, Literal
+from pydantic import BaseModel, EmailStr, field_validator
+from typing import Optional, Literal, List
 from contextlib import suppress
 from app.auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
 from app.utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair, send_email
 from app import db as db_mod
+
+######### Constants #########
+
+# Predefined list of valid allergies
+VALID_ALLERGIES = [
+    "nuts",
+    "shellfish", 
+    "dairy",
+    "eggs",
+    "gluten",
+    "soy",
+    "fish",
+    "sesame"
+]
 
 ######### Router / Endpoints #########
 
@@ -36,6 +50,22 @@ class UserCreate(BaseModel):
     lat: float | None = None
     lon: float | None = None
     allergies: list[str] | None = []
+    
+    @field_validator('allergies')
+    @classmethod
+    def validate_allergies(cls, v):
+        if v is None or v == []:
+            return []
+        # Allow valid allergies and any custom ones that don't match predefined list
+        validated_allergies = []
+        for allergy in v:
+            allergy_lower = allergy.lower().strip()
+            if allergy_lower in VALID_ALLERGIES:
+                validated_allergies.append(allergy_lower)
+            elif allergy_lower not in VALID_ALLERGIES and allergy.strip():
+                # Allow custom allergies that aren't in the predefined list
+                validated_allergies.append(allergy.strip())
+        return validated_allergies
 
 class UserOut(BaseModel):
     """Public/own profile user representation without duplicated full name field.
@@ -310,6 +340,23 @@ class ProfileUpdate(BaseModel):
     lat: float | None = None
     lon: float | None = None
     allergies: list[str] | None = None
+    
+    @field_validator('allergies')
+    @classmethod
+    def validate_allergies(cls, v):
+        if v is None:
+            return v
+        # Allow valid allergies and any custom ones that don't match predefined list
+        # This allows the "others" functionality while ensuring known allergies use standard names
+        validated_allergies = []
+        for allergy in v:
+            allergy_lower = allergy.lower().strip()
+            if allergy_lower in VALID_ALLERGIES:
+                validated_allergies.append(allergy_lower)
+            elif allergy_lower not in VALID_ALLERGIES and allergy.strip():
+                # Allow custom allergies that aren't in the predefined list
+                validated_allergies.append(allergy.strip())
+        return validated_allergies
     # Optional profile fields (user-editable)
     kitchen_available: Optional[bool] = None
     main_course_possible: Optional[bool] = None
@@ -317,6 +364,14 @@ class ProfileUpdate(BaseModel):
     field_of_study: Optional[str] = None
     # allow skipping optional profile prompt via this endpoint
     skip_optional_profile: Optional[bool] = False
+
+@router.get('/allergies', response_model=dict)
+async def get_allergies():
+    """Get the list of valid allergies for the allergy dropdown."""
+    return {
+        "allergies": VALID_ALLERGIES,
+        "supports_other": True
+    }
 
 @router.get('/profile', response_model=UserOut)
 async def get_profile(current_user=Depends(get_current_user)):
