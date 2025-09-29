@@ -10,8 +10,10 @@ services:
     volumes:
       - mongo-data:/data/db
   backend:
-    image: ghcr.io/intership-germany/dinnerhopping-backend:latest
-    pull_policy: always
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: dinnerhopping/backend
     restart: unless-stopped
     env_file:
       - ../backend/app/.env
@@ -24,6 +26,16 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ../backend/logs:/var/log/dinnerhopping
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: dinnerhopping/frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "40332:80"
 volumes:
   mongo-data:
     name: dinnerhopping-mongo-data
