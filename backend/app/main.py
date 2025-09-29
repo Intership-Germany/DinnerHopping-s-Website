@@ -131,7 +131,7 @@ def custom_swagger_ui_html(*, openapi_url: str, title: str):
     swagger_js = """
     window.onload = function() {
         const ui = SwaggerUIBundle({
-            url: '%s',
+            url: '/api/openapi.json',
             dom_id: '#swagger-ui',
             presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
             layout: 'StandaloneLayout',
