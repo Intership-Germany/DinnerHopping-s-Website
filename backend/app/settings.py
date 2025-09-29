@@ -44,7 +44,6 @@ class Settings(BaseSettings):
     backend_base_url: str = Field("http://localhost:8000", alias="BACKEND_BASE_URL")
     allowed_origins: str = Field("*", alias="ALLOWED_ORIGINS")
     cors_allow_credentials: bool = Field(True, alias="CORS_ALLOW_CREDENTIALS")
-    api_prefix: str = Field("/", alias="API_PREFIX")
 
     # Payments
     stripe_api_key: Optional[str] = Field(None, alias="STRIPE_API_KEY")

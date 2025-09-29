@@ -18,23 +18,10 @@ os.environ.setdefault("ENFORCE_HTTPS", "false")
 os.environ.setdefault("USE_FAKE_DB_FOR_TESTS", "1")
 
 # Import app AFTER env vars
-from app.main import app, API_PREFIX as APP_API_PREFIX  # noqa: E402
+from app.main import app  # noqa: E402
 from app import db as db_mod  # noqa: E402
 from app.db import connect as connect_to_mongo  # noqa: E402
 from app.auth import hash_password  # noqa: E402
-
-API_PREFIX = APP_API_PREFIX or ""
-
-
-def api_path(path: str) -> str:
-    """Return the API path with the configured prefix applied."""
-    if not path.startswith("/"):
-        path = f"/{path}"
-    if not API_PREFIX:
-        return path
-    if path == "/":
-        return API_PREFIX
-    return f"{API_PREFIX}{path}"
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -81,7 +68,7 @@ async def _mark_email_verified(email: str):
 @pytest.fixture
 async def admin_token(client):
     await _create_admin_user()
-    resp = await client.post(api_path("/login"), json={"username": "admin@example.com", "password": "Adminpass1"})
+    resp = await client.post("/login", json={"username": "admin@example.com", "password": "Adminpass1"})
     if resp.status_code != 200:
         pytest.skip(f"Admin login failed: {resp.status_code} {resp.text}")
     return resp.json().get("access_token")
@@ -106,7 +93,7 @@ async def verified_user(client):
         "lon": 0.0,
         "preferences": {},
     }
-    resp = await client.post(api_path("/register"), json=payload)
+    resp = await client.post("/register", json=payload)
     assert resp.status_code in (200, 201, 409), resp.text
     await _mark_email_verified(email)
     return {"email": email, "password": payload["password"]}
