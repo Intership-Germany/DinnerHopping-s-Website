@@ -54,3 +54,30 @@ Expose `/api/health` (already used by CI) or another fast endpoint returning HTT
 - Build with a temporary service name (for example `backend_blue`).
 - Update the reverse proxy to route to the new container (Apache graceful reload).
 - Retire the old container once the traffic has drained.
+
+## Apache reverse proxy quick reference
+
+When ports 80/443 are already used by other services on the host, reuse an
+existing `<VirtualHost>` and include the proxy rules instead of creating a brand
+new site definition. Copy the snippet below (or adapt it) inside the vhost that
+handles `dinnerhoppings.acrevon.fr`.
+
+```apache
+ProxyPreserveHost On
+ProxyPassMatch "^/.well-known/acme-challenge/" "!"
+RequestHeader set X-Forwarded-Proto expr=%{REQUEST_SCHEME}
+RequestHeader set X-Forwarded-Port expr=%{SERVER_PORT}
+
+ProxyPass "/chats/ws" "ws://127.0.0.1:8000/chats/ws"
+ProxyPassReverse "/chats/ws" "ws://127.0.0.1:8000/chats/ws"
+
+ProxyPass "/api/" "http://127.0.0.1:8000/"
+ProxyPassReverse "/api/" "http://127.0.0.1:8000/"
+
+ProxyPass "/" "http://127.0.0.1:40332/" retry=0 keepalive=On
+ProxyPassReverse "/" "http://127.0.0.1:40332/"
+```
+
+Enable the required modules once (`sudo a2enmod proxy proxy_http proxy_wstunnel
+headers rewrite ssl`), run `sudo apachectl configtest`, and reload Apache with
+`sudo systemctl reload apache2`.
