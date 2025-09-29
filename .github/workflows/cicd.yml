@@ -1,91 +1,22 @@
 name: CI/CD DinnerHopping
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch: {}
-permissions:
-  contents: read
-  packages: write
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    environment: VPS_HOST
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Determine lowercase repository owner
-        id: owner
-        run: |
-          echo "lower_owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-
-      - name: Set up QEMU and Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ steps.owner.outputs.lower_owner }}/dinnerhopping-backend:latest
-            ghcr.io/${{ steps.owner.outputs.lower_owner }}/dinnerhopping-backend:${{ github.sha }}
-
-      - name: Generate frontend config
-        run: |
-          if [ -f frontend/.env ]; then
-            echo "Generating frontend config from .env..."
-            cd frontend
-            node generate-config.js
-            cd ..
-          else
-            echo "No frontend/.env found, copying from .env.example..."
-            cd frontend
-            echo "BACKEND_BASE=https://dinnerhoppings.acrevon.fr/api/
-              DEBUG_BANNER=falsefrontend/.env" >> .env
-            node generate-config.js
-            cd ..
-          fi
-
-      - name: Upload frontend files as artifact
+  deploy:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-files
-          path: frontend/public/
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
+      - name: Checkout
+        uses: actions/checkout@v4
     environment: VPS_HOST
     steps:
       - name: Download frontend files artifact
         uses: actions/download-artifact@v4
         with:
           name: frontend-files
-          path: frontend/public/
-
-      - name: Start SSH agent and add key
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
-
-      - name: Rsync frontend to server
-        env:
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      - name: Remote deploy git pull, build images, restart service, healthcheck
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
         run: |
           PORT=${DEPLOY_PORT:-22}
-          rsync -az --delete -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" frontend/public/ ${DEPLOY_USER}@${DEPLOY_HOST}:/var/www/dinnerhopping/
-
       - name: Remote deploy git pull, pull image, restart service, healthcheck
         env:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -107,13 +38,14 @@ jobs:
           fi
           git fetch --all --prune
           git pull --ff-only
-          # If REMOTE_GHCR_PAT/user provided, login to GHCR on the remote host so 'docker-compose pull' can pull private images
-          if [ -n "${REMOTE_GHCR_PAT:-}" ] && [ -n "${REMOTE_GHCR_USER:-}" ]; then
-            echo "${REMOTE_GHCR_PAT}" | sudo docker login ghcr.io -u "${REMOTE_GHCR_USER}" --password-stdin || true
+          if command -v docker-compose >/dev/null 2>&1; then
+            COMPOSE_CMD=(docker-compose)
+          else
+            COMPOSE_CMD=(docker compose)
           fi
-          # Restart service using latest image
           sudo systemctl stop docker-compose-app.service || true
-          sudo docker-compose -f deploy/production-docker-compose.yml pull || true
+          sudo "${COMPOSE_CMD[@]}" -f deploy/production-docker-compose.yml build --pull
+          sudo systemctl daemon-reload || true
           sudo systemctl start docker-compose-app.service
           # Healthcheck
           for i in {1..10}; do

@@ -1,50 +1,56 @@
-# Mise à jour & Rollback
+# Update & Rollback
 
-## Hypothèses
-- Déploiement cloné dans `/opt/dinnerhopping` (git repo)
-- Service systemd: `docker-compose-app.service`
+## Assumptions
+- The production repository lives in `/opt/dinnerhopping`.
+- The systemd unit `docker-compose-app.service` manages the stack defined in `deploy/production-docker-compose.yml`.
+- All services (frontend, backend, MongoDB) are built locally via Docker Compose.
 
-## Mise à jour standard
+## Standard update
+```bash
+cd /opt/dinnerhopping
+
+# Make sure we are on the expected branch and fetch the latest commit
+git fetch origin main
+git checkout main
+git pull --ff-only origin main
+
+# Stop the running stack and rebuild images locally
+sudo systemctl stop docker-compose-app.service
+sudo /usr/bin/docker-compose -f deploy/production-docker-compose.yml build --pull
+
+# Relaunch the stack
+sudo systemctl start docker-compose-app.service
+
+# Quick health check (backend endpoint)
+curl -f https://dinnerhoppings.acrevon.fr/api/health > /dev/null && echo OK || echo FAIL
+```
+
+## Quick rollback
+If the new release fails:
 ```bash
 cd /opt/dinnerhopping
 sudo systemctl stop docker-compose-app.service
-# Sauvegarde image actuelle (optionnel)
-docker image ls | grep dinnerhopping
 
-# Mettre à jour code
-git fetch --all
-git checkout dev   # ou main
-git pull --ff-only
-
-# Rebuild & relance
-sudo systemctl start docker-compose-app.service
-
-# Vérification
-curl -f https://api.example.com/docs > /dev/null && echo OK || echo FAIL
-```
-
-## Rollback rapide
-Si la nouvelle version échoue:
-```bash
-sudo systemctl stop docker-compose-app.service
-# Revenir au commit précédent
+# Inspect recent commits and pick the previous one
 git log --oneline -5
-git checkout <commit_prec>
-# Rebuild
+git checkout <previous_commit_hash>
+
+# Rebuild and relaunch the previous revision
+sudo /usr/bin/docker-compose -f deploy/production-docker-compose.yml build --pull
 sudo systemctl start docker-compose-app.service
 ```
 
-## Rollback via image sauvegardée
-Si vous avez taggé une image stable:
+## Rollback using a tagged image
+When you keep a known-good tag you can roll back faster:
 ```bash
-docker tag dinnerhopping_backend:stable dinnerhopping_backend:rollback
-# dans docker-compose, forcer image: et pas build: (variante avancée)
+docker tag dinnerhopping/backend:stable dinnerhopping/backend:rollback
+# Update the compose file temporarily to pin the rollback tag if needed
 ```
 
-## Healthcheck manuel
-Vous pouvez ajouter un endpoint `/health` (à créer) qui retourne 200 rapidement pour automatiser.
+## Manual health check
+Expose `/api/health` (already used by CI) or another fast endpoint returning HTTP 200 to monitor the deployment automatically.
 
-## Astuce: déploiement zéro-downtime (plus tard)
-- Lancer nouveau container sur autre port interne (ex 8001)
-- Changer ProxyPass Apache vers 8001 (graceful reload)
-- Arrêter ancien container.
+## Tip: zero-downtime deployment (future improvement)
+- Build with a temporary service name (for example `backend_blue`).
+- Update the reverse proxy to route to the new container (Apache graceful reload).
+- Retire the old container once the traffic has drained.
