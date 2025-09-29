@@ -202,14 +202,24 @@
                 </div>
             </section>
 
-            <!-- Food Preferences -->
+            <!-- Allergies -->
             <section class="bg-white/90 p-4 rounded-2xl shadow-xl mb-4 border border-[#f0f4f7]">
-                <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Food Preferences</h2>
-                <p class="text-xs text-gray-600 mb-2">These are your default preferences for all events. You can adjust
-                    them for each event you sign up for.</p>
-                <textarea id="profile-preferences"
-                    class="w-full p-2 border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-[#f46f47] outline-none text-sm"
-                    rows="2" disabled></textarea>
+                <h2 class="text-lg font-bold mb-2 text-[#f46f47]">Allergies</h2>
+                <p class="text-xs text-gray-600 mb-2">Select your allergies to help with event matching. This information will be shared with hosts and other participants.</p>
+                <div class="space-y-3">
+                    <div id="allergies-grid" class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <!-- Allergy checkboxes will be populated dynamically -->
+                    </div>
+                    <div class="space-y-2">
+                        <label class="flex items-center space-x-2">
+                            <input type="checkbox" id="allergy-other-checkbox" class="rounded border-gray-300 text-[#f46f47] focus:ring-[#f46f47]" disabled>
+                            <span class="text-sm">Other</span>
+                        </label>
+                        <input type="text" id="allergy-other-input" placeholder="Please specify other allergies..."
+                            class="w-full p-2 border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-[#f46f47] outline-none text-sm hidden"
+                            disabled>
+                    </div>
+                </div>
             </section>
 
             <!-- Optional Details -->
