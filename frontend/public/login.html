@@ -12,8 +12,16 @@
     <script src="js/auth.js"></script>
     <script src="js/unauthorized.js"></script>
     <script src="js/debug-banner.js"></script>
-    <script src="js/includes.js" defer></script>
-    <script src="login-page.js" defer></script>
+    <!-- Core scripts -->
+    <script src="js/core/client.js"></script>
+    <script src="js/utils/network-errors.js"></script>
+    <script src="js/core/includes.js" defer></script>
+    <!-- Components -->
+    <script src="js/components/password-toggle.js" defer></script>
+    <script src="js/components/password-strength.js" defer></script>
+    <script src="js/components/address-autocomplete.js" defer></script>
+    <!-- Page script -->
+    <script src="js/pages/login.js" defer></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
