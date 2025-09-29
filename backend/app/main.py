@@ -2,6 +2,7 @@
 FastAPI application for the DinnerHopping backend.
 """
 import os
+import json
 from fastapi import FastAPI, APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -131,7 +132,7 @@ def custom_swagger_ui_html(*, openapi_url: str, title: str):
     swagger_js = """
     window.onload = function() {
         const ui = SwaggerUIBundle({
-            url: '/api/openapi.json',
+            url: %s,
             dom_id: '#swagger-ui',
             presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
             layout: 'StandaloneLayout',
@@ -155,7 +156,7 @@ def custom_swagger_ui_html(*, openapi_url: str, title: str):
         })
         window.ui = ui
     }
-    """ % openapi_url
+    """ % json.dumps(openapi_url)
     # generate the standard Swagger UI HTML and inject our custom script before </body>
     resp = get_swagger_ui_html(openapi_url=openapi_url, title=title)
     content = resp.body.decode(errors="ignore")
