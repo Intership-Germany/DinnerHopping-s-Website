@@ -169,8 +169,9 @@ async def root():
     return {"message": "Hello! If you're seeing this, there are two possibilities: - Something went really wrong - or - You're trying to do something you shouldn't be doing."}
 
 @app.get('/docs', include_in_schema=False)
-async def overridden_swagger():
-    openapi_url = app.openapi_url
+async def overridden_swagger(request: Request):
+    root_path = (request.scope.get('root_path') or '').rstrip('/')
+    openapi_url = f"{root_path}{app.openapi_url}" if root_path else app.openapi_url
     return custom_swagger_ui_html(openapi_url=openapi_url, title=app.title + ' - Swagger UI')
 
 ALLOWED_ORIGINS = settings.allowed_origins
