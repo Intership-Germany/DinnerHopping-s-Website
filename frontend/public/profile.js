@@ -33,8 +33,10 @@
 				addrPostal: document.getElementById('profile-postal'),
 				addrStreet: document.getElementById('profile-street'),
 				addrNumber: document.getElementById('profile-number'),
-				// Preferences
-				preferences: document.getElementById('profile-preferences'),
+				// Allergies
+				allergyCheckboxes: document.querySelectorAll('input[name="allergies"]'),
+				allergyOtherCheckbox: document.getElementById('allergy-other-checkbox'),
+				allergyOtherInput: document.getElementById('allergy-other-input'),
 				// Optional profile fields
 				kitchenAvailable: document.getElementById('kitchen-available'),
 				mainCoursePossible: document.getElementById('main-course-possible'),
@@ -91,38 +93,59 @@
 				return ((((u?.first_name||'') + ' ' + (u?.last_name||'')).trim()) || (u?.name || ''));
 			}
 
-			/** Human-readable preferences for the textarea */
-			function formatPreferences(pref){
-				try {
-					if (!pref) return '';
-					if (Array.isArray(pref)) return pref.join(', ');
-					if (typeof pref === 'string') return pref;
-					if (typeof pref === 'object') {
-						if (Array.isArray(pref.tags)) return pref.tags.join(', ');
-						const parts = [];
-						for (const [k,v] of Object.entries(pref)){
-							if (k === 'tags') continue;
-							if (v === true) parts.push(k);
-							else if (Array.isArray(v)) parts.push(`${k}: ${v.join(', ')}`);
-							else if (typeof v === 'string' && v.trim()) parts.push(`${k}: ${v}`);
-							else if (typeof v === 'number') parts.push(`${k}: ${v}`);
-						}
-						return parts.join(', ');
+			/** Set allergies from backend data */
+			function setAllergies(allergiesList){
+				// Clear all checkboxes first
+				el.allergyCheckboxes.forEach(checkbox => {
+					checkbox.checked = false;
+				});
+				el.allergyOtherCheckbox.checked = false;
+				el.allergyOtherInput.value = '';
+				el.allergyOtherInput.classList.add('hidden');
+
+				if (!allergiesList || !Array.isArray(allergiesList)) return;
+
+				const knownAllergies = ['nuts', 'shellfish', 'dairy', 'eggs', 'gluten', 'soy', 'fish', 'sesame'];
+				const otherAllergies = [];
+
+				allergiesList.forEach(allergy => {
+					if (knownAllergies.includes(allergy)) {
+						const checkbox = document.getElementById(`allergy-${allergy}`);
+						if (checkbox) checkbox.checked = true;
+					} else {
+						otherAllergies.push(allergy);
 					}
-					return String(pref);
-				} catch { return ''; }
+				});
+
+				// Handle "other" allergies
+				if (otherAllergies.length > 0) {
+					el.allergyOtherCheckbox.checked = true;
+					el.allergyOtherInput.value = otherAllergies.join(', ');
+					el.allergyOtherInput.classList.remove('hidden');
+				}
 			}
 
-			/** Flexible parsing of preferences textarea -> object: JSON, array, or "a, b, c" -> { tags: [...] } */
-			function parsePreferencesInput(text){
-				if (!text || !text.trim()) return {};
-				try {
-					const parsed = JSON.parse(text);
-					if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
-					if (Array.isArray(parsed)) return { tags: parsed };
-				} catch {}
-				const tags = text.split(',').map(s=>s.trim()).filter(Boolean);
-				return tags.length ? { tags } : {};
+			/** Get current allergies from UI */
+			function getAllergies(){
+				const allergies = [];
+				
+				// Get checked standard allergies
+				el.allergyCheckboxes.forEach(checkbox => {
+					if (checkbox.checked) {
+						allergies.push(checkbox.value);
+					}
+				});
+
+				// Get "other" allergies
+				if (el.allergyOtherCheckbox.checked && el.allergyOtherInput.value.trim()) {
+					const otherAllergies = el.allergyOtherInput.value
+						.split(',')
+						.map(s => s.trim())
+						.filter(Boolean);
+					allergies.push(...otherAllergies);
+				}
+
+				return allergies;
 			}
 
 			/** Format a structured address into a short readable string */
@@ -291,23 +314,23 @@
 				});
 			})();
 
-			/** Normalize preferences value for simple comparison (change detection) */
-			function canonicalizePrefs(p){
-				try {
-					if (!p) return '';
-					if (typeof p === 'string') return p.trim().toLowerCase();
-					if (Array.isArray(p)) return p.map(x=>String(x).trim().toLowerCase()).sort().join('|');
-					if (typeof p === 'object'){
-						const parts = [];
-						for (const [k,v] of Object.entries(p)){
-							if (v === true) parts.push(k);
-							else if (Array.isArray(v)) parts.push(`${k}:${v.map(x=>String(x).trim().toLowerCase()).join(',')}`);
-							else if (typeof v === 'string' && v.trim()) parts.push(`${k}:${v.trim().toLowerCase()}`);
-							else if (typeof v === 'number') parts.push(`${k}:${v}`);
-						}
-						return parts.sort().join('|');
+			// ---------- Allergy "Other" checkbox setup ----------
+			if (el.allergyOtherCheckbox && el.allergyOtherInput) {
+				el.allergyOtherCheckbox.addEventListener('change', function() {
+					if (this.checked) {
+						el.allergyOtherInput.classList.remove('hidden');
+					} else {
+						el.allergyOtherInput.classList.add('hidden');
+						el.allergyOtherInput.value = '';
 					}
-					return String(p);
+				});
+			}
+
+			/** Normalize allergies value for simple comparison (change detection) */
+			function canonicalizeAllergies(allergies){
+				try {
+					if (!allergies || !Array.isArray(allergies)) return '';
+					return allergies.map(s => String(s).trim().toLowerCase()).sort().join('|');
 				} catch { return ''; }
 			}
 
@@ -343,7 +366,8 @@
 				if (!data.last_name) missing.push('last name');
 				if (!data.email) missing.push('email');
 				if (!data.address) missing.push('address');
-				if (!data.preferences || (typeof data.preferences === 'object' && Object.keys(data.preferences).length === 0)) missing.push('preferences');
+				// For allergies, we don't consider it "missing" since having no allergies is valid
+				// Remove the preferences check
 				return missing;
 			}
 
@@ -398,8 +422,8 @@
 					if (el.addrCity) el.addrCity.value = addr.city || '';
 				}
 
-				// Preferences + optional fields
-				if (el.preferences) el.preferences.value = formatPreferences(data.preferences);
+				// Allergies + optional fields
+				setAllergies(data.allergies);
 				setOptionalUI({
 					kitchen_available: data.kitchen_available,
 					main_course_possible: data.main_course_possible,
@@ -416,7 +440,7 @@
 					last_name: data.last_name || '',
 					email: data.email || '',
 					address: data.address || '',
-					preferences: data.preferences || {},
+					allergies: data.allergies || [],
 					optional: {
 						kitchen_available: data.kitchen_available,
 						main_course_possible: data.main_course_possible,
@@ -443,16 +467,16 @@
 					last_name: el.lastName?.value?.trim() || '',
 					email: el.email?.value?.trim() || '',
 					address: el.addressEditGroup && !el.addressEditGroup.classList.contains('hidden') ? computeViewAddress() : formatAddressStruct(initial.address),
-					preferences: parsePreferencesInput(el.preferences?.value || ''),
+					allergies: getAllergies(),
 					optional: collectOptionalPayload(),
 				};
 				const sameFirst = (current.first_name || '') === (initial.first_name || '');
 				const sameLast = (current.last_name || '') === (initial.last_name || '');
 				const sameEmail = (current.email || '') === (initial.email || '');
 				const sameAddr = (current.address || '') === formatAddressStruct(initial.address || '');
-				const samePrefs = canonicalizePrefs(current.preferences) === canonicalizePrefs(initial.preferences);
-				const sameOpt = canonicalizePrefs(current.optional) === canonicalizePrefs(initial.optional || {});
-				return !(sameFirst && sameLast && sameEmail && sameAddr && samePrefs && sameOpt);
+				const sameAllergies = canonicalizeAllergies(current.allergies) === canonicalizeAllergies(initial.allergies);
+				const sameOpt = JSON.stringify(current.optional) === JSON.stringify(initial.optional || {});
+				return !(sameFirst && sameLast && sameEmail && sameAddr && sameAllergies && sameOpt);
 			}
 
 			/** Toggle edit mode and prepare inputs accordingly */
@@ -484,7 +508,10 @@
 				disableInput(el.addrPostal, !isEditing);
 				disableInput(el.addrStreet, !isEditing);
 				disableInput(el.addrNumber, !isEditing);
-				disableInput(el.preferences, !isEditing);
+				// Enable/disable allergy checkboxes
+				el.allergyCheckboxes.forEach(checkbox => disableInput(checkbox, !isEditing));
+				disableInput(el.allergyOtherCheckbox, !isEditing);
+				disableInput(el.allergyOtherInput, !isEditing);
 				disableInput(el.kitchenAvailable, !isEditing);
 				disableInput(el.mainCoursePossible, !isEditing);
 				disableInput(el.defaultDietary, !isEditing);
@@ -558,8 +585,8 @@
 					payload.street = street; payload.street_no = num; payload.postal_code = postal; payload.city = city;
 				}
 
-				const prefs = parsePreferencesInput(el.preferences?.value || '');
-				if (prefs && Object.keys(prefs).length) payload.preferences = prefs;
+				const allergies = getAllergies();
+				if (allergies.length > 0) payload.allergies = allergies;
 
 				const optional = collectOptionalPayload();
 				Object.assign(payload, optional);
@@ -612,7 +639,7 @@
 					if (el.email) el.email.value = initial.email || '';
 					if (el.fullNameView) el.fullNameView.value = (((initial.first_name||'') + ' ' + (initial.last_name||''))).trim();
 					if (el.address) el.address.value = formatAddressStruct(initial.address);
-					if (el.preferences) el.preferences.value = formatPreferences(initial.preferences);
+					setAllergies(initial.allergies);
 					setOptionalUI(initial.optional);
 				}
 				if (initial && initial.address && typeof initial.address === 'object'){
@@ -632,7 +659,12 @@
 
 			// Change detection + dynamic rules (main course <-> kitchen)
 			['input','change'].forEach(type => {
-				[el.firstName, el.lastName, el.email, el.preferences, el.kitchenAvailable, el.mainCoursePossible, el.defaultDietary, el.fieldOfStudy, el.addrCity, el.addrPostal, el.addrStreet, el.addrNumber].forEach(inp => {
+				const watchedInputs = [el.firstName, el.lastName, el.email, el.kitchenAvailable, el.mainCoursePossible, el.defaultDietary, el.fieldOfStudy, el.addrCity, el.addrPostal, el.addrStreet, el.addrNumber];
+				// Add allergy checkboxes and other input to watch list
+				el.allergyCheckboxes.forEach(checkbox => watchedInputs.push(checkbox));
+				watchedInputs.push(el.allergyOtherCheckbox, el.allergyOtherInput);
+				
+				watchedInputs.forEach(inp => {
 					inp && inp.addEventListener(type, () => {
 						if (!isEditing) return;
 						if (inp === el.kitchenAvailable) setHidden(el.mainCourseGroup, el.kitchenAvailable.value !== 'yes');

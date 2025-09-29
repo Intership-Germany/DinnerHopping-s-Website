@@ -35,7 +35,7 @@ class UserCreate(BaseModel):
     # Optional extras
     lat: float | None = None
     lon: float | None = None
-    preferences: dict | None = {}
+    allergies: list[str] | None = []
 
 class UserOut(BaseModel):
     """Public/own profile user representation without duplicated full name field.
@@ -50,7 +50,7 @@ class UserOut(BaseModel):
     email: EmailStr
     # Structured address components stored under `address_struct`.
     address: dict | None = None
-    preferences: dict | None = {}
+    allergies: list[str] | None = []
     roles: list[str] | None = []
     # Optional profile fields
     kitchen_available: Optional[bool] = None
@@ -89,7 +89,7 @@ async def register(u: UserCreate):
         },
         'lat': u.lat,
         'lon': u.lon,
-        'preferences': u.preferences or {},
+        'allergies': u.allergies or [],
     }
     # store hashed password under password_hash (new schema)
     user_doc['password_hash'] = hash_password(u.password)
@@ -309,7 +309,7 @@ class ProfileUpdate(BaseModel):
     city: Optional[str] = None
     lat: float | None = None
     lon: float | None = None
-    preferences: dict | None = None
+    allergies: list[str] | None = None
     # Optional profile fields (user-editable)
     kitchen_available: Optional[bool] = None
     main_course_possible: Optional[bool] = None
@@ -330,7 +330,7 @@ async def get_profile(current_user=Depends(get_current_user)):
         email=u.get('email'),
         # Return the structured address components stored in `address_struct`.
         address=u.get('address_struct'),
-        preferences=u.get('preferences', {}),
+        allergies=u.get('allergies', []),
         roles=u.get('roles', []),
         kitchen_available=u.get('kitchen_available'),
         main_course_possible=u.get('main_course_possible'),
@@ -411,8 +411,14 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
         last_name=u.get('last_name'),
         email=u.get('email'),
         address=u.get('address_struct'),
-        preferences=u.get('preferences', {}),
+        allergies=u.get('allergies', []),
         roles=u.get('roles', []),
+        kitchen_available=u.get('kitchen_available'),
+        main_course_possible=u.get('main_course_possible'),
+        default_dietary_preference=u.get('default_dietary_preference'),
+        field_of_study=u.get('field_of_study'),
+        optional_profile_completed=bool(u.get('optional_profile_completed')),
+        profile_prompt_pending=bool(u.get('profile_prompt_pending')),
     )
 
 @router.get('/verify-email')
