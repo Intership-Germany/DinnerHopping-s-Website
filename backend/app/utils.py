@@ -507,8 +507,26 @@ def require_event_registration_open(ev: dict) -> None:
     if not ev:
         raise _HTTPException(status_code=404, detail='Event not found')
     ddl = ev.get('registration_deadline')
-    if ddl and isinstance(ddl, datetime.datetime) and _now_utc() > ddl:
-        raise _HTTPException(status_code=400, detail='Registration deadline passed')
+    if ddl:
+        # Handle both datetime objects and ISO string formats
+        deadline_dt = None
+        if isinstance(ddl, datetime.datetime):
+            # Ensure naive datetime is treated as UTC
+            deadline_dt = ddl if ddl.tzinfo is not None else ddl.replace(tzinfo=datetime.timezone.utc)
+        elif isinstance(ddl, str):
+            try:
+                from . import datetime_utils
+                deadline_dt = datetime_utils.parse_iso(ddl)
+            except (ValueError, ImportError):
+                # If parsing fails, skip deadline check to avoid breaking registrations
+                return
+        
+        if deadline_dt:
+            # Compare as naive UTC for compatibility with existing code
+            now_utc = _now_utc()
+            deadline_naive = deadline_dt.replace(tzinfo=None) if deadline_dt.tzinfo else deadline_dt
+            if now_utc > deadline_naive:
+                raise _HTTPException(status_code=400, detail='Registration deadline passed')
 
 
 def require_event_payment_open(ev: dict) -> None:
@@ -516,8 +534,26 @@ def require_event_payment_open(ev: dict) -> None:
     if not ev:
         raise _HTTPException(status_code=404, detail='Event not found')
     ddl = ev.get('payment_deadline')
-    if ddl and isinstance(ddl, datetime.datetime) and _now_utc() > ddl:
-        raise _HTTPException(status_code=400, detail='Payment deadline passed')
+    if ddl:
+        # Handle both datetime objects and ISO string formats
+        deadline_dt = None
+        if isinstance(ddl, datetime.datetime):
+            # Ensure naive datetime is treated as UTC
+            deadline_dt = ddl if ddl.tzinfo is not None else ddl.replace(tzinfo=datetime.timezone.utc)
+        elif isinstance(ddl, str):
+            try:
+                from . import datetime_utils
+                deadline_dt = datetime_utils.parse_iso(ddl)
+            except (ValueError, ImportError):
+                # If parsing fails, skip deadline check to avoid breaking payments
+                return
+        
+        if deadline_dt:
+            # Compare as naive UTC for compatibility with existing code
+            now_utc = _now_utc()
+            deadline_naive = deadline_dt.replace(tzinfo=None) if deadline_dt.tzinfo else deadline_dt
+            if now_utc > deadline_naive:
+                raise _HTTPException(status_code=400, detail='Payment deadline passed')
 
 
 
