@@ -3,6 +3,7 @@
 (function () {
   document.addEventListener('DOMContentLoaded', () => {
     (async function init() {
+      if (window.auth && typeof window.auth.ensureBanner === 'function') window.auth.ensureBanner();
       // DOM refs
       const el = {
         headerName: document.getElementById('header-name'),
@@ -321,6 +322,11 @@
         hasUnsaved = false;
       }
       function getDhToken() {
+        // Prefer localStorage token (set during login) to support cross-origin bearer mode when cookies are blocked by CORS.
+        try {
+          const ls = localStorage.getItem('dh_access_token');
+          if (ls) return ls;
+        } catch {}
         try {
           if (window.auth && typeof window.auth.getCookie === 'function')
             return window.auth.getCookie('dh_token');

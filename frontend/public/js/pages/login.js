@@ -128,38 +128,8 @@
         const email = document.getElementById('login-email').value;
         const password = document.getElementById('login-password').value;
         try {
-          const res = await fetch(`${BACKEND_BASE}/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: email, password }),
-          });
-          const data = await res.json().catch(() => ({}));
-          window.dh.debug.log('POST /login', res.status, data);
-          if (!res.ok) {
-            const d = data.detail;
-            if (d) {
-              if (Array.isArray(d)) showMessage(d.map((x) => x.msg).join(' '), 'error');
-              else if (typeof d === 'string') {
-                if (res.status === 401 && /not verified/i.test(d)) {
-                  showMessage('Email not verified. Request a new link.', 'error');
-                  els.resendBtn &&
-                    (els.resendBtn.classList.remove('hidden'), (els.resendBtn.disabled = false));
-                } else showMessage(d, 'error');
-              } else showMessage(JSON.stringify(d), 'error');
-            } else showMessage('Login failed', 'error');
-            return;
-          }
-          const token = data.access_token || data.token || data.accessToken;
-          if (!token) {
-            showMessage('Login did not return a token', 'error');
-            return;
-          }
-          try {
-            localStorage.setItem('dh_access_token', token);
-          } catch {} // legacy cookie compatibility
-          const maxAge = `; Max-Age=${7 * 86400}`;
-          const attrs = `Path=/; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}${maxAge}`;
-          document.cookie = `dh_token=${encodeURIComponent(token)}; ${attrs}`;
+          const data = await window.auth.login(email, password);
+          window.dh.debug.log('POST /login', 200, data);
           showMessage('Logged in successfully');
           const urlParams = new URLSearchParams(location.search);
           const nextParam = urlParams.get('next');
@@ -176,8 +146,14 @@
           } else {
             location.href = 'profile.html';
           }
-        } catch {
-          showMessage('Network error', 'error');
+        } catch (err) {
+          const msg = (err && err.message) || 'Network / login error';
+          if (/not verified/i.test(msg)) {
+            showMessage('Email not verified. Request a new link.', 'error');
+            els.resendBtn && (els.resendBtn.classList.remove('hidden'), (els.resendBtn.disabled = false));
+          } else {
+            showMessage(msg, 'error');
+          }
         }
       });
 
