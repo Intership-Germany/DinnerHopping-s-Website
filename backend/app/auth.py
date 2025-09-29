@@ -17,8 +17,8 @@ from . import db as db_mod
 from .datetime_utils import now_iso, to_iso, parse_iso
 
 pwd_context = CryptContext(
-    schemes=["bcrypt_sha256"],
-    default="bcrypt_sha256",
+    schemes=["argon2", "bcrypt_sha256"],
+    default="argon2",
     deprecated="auto",
 )
 
@@ -165,9 +165,19 @@ async def authenticate_user(email: str, password: str):
     # If legacy plaintext password exists, migrate it to a hash now
     updates = {"failed_login_attempts": 0}
     unset = {"lockout_until": ""}
+
     if user.get('password'):
         updates['password_hash'] = hash_password(password)
         unset['password'] = ""
+    else:
+        stored_hash = user.get('password_hash')
+        if stored_hash:
+            try:
+                if pwd_context.needs_update(stored_hash):
+                    updates['password_hash'] = hash_password(password)
+            except ValueError:
+                # If the stored hash is invalid or uses an unsupported backend, refresh it.
+                updates['password_hash'] = hash_password(password)
     await db_mod.db.users.update_one({"email": email}, {"$set": updates, "$unset": unset})
     auth_logger.info('auth.login.success email=%s', email)
     return user

@@ -1,23 +1,25 @@
 name: CI/CD DinnerHopping
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  packages: write
 jobs:
   deploy:
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-files
-      - name: Checkout
-        uses: actions/checkout@v4
+    runs-on: ubuntu-latest
     environment: VPS_HOST
     steps:
-      - name: Download frontend files artifact
-        uses: actions/download-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start SSH agent and add key
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          name: frontend-files
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
       - name: Remote deploy git pull, build images, restart service, healthcheck
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-        run: |
-          PORT=${DEPLOY_PORT:-22}
-      - name: Remote deploy git pull, pull image, restart service, healthcheck
         env:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}

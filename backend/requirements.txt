@@ -5,6 +5,7 @@ pydantic
 pydantic-settings
 email-validator
 passlib[bcrypt]
+argon2-cffi
 python-jose[cryptography]
 python-dotenv
 pymongo

@@ -17,15 +17,12 @@ RUN rm -rf /usr/local/apache2/htdocs/* && cp -r public/* /usr/local/apache2/htdo
 # Copy .htaccess into the web root
 COPY public/.htaccess /usr/local/apache2/htdocs/.htaccess
 
-# Copy custom Apache configuration into conf.d/
-COPY my-httpd.conf /usr/local/apache2/conf/conf.d/my-httpd.conf0
-
-# Add ServerName localhost and include conf.d/*.conf in the main httpd.conf
-RUN echo "" >> /usr/local/apache2/conf/httpd.conf \
-	&& echo "ServerName localhost" >> /usr/local/apache2/conf/httpd.conf \
-	&& sed -ri 's/^#\s*(LoadModule\s+rewrite_module\s+modules\/mod_rewrite\.so)/\1/' /usr/local/apache2/conf/httpd.conf \
-	&& sed -ri 's/^#\s*(LoadModule\s+env_module\s+modules\/mod_env\.so)/\1/' /usr/local/apache2/conf/httpd.conf \
-	&& echo "Include conf/conf.d/*.conf" >> /usr/local/apache2/conf/httpd.conf
+# Copy custom Apache configuration into conf.d/ and ensure it's loaded
+RUN mkdir -p /usr/local/apache2/conf/conf.d \
+		&& if ! grep -q "conf/conf.d" /usr/local/apache2/conf/httpd.conf; then \
+				 printf '\n# Load DinnerHopping virtual hosts\nIncludeOptional conf/conf.d/*.conf\n' >> /usr/local/apache2/conf/httpd.conf; \
+			 fi
+COPY my-httpd.conf /usr/local/apache2/conf/conf.d/00-dinnerhopping.conf
 
 # Expose port 80
 EXPOSE 80
