@@ -390,5 +390,24 @@ $RECYCLE.BIN/
 
 # End of https://www.toptal.com/developers/gitignore/api/macos,windows,node,python
 /backend/app/data/mongo
+
+
+
+# --- Frontend specific ignores (merged from frontend/.gitignore) ---
+# Local frontend env files
+/frontend/.env
+/frontend/.env.local
+/frontend/.env.*.local
+
+# Generated runtime config (produced by generate-config.js)
+/frontend/public/js/config.js
+
+# Legacy archived scratch content (kept out of VCS)
+/frontend/archived_do_not_touch/
+
+# Local httpd override (not for production)
 /frontend/my-httpd.conf
-frontend/public/js/config.js
+
+# Frontend test sandbox
+/frontend/public/tests
+frontend/package-lock.json
