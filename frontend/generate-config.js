@@ -45,29 +45,6 @@ for (const [key, value] of Object.entries(envVars)) {
 }
 // Always ensure FRONTEND_BASE_URL defaults to the visitor's origin when not provided via .env
 js += 'if (typeof window !== "undefined") { window.FRONTEND_BASE_URL = window.FRONTEND_BASE_URL || window.location.origin; }\n';
-if (baseVarNames.length) {
-  js += '(function(){\n';
-  js += '  if (typeof window === "undefined" || !window.location) return;\n';
-  js += '  if (window.location.protocol !== "https:") return;\n';
-  js += '  if (window.ALLOW_INSECURE_BACKENDS) return;\n';
-  js += `  var baseKeys = ${JSON.stringify(baseVarNames)};\n`;
-  js += '  baseKeys.forEach(function(name){\n';
-  js += '    var raw = window[name];\n';
-  js += '    if (typeof raw !== "string") return;\n';
-  js += '    if (!/^http:\/\//i.test(raw)) return;\n';
-  js += '    try {\n';
-  js += '      var parsed = new URL(raw, window.location.origin);\n';
-  js += '      if (!parsed.hostname) return;\n';
-  js += '      if (parsed.hostname !== window.location.hostname) return;\n';
-  js += '      parsed.protocol = "https:";\n';
-  js += '      var normalized = parsed.toString().replace(/\/+$/, "");\n';
-  js += '      window[name] = normalized;\n';
-  js += '    } catch (err) {\n';
-  js += '      console.warn("[config] Unable to normalize base URL for", name, err);\n';
-  js += '    }\n';
-  js += '  });\n';
-  js += '})();\n';
-}
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, js, 'utf8');
 console.log('Generated public/js/config.js from .env with variables:', Object.keys(envVars).filter(k => k.endsWith('_BASE')).map(k => k.replace(/_BASE$/, '_BASE_URL')).join(', '));
