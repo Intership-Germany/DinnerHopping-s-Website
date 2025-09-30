@@ -61,6 +61,13 @@ jobs:
             git fetch origin main:main
           fi
           git checkout main
+          
+          # Check for local modifications
+          if ! git diff-files --quiet || ! git diff-index --quiet --cached HEAD --; then
+            echo "⚠️  Local modifications detected, stashing..."
+            git stash push -m "Auto-stash before deployment $(date +%Y%m%d-%H%M%S)" || true
+          fi
+          
           git fetch --all --prune
           
           # Check if there are updates
@@ -70,9 +77,13 @@ jobs:
           if [ "$LOCAL" = "$REMOTE" ]; then
             echo "ℹ️  Already up to date"
           else
-            git pull --ff-only || { echo "❌ Failed to pull changes"; exit 1; }
-            echo "✅ Repository updated"
+            # Reset to remote state (discards any local commits)
+            git reset --hard origin/main || { echo "❌ Failed to reset to origin/main"; exit 1; }
+            echo "✅ Repository updated to $(git rev-parse --short HEAD)"
           fi
+          
+          # Clean any untracked files
+          git clean -fd
           
           echo "🐳 Detecting Docker Compose command..."
           if command -v docker compose >/dev/null 2>&1; then
