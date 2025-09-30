@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     smtp_max_retries: int = Field(2, alias="SMTP_MAX_RETRIES")
 
     # URLs / CORS
-    backend_base_url: str = Field("http://localhost:8000", alias="BACKEND_BASE_URL")
+    backend_base_url: str = Field("https://localhost:8000", alias="BACKEND_BASE_URL")
     allowed_origins: str = Field("*", alias="ALLOWED_ORIGINS")
     cors_allow_credentials: bool = Field(True, alias="CORS_ALLOW_CREDENTIALS")
 

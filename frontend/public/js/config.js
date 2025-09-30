@@ -1,5 +1,5 @@
-window.BACKEND_BASE_URL = "https://dinnerhoppings.acrevon.fr/api";
-window.DEBUG_BANNER = false;
+window.BACKEND_BASE_URL = "http://10.8.0.2:8000";
+window.DEBUG_BANNER = true;
 if (typeof window !== "undefined") { window.FRONTEND_BASE_URL = window.FRONTEND_BASE_URL || window.location.origin; }
 (function(){
   if (typeof window === "undefined" || !window.location) return;
