@@ -64,7 +64,14 @@ except (ImportError, AttributeError):
     pass
 
 
-app = FastAPI(title=settings.app_name)
+app = FastAPI(title=settings.app_name,
+              debug=settings.debug,
+              version="1.0.0",
+              root_path=os.getenv('BACKEND_ROOT_PATH', '')
+              docs_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/docus',
+              redoc_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/redocu',
+              openapi_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/openapi.json',
+              )
 
 
 ######## Structured Logging & Request ID Middleware ########

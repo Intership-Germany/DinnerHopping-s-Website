@@ -53,6 +53,18 @@ async def paypal_config():
     return {"clientId": client_id, "currency": currency, "env": env}
 
 
+@router.get('/stripe/config')
+async def stripe_config():
+    """Return the publishable key and currency for initializing Stripe.js."""
+    publishable = os.getenv('STRIPE_PUBLISHABLE_KEY')
+    secret = os.getenv('STRIPE_API_KEY')
+    if not publishable or not secret:
+        raise HTTPException(status_code=400, detail='Stripe not configured')
+    currency = (os.getenv('PAYMENT_CURRENCY') or 'EUR').upper()
+    mode = 'test' if publishable.startswith('pk_test_') or (secret or '').startswith('sk_test_') else 'live'
+    return {"publishableKey": publishable, "currency": currency, "mode": mode}
+
+
 @router.post('/paypal/orders')
 async def paypal_create_order(payload: CreatePaymentIn, current_user=Depends(get_current_user)):
     """Create a PayPal Order for Standard Checkout and return the order id.
@@ -318,7 +330,7 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
             pass
         return {"payment_id": str(payment_id), "payment_link": session.get('url'), "status": "pending"}
 
-    # WERO: provide bank transfer instructions (EPC QR)
+    # WERO: publish EPC-compliant bank transfer instructions for manual wires.
     if provider == 'wero':
         amount_cents = canonical_amount_cents
         # Upsert payment doc for WERO (bank transfer)
@@ -339,7 +351,7 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
             return_document=ReturnDocument.AFTER,
         )
         payment_id = doc.get('_id')
-        # Build payment instructions via provider helper
+        # Build the dataset consumed by the frontend to display IBAN/BIC/QR code.
         instructions = wero_provider.build_instructions(payment_id, amount_cents, payload.currency or 'EUR')
         log.info('payment.create.wero.ok payment_id=%s amount_cents=%s', payment_id, amount_cents)
         await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"meta.instructions": instructions}})
