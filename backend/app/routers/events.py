@@ -206,7 +206,6 @@ def _safe_location(loc: Optional[dict]) -> Optional[dict]:
 
     Ensures 'point' is a dict or None; drops invalid types to prevent Pydantic errors.
     Accepts both after_party_location and legacy 'location' shapes.
-    Also maps legacy/new internal key 'zip' to outward 'point'.
     """
     if not isinstance(loc, dict):
         return None
