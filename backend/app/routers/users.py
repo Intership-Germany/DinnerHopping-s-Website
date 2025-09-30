@@ -11,9 +11,9 @@ import os
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal, List
 from contextlib import suppress
-from app.auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
-from app.utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair, send_email
-from app import db as db_mod
+from ..auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
+from ..utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair, send_email
+from .. import db as db_mod
 
 ######### Constants #########
 
@@ -96,9 +96,9 @@ class TokenOut(BaseModel):
 
 @router.post('/register', status_code=status.HTTP_201_CREATED, responses={400: {"description": "Bad Request - e.g. Email already registered or password validation failed"}})
 async def register(u: UserCreate):
-    # normalize email to lowercase
-    u.email = u.email.lower()
-    existing = await db_mod.db.users.find_one({"email": u.email})
+    # normalize email to lowercase (keep EmailStr type intact; use a local string for storage)
+    email_lower = str(u.email).lower()
+    existing = await db_mod.db.users.find_one({"email": email_lower})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     # validate password under policy
@@ -107,7 +107,7 @@ async def register(u: UserCreate):
     validate_password(u.password)
     # Build user document explicitly (do not trust arbitrary fields)
     user_doc = {
-        'email': u.email.lower(),
+        'email': email_lower,
         'first_name': u.first_name.strip(),
         'last_name': u.last_name.strip(),
         'gender': (u.gender or 'prefer_not_to_say').lower(),
@@ -151,7 +151,7 @@ async def register(u: UserCreate):
     # send verification email (prints link in dev)
     email_sent = False
     with suppress(Exception):
-        _token, email_sent = await generate_and_send_verification(u.email)
+        _token, email_sent = await generate_and_send_verification(email_lower)
     # Respond to client that the user was created successfully, include email_sent flag & message if failed
     resp = {"message": "Utilisateur créé avec succès", "id": user_doc['id'], "email_sent": email_sent}
     if not email_sent:
@@ -555,7 +555,7 @@ async def forgot_password(payload: ForgotPasswordIn):
 
     Response is intentionally generic to avoid revealing account existence.
     """
-    email = payload.email.lower()
+    email = str(payload.email).lower()
     user = await db_mod.db.users.find_one({'email': email})
     email_sent = False
     # Always respond success; if user exists, create reset token and send email
@@ -734,3 +734,16 @@ async def update_optional_profile(payload: OptionalProfileUpdate, current_user=D
 
     await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": set_fields})
     return {"status": "updated", "optional_profile_completed": bool(set_fields.get('optional_profile_completed', u.get('optional_profile_completed')))}
+
+@router.get('/csrf')
+async def get_csrf(request: Request, response: Response):
+    """Expose CSRF token for browser clients.
+
+    Reads the CSRF cookie (__Host-csrf_token or csrf_token) and returns it in JSON
+    and as an X-CSRF-Token header so fetch clients can store it for subsequent
+    mutating requests.
+    """
+    token = request.cookies.get('__Host-csrf_token') or request.cookies.get('csrf_token') or ''
+    if token:
+        response.headers['X-CSRF-Token'] = token
+    return { 'csrf_token': token }
