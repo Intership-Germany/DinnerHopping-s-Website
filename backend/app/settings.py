@@ -47,11 +47,16 @@ class Settings(BaseSettings):
 
     # Payments
     stripe_api_key: Optional[str] = Field(None, alias="STRIPE_API_KEY")
+    stripe_publishable_key: Optional[str] = Field(None, alias="STRIPE_PUBLISHABLE_KEY")
     stripe_webhook_secret: Optional[str] = Field(None, alias="STRIPE_WEBHOOK_SECRET")
     paypal_client_id: Optional[str] = Field(None, alias="PAYPAL_CLIENT_ID")
     paypal_client_secret: Optional[str] = Field(None, alias="PAYPAL_CLIENT_SECRET")
     paypal_env: Optional[str] = Field("sandbox", alias="PAYPAL_ENV")
     payment_currency: str = Field("EUR", alias="PAYMENT_CURRENCY")
+    wero_iban: Optional[str] = Field(None, alias="WERO_IBAN")
+    wero_bic: Optional[str] = Field(None, alias="WERO_BIC")
+    wero_beneficiary: Optional[str] = Field(None, alias="WERO_BENEFICIARY")
+    wero_purpose_prefix: Optional[str] = Field(None, alias="WERO_PURPOSE_PREFIX")
 
     # Features & Flags
     enforce_https: bool = Field(True, alias="ENFORCE_HTTPS")
