@@ -12,7 +12,18 @@
   let teamDetails = {};      // { team_id: {size, team_diet, course_preference, can_host_main, lat, lon} }
   let unsaved = false;
 
+  // --- Map state ---
+  let mainMap = null;
+  let mainLayers = [];
+  let teamMap = null;
+  let teamLayers = [];
+  let teamMapCurrentId = null;
+
   async function ensureCsrf(){ try{ await (window.initCsrf && window.initCsrf()); } catch(e){} }
+
+  // Helpers
+  function setBtnLoading(btn, text){ if (!btn) return; btn.dataset._orig = btn.textContent; btn.textContent = text; btn.disabled = true; btn.classList.add('opacity-70'); }
+  function clearBtnLoading(btn){ if (!btn) return; const t = btn.dataset._orig; if (t) btn.textContent = t; btn.disabled = false; btn.classList.remove('opacity-70'); }
 
   // Helpers to format values for inputs
   function toDateInputValue(v){
@@ -108,10 +119,10 @@
     const header = names ? names : tid;
     const meta = [pref, diet, canMain].filter(Boolean).join(' · ');
     const el = document.createElement('div');
-    el.className = 'team-card border rounded-lg p-2 text-xs bg-white cursor-move shadow-sm';
+    el.className = 'team-card border rounded-lg p-2 text-xs bg-white cursor-move shadow-sm flex items-start justify-between gap-2';
     el.draggable = true;
     el.dataset.teamId = tid;
-    el.innerHTML = `<div class="font-semibold text-sm">${header}</div>${meta?`<div class=\"text-[#4a5568]\">${meta}</div>`:''}`;
+    el.innerHTML = `<div class="min-w-0"><div class="font-semibold text-sm truncate">${header}</div>${meta?`<div class=\"text-[#4a5568] truncate\">${meta}</div>`:''}</div><button class="team-map-btn text-[13px]" title="View path" data-team-id="${tid}">🗺️</button>`;
     return el;
   }
 
@@ -125,7 +136,7 @@
     const box = $('#match-details');
     const msg = $('#match-details-msg');
     if (!detailsVersion){ box.innerHTML = ''; msg.textContent = 'No proposal loaded yet.'; return; }
-    msg.textContent = unsaved ? 'You have unsaved changes. Metrics shown may be stale.' : '';
+    msg.textContent = unsaved ? 'You have unsaved changes. Metrics auto-updated from preview (not saved yet).' : '';
     const by = groupsByPhase();
     const phases = ['appetizer','main','dessert'];
     box.innerHTML = '';
@@ -177,19 +188,46 @@
 
     bindDnD();
     bindDetailsControls();
+    bindTeamMapButtons();
+  }
+
+  function bindTeamMapButtons(){
+    $('#match-details').addEventListener('click', async (e)=>{
+      const btn = e.target.closest('.team-map-btn'); if (!btn) return;
+      const tid = btn.getAttribute('data-team-id');
+      await openTeamMap(tid);
+    });
+  }
+
+  async function previewCurrentGroups(){
+    const evId = $('#matching-event-select').value;
+    if (!evId || !detailsGroups || !detailsGroups.length) return;
+    // Call preview (fast travel estimation) to refresh score/travel/warnings
+    try {
+      const res = await apiFetch(`/matching/${evId}/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groups: detailsGroups }) });
+      if (!res.ok) return;
+      const data = await res.json().catch(()=>null);
+      if (!data || !Array.isArray(data.groups)) return;
+      detailsGroups = data.groups;
+      renderMatchDetailsBoard();
+    } catch (e) {}
   }
 
   function bindDnD(){
+    const root = $('#match-details');
     const dragData = { teamId: null, fromPhase: null, fromGroupIdx: null, role: null };
-    $('#match-details').addEventListener('dragstart', (e)=>{
-      const card = e.target.closest('.team-card'); if (!card) return;
-      dragData.teamId = card.dataset.teamId;
-      dragData.fromPhase = card.dataset.phase; dragData.fromGroupIdx = Number(card.dataset.groupIdx);
-      dragData.role = card.dataset.role;
-      e.dataTransfer.effectAllowed = 'move';
-    });
+    if (!root.dataset.dndBound){
+      root.addEventListener('dragstart', (e)=>{
+        const card = e.target.closest('.team-card'); if (!card) return;
+        dragData.teamId = card.dataset.teamId;
+        dragData.fromPhase = card.dataset.phase; dragData.fromGroupIdx = Number(card.dataset.groupIdx);
+        dragData.role = card.dataset.role;
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      root.dataset.dndBound = '1';
+    }
     function allowDrop(ev){ ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; }
-    $$('.host-zone, .guest-zone', $('#match-details')).forEach(zone=>{
+    $$('.host-zone, .guest-zone', root).forEach(zone=>{
       zone.addEventListener('dragover', allowDrop);
       zone.addEventListener('drop', async (ev)=>{
         ev.preventDefault();
@@ -218,6 +256,7 @@
         unsaved = true;
         renderMatchDetailsBoard();
         await validateCurrentGroups();
+        await previewCurrentGroups();
       });
     });
   }
@@ -236,7 +275,8 @@
   function bindDetailsControls(){
     $('#btn-reload-details').addEventListener('click', async ()=>{ await loadMatchDetails(detailsVersion); });
     $('#btn-validate-groups').addEventListener('click', validateCurrentGroups);
-    $('#btn-save-groups').addEventListener('click', async ()=>{
+    $('#btn-save-groups').addEventListener('click', async (e)=>{
+      const btn = e.currentTarget; setBtnLoading(btn, 'Saving...');
       const evId = $('#matching-event-select').value;
       let r = await apiFetch(`/matching/${evId}/set_groups`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: detailsVersion, groups: detailsGroups }) });
       if (r.ok){
@@ -246,7 +286,7 @@
           if (confirm(`Warnings detected:\n${msgs.join('\n')}\nProceed anyway?`)){
             r = await apiFetch(`/matching/${evId}/set_groups`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: detailsVersion, groups: detailsGroups, force: true }) });
           } else {
-            return;
+            clearBtnLoading(btn); return;
           }
         }
         if (r.ok){
@@ -259,12 +299,15 @@
       } else {
         const t = await r.text(); alert(`Failed to save: ${t}`);
       }
+      clearBtnLoading(btn);
     });
   }
 
   async function loadMatchDetails(version){
     const evId = $('#matching-event-select').value;
     const url = version ? `/matching/${evId}/details?version=${version}` : `/matching/${evId}/details`;
+    // show spinner message
+    $('#match-details').innerHTML = '<div class="flex items-center gap-2 text-sm"><span class="spinner"></span> Loading details...</div>';
     const res = await apiFetch(url);
     if (!res.ok){ $('#match-details').innerHTML = ''; $('#match-details-msg').textContent = 'No details available.'; return; }
     const data = await res.json().catch(()=>null);
@@ -305,7 +348,7 @@
       tbody.appendChild(tr);
     });
     $('#events-count').textContent = `${events.length} events`;
-    const selects = [$('#matching-event-select'), $('#issues-event-select'), $('#refunds-event-select')];
+    const selects = [$('#matching-event-select'), $('#issues-event-select'), $('#refunds-event-select'), $('#map-event-select')];
     selects.forEach(sel=>{ if (!sel) return; sel.innerHTML = events.map(e=>`<option value="${e.id}">${e.title} (${e.date||''})</option>`).join(''); });
     tbody.onclick = async (e)=>{
       const btn = e.target.closest('button'); if (!btn) return;
@@ -342,6 +385,7 @@
       const payload = readForm();
       const out = $('#create-event-msg');
       let res;
+      const btn = $('#btn-submit-event'); setBtnLoading(btn, editingId ? 'Updating...' : 'Creating...');
       if (editingId){
         res = await apiFetch(`/events/${editingId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       } else {
@@ -355,6 +399,7 @@
         const t = await res.text().catch(()=> '');
         out.textContent = `Failed to ${editingId ? 'update' : 'create'} event. ${t}`;
       }
+      clearBtnLoading(btn);
     });
     $('#btn-cancel-edit').addEventListener('click', (e)=>{
       e.preventDefault();
@@ -379,7 +424,8 @@
   }
 
   async function startMatching(){
-    $('#btn-start-matching').addEventListener('click', async ()=>{
+    $('#btn-start-matching').addEventListener('click', async (e)=>{
+      const btn = e.currentTarget; setBtnLoading(btn, 'Starting...');
       const evId = $('#matching-event-select').value;
       const weights = readWeights();
       const algorithms = selectedAlgorithms();
@@ -388,14 +434,16 @@
       if (res.ok) msg.textContent = 'Matching started.'; else { const t = await res.text(); msg.textContent = `Failed: ${t}`; }
       await loadProposals();
       await loadMatchDetails();
+      clearBtnLoading(btn);
     });
     $('#btn-refresh-matches').addEventListener('click', async ()=>{ await loadProposals(); await loadMatchDetails(detailsVersion); });
     const delAllBtn = $('#btn-delete-all-matches');
     if (delAllBtn){
-      delAllBtn.addEventListener('click', async ()=>{
-        const evId = $('#matching-event-select').value;
+      delAllBtn.addEventListener('click', async (e)=>{
+        const btn = e.currentTarget; const evId = $('#matching-event-select').value;
         if (!evId) return;
         if (!confirm('Delete ALL match proposals for this event?')) return;
+        setBtnLoading(btn, 'Deleting...');
         const r = await apiFetch(`/matching/${evId}/matches`, { method: 'DELETE' });
         if (r.ok){
           $('#matching-msg').textContent = 'All matches deleted.';
@@ -405,6 +453,7 @@
         } else {
           const t = await r.text(); alert(`Failed to delete: ${t}`);
         }
+        clearBtnLoading(btn);
       });
     }
   }
@@ -437,8 +486,10 @@
       const del = e.target.closest('button[data-delete]');
       const evId = $('#matching-event-select').value;
       if (vbtn){
+        setBtnLoading(vbtn, 'Opening...');
         const v = Number(vbtn.getAttribute('data-view'));
         await loadMatchDetails(v);
+        clearBtnLoading(vbtn);
       } else if (f){
         const v = Number(f.getAttribute('data-finalize'));
         const r = await apiFetch(`/matching/${evId}/finalize?version=${v}`, { method: 'POST' });
@@ -510,6 +561,153 @@
     });
   }
 
+  // ---------------- Travel Map logic ----------------
+  function ensureMainMap(){
+    if (mainMap) return mainMap;
+    const el = $('#travel-map'); if (!el) return null;
+    mainMap = L.map(el).setView([51.0, 9.0], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(mainMap);
+    return mainMap;
+  }
+  function clearLayers(layers){ layers.forEach(l=>{ try{ l.remove(); } catch(e){} }); layers.length = 0; }
+
+  function phaseColor(phase){ return phase==='appetizer' ? '#059669' : (phase==='main' ? '#f97316' : '#f59e0b'); }
+
+  function drawLegend(container){
+    const el = container || $('#map-legend'); if (!el) return;
+    el.innerHTML = '';
+    const items = [
+      { color: '#059669', label: 'Entrée' },
+      { color: '#f97316', label: 'Plat' },
+      { color: '#f59e0b', label: 'Dessert' },
+      { color: '#7c3aed', label: 'After party' },
+    ];
+    items.forEach(it=>{
+      const row = document.createElement('div'); row.className = 'flex items-center gap-2 text-sm';
+      const sw = document.createElement('span'); sw.style.cssText = `display:inline-block;width:12px;height:12px;border-radius:9999px;background:${it.color}`;
+      row.appendChild(sw);
+      const tx = document.createElement('span'); tx.textContent = it.label; row.appendChild(tx);
+      el.appendChild(row);
+    });
+  }
+
+  function drawPathsOn(map, dataPoints, dataGeom, layers){
+    const tp = (dataPoints && dataPoints.team_paths) || {};
+    const bounds = dataPoints && dataPoints.bounds;
+    const afterParty = dataPoints && dataPoints.after_party;
+    const colors = ['#e11d48','#1d4ed8','#059669','#f59e0b','#7c3aed','#f43f5e','#0ea5e9','#10b981','#f97316'];
+    let colorIdx = 0;
+    for (const [tid, rec] of Object.entries(tp)){
+      const pts = (rec.points||[]).filter(p=> typeof p.lat==='number' && typeof p.lon==='number');
+      if (pts.length < 1) continue;
+      const col = colors[colorIdx++ % colors.length];
+      // draw route: use geometry segments if provided
+      const geomRec = dataGeom && dataGeom.team_geometries && dataGeom.team_geometries[tid];
+      if (geomRec && Array.isArray(geomRec.segments) && geomRec.segments.length){
+        for (const seg of geomRec.segments){
+          const poly = L.polyline(seg, { color: col, weight: 3, opacity: 0.85 }).addTo(map);
+          layers.push(poly);
+        }
+      } else {
+        // fallback straight polyline connecting host points in order
+        const latlngs = pts.map(p=> [p.lat, p.lon]);
+        if (latlngs.length >= 2){
+          const poly = L.polyline(latlngs, { color: col, weight: 3, opacity: 0.8, dashArray: '6 6' }).addTo(map);
+          layers.push(poly);
+        }
+      }
+      // per-phase markers
+      pts.forEach(p=>{
+        const pc = phaseColor(p.phase);
+        const m = L.circleMarker([p.lat, p.lon], { radius: 5, color: pc, fillColor: pc, fillOpacity: 0.95, weight: 1 }).addTo(map);
+        m.bindTooltip(`${p.phase}`, { permanent: false, direction: 'top', offset: [0,-4] });
+        layers.push(m);
+      });
+    }
+    if (afterParty && typeof afterParty.lat==='number' && typeof afterParty.lon==='number'){
+      const ap = L.circleMarker([afterParty.lat, afterParty.lon], { radius: 6, color: '#7c3aed', fillColor: '#7c3aed', fillOpacity: 1, weight: 2 }).addTo(map);
+      ap.bindTooltip('After party', { permanent: false, direction: 'top', offset: [0,-4] });
+      layers.push(ap);
+    }
+    if (bounds && isFinite(bounds.min_lat) && isFinite(bounds.min_lon) && isFinite(bounds.max_lat) && isFinite(bounds.max_lon)){
+      try{ map.fitBounds([[bounds.min_lat, bounds.min_lon], [bounds.max_lat, bounds.max_lon]], { padding: [20,20] }); } catch(e){}
+    }
+    drawLegend();
+  }
+
+  async function loadTravelMapAll(){
+    const map = ensureMainMap(); if (!map) return;
+    const evId = $('#map-event-select').value || $('#matching-event-select').value;
+    const real = $('#map-real-route').checked;
+    const msg = $('#map-msg'); msg.textContent = 'Loading...';
+    clearLayers(mainLayers);
+    const baseUrl = `/matching/${evId}/paths?version=${detailsVersion||''}`;
+    const [pointsRes, geomRes] = await Promise.all([
+      apiFetch(baseUrl + `&fast=1`),
+      real ? apiFetch(`/matching/${evId}/paths/geometry?version=${detailsVersion||''}`) : Promise.resolve({ ok: false })
+    ]);
+    const dataPoints = await pointsRes.json().catch(()=>({ team_paths:{}, bounds:null }));
+    const dataGeom = real && geomRes.ok ? await geomRes.json().catch(()=>null) : null;
+    drawPathsOn(map, dataPoints, dataGeom, mainLayers);
+    msg.textContent = Object.keys(dataPoints.team_paths||{}).length ? 'Done.' : 'No data.';
+  }
+
+  async function loadTravelMapFiltered(){
+    const map = ensureMainMap(); if (!map) return;
+    const evId = $('#map-event-select').value || $('#matching-event-select').value;
+    const real = $('#map-real-route').checked;
+    const ids = ($('#map-team-ids').value||'').split(',').map(s=>s.trim()).filter(Boolean).join(',');
+    const msg = $('#map-msg'); msg.textContent = 'Loading...';
+    clearLayers(mainLayers);
+    const base = `/matching/${evId}/paths?version=${detailsVersion||''}${ids?`&ids=${encodeURIComponent(ids)}`:''}`;
+    const [pointsRes, geomRes] = await Promise.all([
+      apiFetch(base + `&fast=1`),
+      real ? apiFetch(`/matching/${evId}/paths/geometry?version=${detailsVersion||''}${ids?`&ids=${encodeURIComponent(ids)}`:''}`) : Promise.resolve({ ok: false })
+    ]);
+    const dataPoints = await pointsRes.json().catch(()=>({ team_paths:{}, bounds:null }));
+    const dataGeom = real && geomRes.ok ? await geomRes.json().catch(()=>null) : null;
+    drawPathsOn(map, dataPoints, dataGeom, mainLayers);
+    msg.textContent = Object.keys(dataPoints.team_paths||{}).length ? 'Done.' : 'No data.';
+  }
+
+  async function openTeamMap(teamId){
+    teamMapCurrentId = teamId;
+    const modal = $('#team-map-modal'); modal.classList.remove('hidden'); modal.classList.add('flex');
+    // init map first time
+    if (!teamMap){
+      const el = $('#team-map');
+      teamMap = L.map(el).setView([51.0,9.0], 7);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(teamMap);
+    }
+    await refreshTeamMap();
+  }
+
+  async function refreshTeamMap(){
+    const evId = $('#matching-event-select').value;
+    const real = $('#team-map-real').checked;
+    const msg = $('#team-map-msg'); msg.textContent = 'Loading...';
+    clearLayers(teamLayers);
+    const ids = encodeURIComponent(teamMapCurrentId);
+    const [pointsRes, geomRes] = await Promise.all([
+      apiFetch(`/matching/${evId}/paths?version=${detailsVersion||''}&fast=1&ids=${ids}`),
+      real ? apiFetch(`/matching/${evId}/paths/geometry?version=${detailsVersion||''}&ids=${ids}`) : Promise.resolve({ ok: false })
+    ]);
+    const dataPoints = await pointsRes.json().catch(()=>({ team_paths:{}, bounds:null }));
+    const dataGeom = real && geomRes.ok ? await geomRes.json().catch(()=>null) : null;
+    drawPathsOn(teamMap, dataPoints, dataGeom, teamLayers);
+    msg.textContent = (dataPoints.team_paths && dataPoints.team_paths[teamMapCurrentId]) ? 'Done.' : 'No data.';
+  }
+
+  function bindMaps(){
+    $('#btn-map-all').addEventListener('click', loadTravelMapAll);
+    $('#btn-map-load').addEventListener('click', async ()=>{
+      const ids = ($('#map-team-ids').value||'').trim();
+      if (ids) await loadTravelMapFiltered(); else await loadTravelMapAll();
+    });
+    $('#team-map-close').addEventListener('click', ()=>{ $('#team-map-modal').classList.add('hidden'); $('#team-map-modal').classList.remove('flex'); });
+    $('#team-map-refresh').addEventListener('click', refreshTeamMap);
+  }
+
   async function bindRefunds(){
     $('#btn-load-refunds').addEventListener('click', async ()=>{
       const evId = $('#refunds-event-select').value;
@@ -533,8 +731,10 @@
     await startMatching();
     await bindIssues();
     await bindRefunds();
+    bindMaps();
     await loadProposals();
     await loadMatchDetails();
+    drawLegend();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
