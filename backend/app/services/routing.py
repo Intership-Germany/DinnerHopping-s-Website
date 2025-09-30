@@ -17,6 +17,7 @@ OSRM_BASE = os.getenv('OSRM_BASE', os.getenv('OSRM_URL', 'https://osrm.bunsenclo
 ORS_BASE = os.getenv('ORS_BASE', os.getenv('ORS_URL', 'https://germany.ors.bunsencloud.de/ors')).rstrip('/')
 ORS_API_KEY = os.getenv('ORS_API_KEY')
 PREFER = os.getenv('ROUTING_PREFER', 'osrm').lower()
+OSRM_PROFILE = os.getenv('OSRM_PROFILE', 'bike')  # user requested 'bike' path; default to bike
 
 
 async def _osrm_route(coords: List[Tuple[float, float]]) -> Optional[float]:
@@ -26,7 +27,7 @@ async def _osrm_route(coords: List[Tuple[float, float]]) -> Optional[float]:
     if not coords or len(coords) < 2:
         return 0.0
     pairs = [f"{lon:.6f},{lat:.6f}" for (lat, lon) in coords]
-    url = f"{OSRM_BASE}/route/v1/cycling/" + ";".join(pairs)
+    url = f"{OSRM_BASE}/route/v1/{OSRM_PROFILE}/" + ";".join(pairs)
     params = {'overview': 'false', 'alternatives': 'false', 'steps': 'false'}
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.get(url, params=params)
@@ -76,3 +77,42 @@ async def route_duration_seconds(coords: List[Tuple[float, float]]) -> Optional[
         if d is not None:
             return d
         return await _ors_route(coords)
+
+
+async def route_polyline(coords: List[Tuple[float, float]], *, alternatives: bool = True) -> Optional[List[List[float]]]:
+    """Fetch a real OSRM route geometry for given coordinates.
+
+    Returns list of [lat, lon] points for the primary route geometry, or None if unavailable.
+    Uses geometries=geojson and steps=true to approximate the user's desired 'real route'.
+    """
+    if httpx is None:
+        return None
+    if not coords or len(coords) < 2:
+        return None
+    pairs = [f"{lon:.6f},{lat:.6f}" for (lat, lon) in coords]
+    # user-provided example used '/route/v1/bike/...&overview=false&alternatives=true&steps=true'
+    url = f"{OSRM_BASE}/route/v1/{OSRM_PROFILE}/" + ";".join(pairs)
+    params = {
+        'overview': 'full',
+        'geometries': 'geojson',
+        'alternatives': 'true' if alternatives else 'false',
+        'steps': 'true',
+    }
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            r = await client.get(url, params=params)
+            if r.status_code != 200:
+                return None
+            data = r.json() or {}
+            routes = data.get('routes') or []
+            if not routes:
+                return None
+            geom = routes[0].get('geometry') or {}
+            coords_ll = geom.get('coordinates') or []  # [[lon,lat], ...]
+            if not isinstance(coords_ll, list) or not coords_ll:
+                return None
+            # convert to [lat, lon]
+            return [[float(lat), float(lon)] for lon, lat in coords_ll]
+    except Exception:
+        return None
+

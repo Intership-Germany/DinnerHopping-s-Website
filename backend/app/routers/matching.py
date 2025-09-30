@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends
 from .. import db as db_mod
 from bson.objectid import ObjectId
-from ..auth import get_current_user, require_admin
+from ..auth import require_admin
 from ..utils import require_event_published
-from typing import Optional, List, Dict, Any, Tuple
-from app.services.matching import run_algorithms, persist_match_proposal, mark_finalized, list_issues, refunds_overview, finalize_and_generate_plans, _build_teams, _score_group_phase, _travel_time_for_phase, _compute_metrics, _team_emails_map  # reuse internal helpers
+from typing import Optional, List, Dict, Any, Tuple, Set
+from ..services.matching import run_algorithms, persist_match_proposal, mark_finalized, list_issues, refunds_overview, finalize_and_generate_plans, _build_teams, _score_group_phase, _travel_time_for_phase, _compute_metrics, _team_emails_map
+from ..services.matching import compute_team_paths  # new for travel map
+from ..services.routing import route_polyline  # use OSRM real route geometry
 import datetime
 
 ######### Router / Endpoints #########
@@ -331,3 +333,195 @@ async def delete_matches(event_id: str, version: Optional[int] = None, _=Depends
     # Optionally reset event matching_status if all deleted
     await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'matching_status': 'not_started', 'updated_at': datetime.datetime.utcnow()}})
     return {'deleted_count': getattr(res, 'deleted_count', 0), 'scope': 'all'}
+
+
+@router.get('/{event_id}/paths')
+async def get_paths(event_id: str, version: Optional[int] = None, ids: Optional[str] = None, fast: Optional[int] = 1, _=Depends(require_admin)):
+    await require_event_published(event_id)
+    idset: Optional[Set[str]] = None
+    if ids:
+        idset = set([s.strip() for s in ids.split(',') if s.strip()])
+    fast_mode = (fast is None) or (int(fast) != 0)
+    data = await compute_team_paths(event_id, version, idset, fast=fast_mode)
+    return data
+
+
+@router.get('/{event_id}/paths/geometry')
+async def get_paths_geometry(event_id: str, version: Optional[int] = None, ids: Optional[str] = None, engine: Optional[str] = None, _=Depends(require_admin)):
+    """Return OSRM geometry polylines for legs between phases for the requested teams when possible.
+
+    Falls back to straight lines if the routing engine is not available or fails.
+    """
+    await require_event_published(event_id)
+    idset: Optional[Set[str]] = None
+    if ids:
+        idset = set([s.strip() for s in ids.split(',') if s.strip()])
+    # compute points first (fast mode doesn't affect geometry extraction)
+    data = await compute_team_paths(event_id, version, idset, fast=True)
+    team_geoms: Dict[str, Dict[str, Any]] = {}
+    for tid, rec in (data.get('team_paths') or {}).items():
+        pts = rec.get('points') or []
+        segments = []
+        for i in range(len(pts)-1):
+            a = pts[i]; b = pts[i+1]
+            if a.get('lat') is None or a.get('lon') is None or b.get('lat') is None or b.get('lon') is None:
+                continue
+            coords = [(float(a['lat']), float(a['lon'])), (float(b['lat']), float(b['lon']))]
+            geom = await route_polyline(coords)
+            if geom:
+                segments.append(geom)
+            else:
+                # fallback straight line
+                segments.append([[a['lat'], a['lon']], [b['lat'], b['lon']]])
+        team_geoms[tid] = {'segments': segments}
+    return {'team_geometries': team_geoms, 'bounds': data.get('bounds')}
+
+
+# ---------- Constraints management (admin) ----------
+from pydantic import BaseModel, EmailStr
+
+class PairIn(BaseModel):
+    a_email: EmailStr
+    b_email: EmailStr
+
+class SplitIn(BaseModel):
+    team_id: str
+
+
+def _norm_email(e: str) -> str:
+    return (e or '').strip().lower()
+
+
+@router.post('/{event_id}/constraints/pair')
+async def add_forced_pair(event_id: str, payload: 'PairIn', _=Depends(require_admin)):
+    await require_event_published(event_id)
+    a = _norm_email(str(payload.a_email)); b = _norm_email(str(payload.b_email))
+    if a == b:
+        raise HTTPException(status_code=400, detail='emails must differ')
+    # store ordered pair (sorted) to dedupe easily
+    x, y = sorted([a, b])
+    doc = await db_mod.db.matching_constraints.find_one({'event_id': event_id})
+    if not doc:
+        doc = {'event_id': event_id, 'forced_pairs': [], 'split_team_ids': []}
+        await db_mod.db.matching_constraints.insert_one(doc)
+    # ensure not already present
+    pairs = [p for p in (doc.get('forced_pairs') or []) if isinstance(p, dict)]
+    if not any({p.get('a_email'), p.get('b_email')} == {x, y} for p in pairs):
+        pairs.append({'a_email': x, 'b_email': y})
+        await db_mod.db.matching_constraints.update_one({'event_id': event_id}, {'$set': {'forced_pairs': pairs}})
+    return {'forced_pairs': pairs, 'split_team_ids': doc.get('split_team_ids') or []}
+
+
+@router.delete('/{event_id}/constraints/pair')
+async def remove_forced_pair(event_id: str, payload: 'PairIn', _=Depends(require_admin)):
+    await require_event_published(event_id)
+    a = _norm_email(str(payload.a_email)); b = _norm_email(str(payload.b_email))
+    x, y = sorted([a, b])
+    doc = await db_mod.db.matching_constraints.find_one({'event_id': event_id})
+    if not doc:
+        return {'forced_pairs': [], 'split_team_ids': []}
+    pairs = [p for p in (doc.get('forced_pairs') or []) if isinstance(p, dict)]
+    new_pairs = [p for p in pairs if {p.get('a_email'), p.get('b_email')} != {x, y}]
+    if len(new_pairs) != len(pairs):
+        await db_mod.db.matching_constraints.update_one({'event_id': event_id}, {'$set': {'forced_pairs': new_pairs}})
+    return {'forced_pairs': new_pairs, 'split_team_ids': doc.get('split_team_ids') or []}
+
+
+@router.post('/{event_id}/constraints/split')
+async def add_split(event_id: str, payload: SplitIn, _=Depends(require_admin)):
+    await require_event_published(event_id)
+    tid = str(payload.team_id)
+    doc = await db_mod.db.matching_constraints.find_one({'event_id': event_id})
+    if not doc:
+        doc = {'event_id': event_id, 'forced_pairs': [], 'split_team_ids': []}
+        await db_mod.db.matching_constraints.insert_one(doc)
+    ids = [str(x) for x in (doc.get('split_team_ids') or [])]
+    if tid not in ids:
+        ids.append(tid)
+        await db_mod.db.matching_constraints.update_one({'event_id': event_id}, {'$set': {'split_team_ids': ids}})
+    return {'forced_pairs': doc.get('forced_pairs') or [], 'split_team_ids': ids}
+
+
+@router.delete('/{event_id}/constraints/split')
+async def remove_split(event_id: str, payload: SplitIn, _=Depends(require_admin)):
+    await require_event_published(event_id)
+    tid = str(payload.team_id)
+    doc = await db_mod.db.matching_constraints.find_one({'event_id': event_id})
+    if not doc:
+        return {'forced_pairs': [], 'split_team_ids': []}
+    ids = [str(x) for x in (doc.get('split_team_ids') or [])]
+    new_ids = [x for x in ids if x != tid]
+    if len(new_ids) != len(ids):
+        await db_mod.db.matching_constraints.update_one({'event_id': event_id}, {'$set': {'split_team_ids': new_ids}})
+    return {'forced_pairs': doc.get('forced_pairs') or [], 'split_team_ids': new_ids}
+
+
+@router.get('/{event_id}/units')
+async def list_units(event_id: str, _=Depends(require_admin)):
+    await require_event_published(event_id)
+    ev = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
+    if not ev:
+        raise HTTPException(status_code=404, detail='Event not found')
+    teams = await _build_teams(ev['_id'])
+    # map team_id -> emails
+    email_map = await _team_emails_map(event_id)
+    solos: List[dict] = []
+    duos: List[dict] = []
+    # build user names by email
+    all_emails: Set[str] = set()
+    for ems in email_map.values():
+        for em in ems:
+            all_emails.add(em)
+    users_by_email: Dict[str, dict] = {}
+    if all_emails:
+        async for u in db_mod.db.users.find({'email': {'$in': list(all_emails)}}):
+            users_by_email[u.get('email')] = u
+    def _name_for(em: str) -> str:
+        u = users_by_email.get(em) or {}
+        fn = (u.get('first_name') or u.get('firstname') or '').strip()
+        ln = (u.get('last_name') or u.get('lastname') or '').strip()
+        return (f"{fn} {ln}" if (fn or ln) else em).strip()
+    for t in teams:
+        tid = str(t['team_id'])
+        ems = email_map.get(tid, [])
+        if int(t.get('size') or 1) >= 2:
+            duos.append({'team_id': tid, 'emails': ems, 'names': [_name_for(e) for e in ems]})
+        else:
+            # solo units are represented with their pseudo team_id already
+            solos.append({'unit_id': tid, 'email': ems[0] if ems else None, 'name': _name_for(ems[0]) if ems else None})
+    return {'solos': solos, 'duos': duos}
+
+
+@router.post('/{event_id}/preview')
+async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin)):
+    """Compute metrics and annotate provided groups without persisting.
+
+    Payload: { groups: [ { phase, host_team_id, guest_team_ids }... ] }
+    Returns: { groups: [ with score, travel_seconds, warnings ], metrics: {..} }
+    """
+    await require_event_published(event_id)
+    groups_in = payload.get('groups') or []
+    # Load event and build team map (lat/lon, capabilities)
+    ev = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
+    if not ev:
+        raise HTTPException(status_code=404, detail='Event not found')
+    teams = await _build_teams(ev['_id'])
+    tmap: Dict[str, dict] = { str(t['team_id']): t for t in teams }
+    new_groups: List[dict] = []
+    for g in groups_in:
+        phase = g.get('phase')
+        host_id = str(g.get('host_team_id')) if g.get('host_team_id') is not None else None
+        guest_ids = [str(x) for x in (g.get('guest_team_ids') or [])]
+        host = tmap.get(host_id, {}) if host_id else {}
+        guests = [tmap.get(tid, {}) for tid in guest_ids]
+        base_score, warns = _score_group_phase(host, guests, phase, {})
+        travel = await _travel_time_for_phase(host, guests)
+        new_groups.append({
+            **g,
+            'score': base_score - 1.0 * (travel or 0.0),  # W_DIST defaults to 1 in recompute
+            'travel_seconds': travel,
+            'warnings': warns,
+        })
+    metrics = _compute_metrics(new_groups, {})
+    return { 'groups': new_groups, 'metrics': metrics }
+

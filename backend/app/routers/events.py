@@ -731,6 +731,23 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
 
     return {"status": "registered", "registration_ids": created_regs, "invitations_sent": sent_invitations, "payment_link": payment_link}
 
+@router.post('/{event_id}/recount_attendees')
+async def recount_attendees(event_id: str, _=Depends(require_admin)):
+    """Recompute attendee_count from registrations that are not cancelled/refunded/expired and update the event."""
+    try:
+        oid = ObjectId(event_id)
+    except (InvalidId, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail='invalid event_id') from exc
+    e = await db_mod.db.events.find_one({'_id': oid})
+    if not e:
+        raise HTTPException(status_code=404, detail='Event not found')
+    active_status = {'pending','invited','confirmed','paid'}
+    count = 0
+    async for r in db_mod.db.registrations.find({'event_id': oid, 'status': {'$in': list(active_status)}}):
+        count += 1
+    await db_mod.db.events.update_one({'_id': oid}, {'$set': {'attendee_count': count, 'updated_at': datetime.datetime.utcnow()}})
+    return {'attendee_count': count}
+
 async def get_my_plan(current_user):
     # Fetch plan document and return a clean JSON-serializable representation
     plan = await db_mod.db.plans.find_one({"user_email": current_user['email']})
