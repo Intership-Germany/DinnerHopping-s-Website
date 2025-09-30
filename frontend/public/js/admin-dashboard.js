@@ -1,4 +1,6 @@
 (function(){
+  // Provide apiFetch alias for new client namespace
+  const apiFetch = (window.dh && window.dh.apiFetch) || window.apiFetch;
   const $ = (sel, root)=> (root||document).querySelector(sel);
   const $$ = (sel, root)=> Array.from((root||document).querySelectorAll(sel));
   const fmtDate = (s)=> s ? new Date(s).toLocaleString() : '';
@@ -19,7 +21,15 @@
   let teamLayers = [];
   let teamMapCurrentId = null;
 
-  async function ensureCsrf(){ try{ await (window.initCsrf && window.initCsrf()); } catch(e){} }
+  async function ensureCsrf(){
+    try{
+      if (window.dh && typeof window.dh.initCsrf === 'function') {
+        await window.dh.initCsrf();
+      } else if (typeof window.initCsrf === 'function') {
+        await window.initCsrf();
+      }
+    } catch(e){}
+  }
 
   // Helpers
   function setBtnLoading(btn, text){ if (!btn) return; btn.dataset._orig = btn.textContent; btn.textContent = text; btn.disabled = true; btn.classList.add('opacity-70'); }
@@ -51,7 +61,8 @@
 
   function setForm(ev){
     const f = $('#create-event-form');
-    f.title.value = ev.title || '';
+    const titleInput = f.querySelector('input[name="title"]');
+    if (titleInput) titleInput.value = ev.title || '';
     f.city.value = ev.city || '';
     f.date.value = toDateInputValue(ev.date);
     f.start_at.value = toDateTimeLocalInputValue(ev.start_at);

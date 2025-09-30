@@ -206,6 +206,7 @@ def _safe_location(loc: Optional[dict]) -> Optional[dict]:
 
     Ensures 'point' is a dict or None; drops invalid types to prevent Pydantic errors.
     Accepts both after_party_location and legacy 'location' shapes.
+    Also maps legacy/new internal key 'zip' to outward 'point'.
     """
     if not isinstance(loc, dict):
         return None
@@ -214,6 +215,8 @@ def _safe_location(loc: Optional[dict]) -> Optional[dict]:
     if ap is not None:
         out['address_public'] = ap if isinstance(ap, str) else str(ap)
     pt = loc.get('point')
+    if not isinstance(pt, dict):
+        pt = loc.get('zip') if isinstance(loc.get('zip'), dict) else None
     out['point'] = pt if isinstance(pt, dict) else None
     return out
 
@@ -280,11 +283,10 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
         registration_deadline_val = _fmt_date(e.get('registration_deadline'))
         payment_deadline_val = _fmt_date(e.get('payment_deadline'))
 
-        raw_loc = e.get('after_party_location')
-        if raw_loc is None:
-            raw_loc = e.get('location')
-        after_party_loc = _normalize_location_for_output(raw_loc)
-        
+        # Normalize after_party_location using the safe helper when building the response
+        # (previous call to `_normalize_location_for_output` was undefined and unused)
+        # raw_loc = e.get('after_party_location') or e.get('location')
+
         events_resp.append(EventOut(
             id=str(e.get('_id')),
             title=e.get('title') or e.get('name') or 'Untitled',
@@ -438,10 +440,12 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
         if pub:
             serialized['after_party_location'] = {'address_public': pub}
         else:
-            # derive anonymised from point coordinates if present
-            pt = loc.get('point') if isinstance(loc.get('point'), dict) else None
-            if pt and isinstance(pt.get('coordinates'), list) and len(pt['coordinates']) == 2:
-                lon, lat = pt['coordinates']
+            # derive anonymised from point/zip coordinates if present
+            pt_raw = loc.get('point') if isinstance(loc.get('point'), dict) else None
+            if not pt_raw:
+                pt_raw = loc.get('zip') if isinstance(loc.get('zip'), dict) else None
+            if pt_raw and isinstance(pt_raw.get('coordinates'), list) and len(pt_raw['coordinates']) == 2:
+                lon, lat = pt_raw['coordinates']
                 if lat is not None and lon is not None:
                     serialized['after_party_location'] = anonymize_address(lat, lon)
     else:
