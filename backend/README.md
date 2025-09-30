@@ -122,9 +122,7 @@ Notes:
 
 Stripe Checkout relies on server-created sessions and a lightweight frontend redirect. Setup checklist:
 
-1. **Environment variables** — set `STRIPE_API_KEY` and `STRIPE_PUBLISHABLE_KEY`. For the provided test credentials use:
-	- `STRIPE_PUBLISHABLE_KEY=pk_test_51SD1HuEyvxb8NOzLLypHmQkyWaXnUte1WHpxvrLT9cgDYxcw0TTDfgJdChjpEqqG6D8sUXGqVwAFIiXBjjYeMBfu00cZKPpwwi`
-	- `STRIPE_API_KEY=sk_test_51SD1HuEyvxb8NOzLiymdcvlORoH1FqMN9h3Levt1xRW55tnEUxypMehB8Nwqw34yy2Mz8QxK6h4NM7H7BzKBeefn00iZc181JP`
+1. **Environment variables** — set `STRIPE_API_KEY` and `STRIPE_PUBLISHABLE_KEY`.
 	These can live in `backend/app/.env` during development; switch to live keys before production cutover. Optionally set `STRIPE_WEBHOOK_SECRET` to verify webhooks.
 2. **Frontend initialization** — call `GET /payments/stripe/config` to retrieve `{ publishableKey, currency, mode }`. Initialize Stripe.js with the publishable key and use the returned Checkout Session URL to redirect users.
 3. **Create payments** — send `POST /payments/create` with `provider="stripe"`. The backend stores the payment document, creates a Checkout Session, and responds with a redirect URL. The existing frontend modal already redirects when it receives `payment_link`.
