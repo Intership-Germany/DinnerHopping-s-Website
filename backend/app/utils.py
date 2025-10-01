@@ -575,7 +575,7 @@ async def require_registration_owner_or_admin(user: dict, registration_id) -> di
 
 def _now_utc() -> datetime.datetime:
     # Keep using naive UTC datetime to match existing storage pattern
-    return datetime.datetime.utcnow()
+    return datetime.datetime.now(datetime.timezone.utc)
 
 
 def require_event_registration_open(ev: dict) -> None:
@@ -598,10 +598,13 @@ def require_event_registration_open(ev: dict) -> None:
                 return
         
         if deadline_dt:
-            # Compare as naive UTC for compatibility with existing code
+            # Ensure both are timezone-aware UTC for a safe comparison
             now_utc = _now_utc()
-            deadline_naive = deadline_dt.replace(tzinfo=None) if deadline_dt.tzinfo else deadline_dt
-            if now_utc > deadline_naive:
+            if isinstance(now_utc, datetime.datetime) and now_utc.tzinfo is None:
+                now_utc = now_utc.replace(tzinfo=datetime.timezone.utc)
+            if isinstance(deadline_dt, datetime.datetime) and deadline_dt.tzinfo is None:
+                deadline_dt = deadline_dt.replace(tzinfo=datetime.timezone.utc)
+            if now_utc > deadline_dt:
                 raise _HTTPException(status_code=400, detail='Registration deadline passed')
 
 
@@ -625,10 +628,13 @@ def require_event_payment_open(ev: dict) -> None:
                 return
         
         if deadline_dt:
-            # Compare as naive UTC for compatibility with existing code
+            # Ensure both are timezone-aware UTC for a safe comparison
             now_utc = _now_utc()
-            deadline_naive = deadline_dt.replace(tzinfo=None) if deadline_dt.tzinfo else deadline_dt
-            if now_utc > deadline_naive:
+            if isinstance(now_utc, datetime.datetime) and now_utc.tzinfo is None:
+                now_utc = now_utc.replace(tzinfo=datetime.timezone.utc)
+            if isinstance(deadline_dt, datetime.datetime) and deadline_dt.tzinfo is None:
+                deadline_dt = deadline_dt.replace(tzinfo=datetime.timezone.utc)
+            if now_utc > deadline_dt:
                 raise _HTTPException(status_code=400, detail='Payment deadline passed')
 
 
@@ -722,7 +728,7 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
     reg = await db_mod.db.registrations.find_one({'_id': oid})
     if not reg:
         return False
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
 
     # If supplied, load payment doc to check idempotency flag
     pay_doc = None

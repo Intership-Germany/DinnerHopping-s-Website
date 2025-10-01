@@ -57,3 +57,30 @@ class CoursePreference(str, Enum):
         except ValueError as exc:  # noqa: BLE001
             allowed = ', '.join(member.value for member in cls)
             raise ValueError(f"course_preference must be one of: {allowed}") from exc
+
+
+def normalized_value(enum_cls, value, default=None):
+    """Return the normalized string value for an enum, falling back to default when invalid."""
+    if value is None or value == '':
+        return default
+    # Prefer custom normalize implementation when available
+    normalizer = getattr(enum_cls, 'normalize', None)
+    if callable(normalizer):
+        try:
+            normalized = normalizer(value)
+        except ValueError:
+            return default
+        if normalized is None:
+            return default
+        if isinstance(normalized, enum_cls):
+            return normalized.value
+        return normalized
+    if isinstance(value, enum_cls):
+        return value.value
+    candidate = str(value).strip().lower()
+    if not candidate:
+        return default
+    try:
+        return enum_cls(candidate).value
+    except ValueError:
+        return default

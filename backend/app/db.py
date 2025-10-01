@@ -1,6 +1,7 @@
 """MongoDB connection management and index creation."""
 import os
 import logging
+from pymongo import ReturnDocument
 from pymongo.errors import PyMongoError
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson.objectid import ObjectId
@@ -31,9 +32,68 @@ if os.getenv('USE_FAKE_DB_FOR_TESTS'):
         def _match(self, doc, filt):
             if not filt:
                 return True
+            # Support simple comparison operators and $expr for tests
+            def _eval_expr(expr):
+                # Evaluate a minimal set of expression operators used in the codebase
+                # Supports: $lte, $gte, $add, $ifNull and literal / field refs like '$capacity'
+                if isinstance(expr, (int, float, str)) and not (isinstance(expr, str) and expr.startswith('$')):
+                    return expr
+                if isinstance(expr, str) and expr.startswith('$'):
+                    return doc.get(expr[1:])
+                if isinstance(expr, dict):
+                    if '$ifNull' in expr:
+                        args = expr['$ifNull']
+                        val = _eval_expr(args[0])
+                        return val if val is not None else _eval_expr(args[1])
+                    if '$add' in expr:
+                        total = 0
+                        for part in expr['$add']:
+                            v = _eval_expr(part)
+                            try:
+                                total += (v or 0)
+                            except Exception:
+                                total += 0
+                        return total
+                    # Comparison operators return boolean
+                    if '$lte' in expr:
+                        left, right = expr['$lte']
+                        return (_eval_expr(left) or 0) <= (_eval_expr(right) or 0)
+                    if '$gte' in expr:
+                        left, right = expr['$gte']
+                        return (_eval_expr(left) or 0) >= (_eval_expr(right) or 0)
+                # Unknown expression; fallback to None
+                return None
+
+            # Top-level special-case: $expr
+            if '$expr' in filt:
+                try:
+                    return bool(_eval_expr(filt['$expr']))
+                except Exception:
+                    return False
+
             for k, v in filt.items():
-                if isinstance(v, dict) and '$in' in v:
-                    if doc.get(k) not in v['$in']:
+                # Support simple operator dicts like {'attendee_count': {'$gte': 1}}
+                if isinstance(v, dict):
+                    if '$in' in v:
+                        if doc.get(k) not in v['$in']:
+                            return False
+                    elif '$gte' in v:
+                        if (doc.get(k) or 0) < v['$gte']:
+                            return False
+                    elif '$gt' in v:
+                        if (doc.get(k) or 0) <= v['$gt']:
+                            return False
+                    elif '$lte' in v:
+                        if (doc.get(k) or 0) > v['$lte']:
+                            return False
+                    elif '$lt' in v:
+                        if (doc.get(k) or 0) >= v['$lt']:
+                            return False
+                    elif '$ne' in v:
+                        if doc.get(k) == v['$ne']:
+                            return False
+                    else:
+                        # Unknown operator dict: conservative mismatch
                         return False
                 else:
                     if doc.get(k) != v:
@@ -52,6 +112,37 @@ if os.getenv('USE_FAKE_DB_FOR_TESTS'):
             self._store.append(doc)
             return _InsertOneResult(doc['_id'])
 
+        async def find_one_and_update(self, filt: dict, update: dict, upsert: bool = False, return_document: ReturnDocument = ReturnDocument.BEFORE):
+            for idx, d in enumerate(self._store):
+                if self._match(d, filt):
+                    original = d.copy()
+                    if '$set' in update:
+                        d.update(update['$set'])
+                    if '$unset' in update:
+                        for key in update['$unset'].keys():
+                            d.pop(key, None)
+                    if return_document == ReturnDocument.AFTER:
+                        return d.copy()
+                    return original
+            if not upsert:
+                return None
+            new_doc = {}
+            set_on_insert = update.get('$setOnInsert') if isinstance(update, dict) else None
+            if isinstance(set_on_insert, dict):
+                new_doc.update(set_on_insert)
+            for key, value in (filt or {}).items():
+                if isinstance(value, dict):
+                    continue
+                new_doc.setdefault(key, value)
+            if '_id' not in new_doc:
+                new_doc['_id'] = ObjectId()
+            self._store.append(new_doc)
+            if '$set' in update:
+                new_doc.update(update['$set'])
+            if return_document == ReturnDocument.AFTER:
+                return new_doc.copy()
+            return None
+
         async def update_one(self, filt: dict, update: dict):
             modified = 0
             for d in self._store:
@@ -69,6 +160,14 @@ if os.getenv('USE_FAKE_DB_FOR_TESTS'):
             before = len(self._store)
             self._store[:] = [d for d in self._store if not self._match(d, filt)]
             return types.SimpleNamespace(deleted_count=before - len(self._store))
+
+        async def delete_one(self, filt: dict):
+            """Remove a single matching document and return an object with deleted_count."""
+            for idx, d in enumerate(self._store):
+                if self._match(d, filt):
+                    del self._store[idx]
+                    return types.SimpleNamespace(deleted_count=1)
+            return types.SimpleNamespace(deleted_count=0)
 
         def find(self, filt: dict | None = None, projection=None):
             filt = filt or {}
@@ -201,7 +300,23 @@ class MongoDB:
             # PAYMENTS
             await self.db.payments.create_index('registration_id', unique=True)
             await self.db.payments.create_index('provider_payment_id', unique=True, sparse=True)
-            await self.db.payments.create_index('idempotency_key')
+            try:
+                await self.db.payments.create_index(
+                    'idempotency_key',
+                    unique=True,
+                    sparse=True,
+                    name='payments_idempotency_key_unique',
+                )
+            except PyMongoError:
+                pass
+                # WEBHOOK EVENTS - track processed provider events to avoid replay
+                try:
+                    await self.db.webhook_events.create_index([
+                        ('provider', 1),
+                        ('event_id', 1),
+                    ], unique=True, name='webhook_events_provider_event_unique')
+                except PyMongoError:
+                    pass
             await self.db.payments.create_index('status')
 
             # MATCHES

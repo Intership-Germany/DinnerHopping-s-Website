@@ -8,7 +8,7 @@ from bson.objectid import ObjectId
 from bson.errors import InvalidId
 import datetime
 import os
-from app.enums import Gender, DietaryPreference, CoursePreference
+from app.enums import Gender, DietaryPreference, CoursePreference, normalized_value
 
 router = APIRouter()
 
@@ -19,14 +19,7 @@ def _require_exactly_one_partner(partner_existing, partner_external):
 
 
 def _enum_value(enum_cls, value, default=None):
-    if value is None:
-        return default
-    if isinstance(value, enum_cls):
-        return value.value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        return normalized or default
-    return default
+    return normalized_value(enum_cls, value, default=default)
 
 
 class SoloRegistrationIn(BaseModel):
@@ -137,7 +130,7 @@ class ReplacePartnerIn(BaseModel):
 
 
 def _now():
-    return datetime.datetime.utcnow()
+    return datetime.datetime.now(datetime.timezone.utc)
 
 
 async def _get_event_or_404(event_id: str) -> dict:
@@ -398,8 +391,8 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             'type': 'external',
             'name': partner_external_info.get('name'),
             'email': partner_external_info.get('email').lower(),
-            'gender': partner_external_info.get('gender'),
-            'diet': partner_external_info.get('dietary_preference') or 'omnivore',
+            'gender': _enum_value(Gender, partner_external_info.get('gender')),
+            'diet': _enum_value(DietaryPreference, partner_external_info.get('dietary_preference')) or 'omnivore',
             'field_of_study': partner_external_info.get('field_of_study'),
             'kitchen_available': bool(partner_external_info.get('kitchen_available')),
             'main_course_possible': bool(partner_external_info.get('main_course_possible')),
@@ -598,7 +591,7 @@ async def _load_event_for_registration(reg: dict) -> dict:
 def _cancellation_deadline_passed(ev: dict) -> bool:
     ddl = ev.get('registration_deadline') or ev.get('payment_deadline')
     if ddl and isinstance(ddl, datetime.datetime):
-        return datetime.datetime.utcnow() > ddl
+        return datetime.datetime.now(datetime.timezone.utc) > ddl
     return False
 
 
@@ -616,7 +609,7 @@ async def _mark_refund_if_applicable(reg: dict, ev: dict):
     pay = await db_mod.db.payments.find_one({'_id': pay_oid})
     if not pay or pay.get('status') not in ('succeeded', 'paid'):
         return
-    await db_mod.db.payments.update_one({'_id': pay_oid}, {'$set': {'refund_requested': True, 'refund_requested_at': datetime.datetime.utcnow()}})
+    await db_mod.db.payments.update_one({'_id': pay_oid}, {'$set': {'refund_requested': True, 'refund_requested_at': datetime.datetime.now(datetime.timezone.utc)}})
 
 
 @router.delete('/{registration_id}')
@@ -635,7 +628,7 @@ async def cancel_solo_registration(registration_id: str, current_user=Depends(ge
     # If already cancelled, return current state
     if reg.get('status') in ('cancelled_by_user', 'cancelled_admin'):
         return {'status': reg.get('status')}
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     await db_mod.db.registrations.update_one({'_id': reg['_id']}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
     await _release_capacity(reg.get('event_id'), 1)
     await _mark_refund_if_applicable(reg, ev)
@@ -672,7 +665,7 @@ async def cancel_team_member(team_id: str, registration_id: str, current_user=De
     # Already cancelled? idempotent
     if reg.get('status') in ('cancelled_by_user', 'cancelled_admin'):
         return {'status': reg.get('status')}
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     await db_mod.db.registrations.update_one({'_id': reg['_id']}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
     # Mark team incomplete (custom status) without affecting payment (single payment stays)
     await db_mod.db.teams.update_one({'_id': tid}, {'$set': {'status': 'incomplete', 'updated_at': now}})
@@ -729,7 +722,7 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
     # Validate payload
     _require_exactly_one_partner(payload.partner_existing, payload.partner_external)
     # Build new member snapshot
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     partner_user = None
     partner_external_info = None
     if payload.partner_existing:
@@ -742,7 +735,7 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
             'email': partner_user.get('email'),
             'kitchen_available': bool(partner_user.get('kitchen_available')),
             'main_course_possible': bool(partner_user.get('main_course_possible')),
-            'diet': (partner_user.get('default_dietary_preference') or 'omnivore').lower(),
+            'diet': _enum_value(DietaryPreference, partner_user.get('default_dietary_preference')) or 'omnivore',
         }
     else:
         partner_external_info = payload.partner_external.model_dump()
@@ -750,8 +743,8 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
             'type': 'external',
             'name': partner_external_info.get('name'),
             'email': partner_external_info.get('email').lower(),
-            'gender': partner_external_info.get('gender'),
-            'diet': (partner_external_info.get('dietary_preference') or 'omnivore').lower(),
+            'gender': _enum_value(Gender, partner_external_info.get('gender')),
+            'diet': _enum_value(DietaryPreference, partner_external_info.get('dietary_preference')) or 'omnivore',
             'field_of_study': partner_external_info.get('field_of_study'),
             'kitchen_available': bool(partner_external_info.get('kitchen_available')),
             'main_course_possible': bool(partner_external_info.get('main_course_possible')),
@@ -766,9 +759,9 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
         else:
             # assume this was cancelled partner; replace
             new_members.append(member_snapshot)
-    team_course_pref = team.get('course_preference')
-    if payload.course_preference:
-        team_course_pref = payload.course_preference
+    team_course_pref = _enum_value(CoursePreference, team.get('course_preference'))
+    if payload.course_preference is not None:
+        team_course_pref = _enum_value(CoursePreference, payload.course_preference) or team_course_pref
     cooking_location = team.get('cooking_location')
     if payload.cooking_location:
         cooking_location = payload.cooking_location
@@ -784,14 +777,16 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
             if not partner_entry or not partner_entry.get('main_course_possible'):
                 raise HTTPException(status_code=400, detail='Replacement partner cannot host main course')
     # Compute new team diet
-    creator_diet = next((m.get('diet') for m in new_members if m.get('user_id') == team.get('created_by_user_id')), 'omnivore')
-    partner_diet = next((m.get('diet') for m in new_members if m.get('user_id') != team.get('created_by_user_id')), 'omnivore')
+    creator_diet_raw = next((m.get('diet') for m in new_members if m.get('user_id') == team.get('created_by_user_id')), 'omnivore')
+    partner_diet_raw = next((m.get('diet') for m in new_members if m.get('user_id') != team.get('created_by_user_id')), 'omnivore')
+    creator_diet = _enum_value(DietaryPreference, creator_diet_raw) or 'omnivore'
+    partner_diet = _enum_value(DietaryPreference, partner_diet_raw) or 'omnivore'
     team_diet = compute_team_diet(creator_diet, partner_diet)
     await db_mod.db.teams.update_one({'_id': tid}, {'$set': {
         'members': new_members,
         'status': 'pending',  # back to normal pending status
         'updated_at': now,
-        'course_preference': team_course_pref,
+    'course_preference': team_course_pref,
         'cooking_location': cooking_location,
         'team_diet': team_diet,
     }})

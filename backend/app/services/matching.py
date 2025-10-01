@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Set
 from bson.objectid import ObjectId
 
 from .. import db as db_mod
+from ..enums import CoursePreference, DietaryPreference, normalized_value
 from .geocoding import geocode_address
 from .routing import route_duration_seconds
 from ..utils import send_email  # reuse notification helper
@@ -88,7 +89,7 @@ async def _team_location(team: dict) -> Tuple[Optional[float], Optional[float]]:
                 coords.append((glat, glon))
                 # persist to user document for future runs
                 try:
-                    now = __import__('datetime').datetime.utcnow()
+                    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
                     await db_mod.db.users.update_one({'_id': u['_id']}, {'$set': {'lat': float(glat), 'lon': float(glon), 'geocoded_at': now}})
                 except Exception:
                     pass
@@ -148,18 +149,23 @@ async def _build_teams(event_oid) -> List[dict]:
         pref = None
         diet = None
         for r in members_regs:
-            pref = (pref or (r.get('preferences') or {}).get('course_preference'))
-            diet = (diet or r.get('diet'))
+            pref = pref or normalized_value(CoursePreference, (r.get('preferences') or {}).get('course_preference'))
+            diet = diet or normalized_value(DietaryPreference, r.get('diet'))
+        pref = pref or None
+        diet = diet or 'omnivore'
         t = {
             'team_id': tid,
             'member_regs': members_regs,
             'size': size,
-            'course_preference': (pref or None),
-            'diet': (diet or 'omnivore'),
+            'course_preference': pref,
+            'diet': diet,
             'team_doc': team_doc,
         }
         if team_doc:
-            t['team_diet'] = team_doc.get('team_diet') or t['diet']
+            t['team_diet'] = normalized_value(DietaryPreference, team_doc.get('team_diet'), default=t['diet']) or 'omnivore'
+            team_course_pref = normalized_value(CoursePreference, team_doc.get('course_preference'), default=t['course_preference'])
+            if team_course_pref:
+                t['course_preference'] = team_course_pref
             t['cooking_location'] = team_doc.get('cooking_location') or 'creator'
         else:
             t['team_diet'] = t['diet']
@@ -813,7 +819,7 @@ async def persist_match_proposal(event_id: str, proposal: dict) -> dict:
         'status': 'proposed',
         'version': version,
         'algorithm': proposal.get('algorithm') or 'unknown',
-        'created_at': __import__('datetime').datetime.utcnow(),
+    'created_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc),
     }
     res = await db_mod.db.matches.insert_one(doc)
     doc['id'] = str(res.inserted_id)
@@ -824,7 +830,7 @@ async def mark_finalized(event_id: str, version: int, finalized_by: Optional[str
     rec = await db_mod.db.matches.find_one({'event_id': event_id, 'version': int(version)})
     if not rec:
         raise ValueError('match version not found')
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     await db_mod.db.matches.update_one({'_id': rec['_id']}, {'$set': {'status': 'finalized', 'finalized_by': finalized_by, 'finalized_at': now}})
     await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'matching_status': 'finalized', 'updated_at': now}})
     rec = await db_mod.db.matches.find_one({'_id': rec['_id']})
@@ -977,7 +983,7 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
             'event_id': ObjectId(event_id),
             'user_email': em,
             'sections': secs,
-            'created_at': __import__('datetime').datetime.utcnow(),
+            'created_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc),
         }
         await db_mod.db.plans.insert_one(doc)
         written += 1

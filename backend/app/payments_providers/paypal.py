@@ -77,7 +77,7 @@ async def get_access_token() -> str:
         raise
 
 
-async def create_order(amount_cents: int, currency: str, payment_id) -> Dict[str, Any]:
+async def create_order(amount_cents: int, currency: str, payment_id, idempotency_key: str | None = None) -> Dict[str, Any]:
     httpx = _import_httpx()
     token = await get_access_token()
     base_url = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
@@ -102,11 +102,15 @@ async def create_order(amount_cents: int, currency: str, payment_id) -> Dict[str
             'user_action': 'PAY_NOW',
         },
     }
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    if idempotency_key:
+        # PayPal supports idempotency via PayPal-Request-Id header
+        headers['PayPal-Request-Id'] = str(idempotency_key)
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(
                 f"{_paypal_base()}/v2/checkout/orders",
-                headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+                headers=headers,
                 json=payload,
             )
         if resp.status_code >= 300:
@@ -163,7 +167,7 @@ async def get_or_create_order_for_registration(
         "provider": "paypal",
         "idempotency_key": idempotency_key,
         "meta": {},
-        "created_at": datetime.datetime.utcnow(),
+    "created_at": datetime.datetime.now(datetime.timezone.utc),
     }
     doc = await db_mod.db.payments.find_one_and_update(
         {"registration_id": registration_oid},
@@ -172,7 +176,7 @@ async def get_or_create_order_for_registration(
         return_document=ReturnDocument.AFTER,
     )
     payment_id = doc.get('_id')
-    order = await create_order(amount_cents, currency or 'EUR', payment_id)
+    order = await create_order(amount_cents, currency or 'EUR', payment_id, idempotency_key=idempotency_key)
     approval = order.get('approval_link')
     order_id = order.get('id')
     await db_mod.db.payments.update_one(
@@ -219,7 +223,7 @@ async def ensure_paypal_payment(
         "provider": "paypal",
         "idempotency_key": idempotency_key,
         "meta": {},
-        "created_at": datetime.datetime.utcnow(),
+    "created_at": datetime.datetime.now(datetime.timezone.utc),
     }
     doc = await db_mod.db.payments.find_one_and_update(
         {"registration_id": registration_oid},
@@ -228,7 +232,7 @@ async def ensure_paypal_payment(
         return_document=ReturnDocument.AFTER,
     )
     payment_id = doc.get('_id')
-    order = await create_order(amount_cents, currency or 'EUR', payment_id)
+    order = await create_order(amount_cents, currency or 'EUR', payment_id, idempotency_key=idempotency_key)
     approval = order.get('approval_link')
     order_id = order.get('id')
     await db_mod.db.payments.update_one(

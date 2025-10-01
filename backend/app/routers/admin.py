@@ -53,7 +53,8 @@ async def run_match(_=Depends(require_admin)):
 
                     plan['sections'].append(section)
 
-                plan['created_at'] = __import__('datetime').datetime.utcnow()
+                dt = __import__('datetime').datetime
+                plan['created_at'] = dt.now(dt.timezone.utc)
                 await db_mod.db.plans.insert_one(plan)
 
     # NOTE: MATCHES collection (schema: {event_id, groups:[...], status, version, finalized_by, finalized_at, created_at})
@@ -79,7 +80,8 @@ async def promote_user(email: str, _=Depends(require_admin)):
     if 'admin' in roles:
         return {'status': 'already_admin', 'email': email}
     roles = list(set(roles + ['admin']))
-    await db_mod.db.users.update_one({'email': email}, {'$set': {'roles': roles, 'updated_at': __import__('datetime').datetime.utcnow()}})
+    _dt = __import__('datetime')
+    await db_mod.db.users.update_one({'email': email}, {'$set': {'roles': roles, 'updated_at': _dt.datetime.now(_dt.timezone.utc)}})
     return {'status': 'promoted', 'email': email}
 
 
@@ -106,7 +108,8 @@ async def demote_user(email: str, _=Depends(require_admin)):
         raise HTTPException(status_code=400, detail='Cannot demote the last admin')
 
     new_roles = [r for r in roles if r != 'admin']
-    await db_mod.db.users.update_one({'email': email}, {'$set': {'roles': new_roles, 'updated_at': __import__('datetime').datetime.utcnow()}})
+    _dt = __import__('datetime')
+    await db_mod.db.users.update_one({'email': email}, {'$set': {'roles': new_roles, 'updated_at': _dt.datetime.now(_dt.timezone.utc)}})
     return {'status': 'demoted', 'email': email}
 
 
@@ -124,10 +127,27 @@ class EmailTemplateOut(EmailTemplateIn):
 @router.get('/email-templates', response_model=List[EmailTemplateOut])
 async def list_email_templates(_=Depends(require_admin)):
     out = []
-    async for t in db_mod.db.email_templates.find({}).sort('key', 1):
+    cursor = db_mod.db.email_templates.find({})
+    # Some test fakes return cursors that don't support sort(); handle gracefully
+    try:
+        cursor = cursor.sort('key', 1)
+    except Exception:
+        pass
+    async for t in cursor:
         t['id'] = str(t.get('_id'))
-        t['updated_at'] = t.get('updated_at').isoformat() if t.get('updated_at') else None
-        out.append(EmailTemplateOut(**{k: v for k,v in t.items() if k in EmailTemplateOut.__fields__}))
+        _val = t.get('updated_at')
+        if isinstance(_val, str):
+            t['updated_at'] = _val
+        elif _val:
+            try:
+                t['updated_at'] = _val.isoformat()
+            except Exception:
+                t['updated_at'] = str(_val)
+        else:
+            t['updated_at'] = None
+        # Use Pydantic v2 API when available: model_fields
+        allowed = set(getattr(EmailTemplateOut, 'model_fields', getattr(EmailTemplateOut, '__fields__', {})).keys())
+        out.append(EmailTemplateOut(**{k: v for k,v in t.items() if k in allowed}))
     return out
 
 @router.get('/email-templates/{key}', response_model=EmailTemplateOut)
@@ -136,35 +156,64 @@ async def get_email_template(key: str, _=Depends(require_admin)):
     if not t:
         raise HTTPException(status_code=404, detail='Template not found')
     t['id'] = str(t.get('_id'))
-    t['updated_at'] = t.get('updated_at').isoformat() if t.get('updated_at') else None
-    return EmailTemplateOut(**{k: v for k,v in t.items() if k in EmailTemplateOut.__fields__})
+    _val = t.get('updated_at')
+    if isinstance(_val, str):
+        t['updated_at'] = _val
+    elif _val:
+        try:
+            t['updated_at'] = _val.isoformat()
+        except Exception:
+            t['updated_at'] = str(_val)
+    else:
+        t['updated_at'] = None
+    # Use Pydantic v2 API when available: model_fields
+    allowed = set(getattr(EmailTemplateOut, 'model_fields', getattr(EmailTemplateOut, '__fields__', {})).keys())
+    return EmailTemplateOut(**{k: v for k,v in t.items() if k in allowed})
 
 @router.post('/email-templates', response_model=EmailTemplateOut)
 async def create_email_template(payload: EmailTemplateIn, _=Depends(require_admin)):
     existing = await db_mod.db.email_templates.find_one({'key': payload.key})
     if existing:
         raise HTTPException(status_code=400, detail='Template key already exists')
-    doc = payload.dict()
-    doc['updated_at'] = __import__('datetime').datetime.utcnow()
+    # Prefer model_dump for Pydantic v2; fallback to dict() for older versions
+    doc = getattr(payload, 'model_dump', getattr(payload, 'dict'))()
+    _dt = __import__('datetime')
+    doc['updated_at'] = _dt.datetime.now(_dt.timezone.utc)
     await db_mod.db.email_templates.insert_one(doc)
     doc['id'] = str(doc.get('_id', ''))
     doc['updated_at'] = doc['updated_at'].isoformat()
-    return EmailTemplateOut(**{k: v for k,v in doc.items() if k in EmailTemplateOut.__fields__})
+    allowed = set(getattr(EmailTemplateOut, 'model_fields', getattr(EmailTemplateOut, '__fields__', {})).keys())
+    return EmailTemplateOut(**{k: v for k,v in doc.items() if k in allowed})
 
 @router.put('/email-templates/{key}', response_model=EmailTemplateOut)
 async def update_email_template(key: str, payload: EmailTemplateIn, _=Depends(require_admin)):
     if key != payload.key:
         # enforce key immutability
         raise HTTPException(status_code=400, detail='Key mismatch; cannot change key')
-    doc = payload.dict()
-    doc['updated_at'] = __import__('datetime').datetime.utcnow()
-    res = await db_mod.db.email_templates.update_one({'key': key}, {'$set': doc}, upsert=False)
+    # Prefer model_dump for Pydantic v2; fallback to dict() for older versions
+    doc = getattr(payload, 'model_dump', getattr(payload, 'dict'))()
+    _dt = __import__('datetime')
+    doc['updated_at'] = _dt.datetime.now(_dt.timezone.utc)
+    # FakeCollection.update_one used in tests does not accept an 'upsert' kwarg,
+    # so call the basic two-arg form for compatibility.
+    res = await db_mod.db.email_templates.update_one({'key': key}, {'$set': doc})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail='Template not found')
     stored = await db_mod.db.email_templates.find_one({'key': key})
     stored['id'] = str(stored.get('_id'))
-    stored['updated_at'] = stored.get('updated_at').isoformat() if stored.get('updated_at') else None
-    return EmailTemplateOut(**{k: v for k,v in stored.items() if k in EmailTemplateOut.__fields__})
+    _val = stored.get('updated_at')
+    if isinstance(_val, str):
+        stored['updated_at'] = _val
+    elif _val:
+        try:
+            stored['updated_at'] = _val.isoformat()
+        except Exception:
+            stored['updated_at'] = str(_val)
+    else:
+        stored['updated_at'] = None
+    # Use Pydantic v2 API when available: model_fields
+    allowed = set(getattr(EmailTemplateOut, 'model_fields', getattr(EmailTemplateOut, '__fields__', {})).keys())
+    return EmailTemplateOut(**{k: v for k,v in stored.items() if k in allowed})
 
 @router.delete('/email-templates/{key}')
 async def delete_email_template(key: str, _=Depends(require_admin)):

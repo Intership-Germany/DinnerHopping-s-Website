@@ -57,7 +57,7 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
         raise HTTPException(status_code=404, detail='Invitation not found')
 
     # check expiry
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     expires_at = inv.get('expires_at')
     if expires_at and isinstance(expires_at, datetime.datetime) and expires_at < now:
         # mark expired
@@ -91,7 +91,7 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
         if existing:
             # user exists but not authenticated — instruct to login
             raise HTTPException(status_code=400, detail='Account already exists; please login and accept the invitation while authenticated')
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         user_doc = {
             "email": invited_email,
             "first_name": payload.first_name.strip() if payload.first_name else None,
@@ -114,7 +114,7 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
 
     # create registration for the invited user (link invitation_id), avoid duplicate registration
     event_id = inv.get('event_id')
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     existing = None
     try:
         existing = await db_mod.db.registrations.find_one({'event_id': event_id, 'user_email_snapshot': user_email})
@@ -158,7 +158,7 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
                     "status": "pending",
                     "provider": 'N/A',
                     "meta": {"reason": "invite_accepted"},
-                    "created_at": datetime.datetime.utcnow()
+                    "created_at": datetime.datetime.now(datetime.timezone.utc)
                 }
                 p = await db_mod.db.payments.insert_one(pay)
                 try:
@@ -195,7 +195,7 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
     # ensure requester owns the registration or is admin
     reg = await require_registration_owner_or_admin(current_user, reg_oid)
 
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     expires_days = payload.expires_days or 30
     expires_at = now + datetime.timedelta(days=expires_days)
 
@@ -337,7 +337,7 @@ async def revoke_invitation(inv_id: str, current_user=Depends(get_current_user))
     if inv.get('status') != 'pending':
         raise HTTPException(status_code=400, detail='Only pending invitations can be revoked')
 
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     await db_mod.db.invitations.update_one({"_id": oid}, {"$set": {"status": "revoked", "revoked_at": now, "revoked_by": current_user.get('email')}})
     return {"status": "revoked"}
 
@@ -488,7 +488,7 @@ async def accept_invitation_via_link(token: str, request: Request):
             if inviter_reg:
                 current_team = int(inviter_reg.get('team_size') or 1)
                 if current_team < 2:
-                    await db_mod.db.registrations.update_one({"_id": inviter_reg_oid}, {"$set": {"team_size": 2, "updated_at": datetime.datetime.utcnow()}})
+                    await db_mod.db.registrations.update_one({"_id": inviter_reg_oid}, {"$set": {"team_size": 2, "updated_at": datetime.datetime.now(datetime.timezone.utc)}})
                     # best-effort: increment attendee_count accordingly
                     try:
                         await db_mod.db.events.update_one({"_id": event_id}, {"$inc": {"attendee_count": 2 - current_team}})
@@ -520,7 +520,7 @@ async def accept_invitation_via_link(token: str, request: Request):
                     "status": "pending",
                     "provider": 'None',
                     "meta": {"reason": "invite_accepted"},
-                    "created_at": datetime.datetime.utcnow()
+                    "created_at": datetime.datetime.now(datetime.timezone.utc)
                 }
                 p = await db_mod.db.payments.insert_one(pay)
                 try:

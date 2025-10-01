@@ -136,13 +136,20 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
-@router.post('/register', status_code=status.HTTP_201_CREATED, responses={400: {"description": "Bad Request - e.g. Email already registered or password validation failed"}})
+@router.post(
+    '/register',
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"description": "Bad Request - e.g. password validation failed"},
+        409: {"description": "Conflict - email already registered"},
+    },
+)
 async def register(u: UserCreate):
     # normalize email to lowercase (keep EmailStr type intact; use a local string for storage)
     email_lower = str(u.email).lower()
     existing = await db_mod.db.users.find_one({"email": email_lower})
     if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=409, detail="Email already registered")
     # validate password under policy
     if u.password != u.password_confirm:
         raise HTTPException(status_code=400, detail="Passwords do not match")
@@ -185,7 +192,7 @@ async def register(u: UserCreate):
     addr_line = f"{u.street} {u.street_no}, {u.postal_code} {u.city}"
     user_doc['address_encrypted'] = encrypt_address(addr_line)
     user_doc['address_public'] = anonymize_public_address(addr_line)
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     user_doc['created_at'] = now
     user_doc['updated_at'] = now
     user_doc['deleted_at'] = None  # soft delete marker
@@ -310,7 +317,7 @@ async def login(
     except Exception as exc:
         raise HTTPException(status_code=500, detail='Failed to create access token') from exc
     # first login timestamp and profile prompt
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     if not user.get('first_login_at'):
         with suppress(Exception):
             await db_mod.db.users.update_one({'email': user['email']}, {'$set': {'first_login_at': now}})
@@ -393,7 +400,7 @@ async def refresh(request: Request, response: Response):
     if not rec:
         raise HTTPException(status_code=401, detail='Invalid refresh token')
     # check expiry
-    if rec.get('expires_at') and rec.get('expires_at') < __import__('datetime').datetime.utcnow():
+    if rec.get('expires_at') and rec.get('expires_at') < __import__('datetime').datetime.now(__import__('datetime').timezone.utc):
         # revoke
         await db_mod.db.refresh_tokens.delete_one({'_id': rec['_id']})
         raise HTTPException(status_code=401, detail='Refresh token expired')
@@ -406,9 +413,22 @@ async def refresh(request: Request, response: Response):
     except (TypeError, ValueError):
         refresh_bytes = 32
     new_plain, new_hash = generate_token_pair(refresh_bytes)
-    now = __import__('datetime').datetime.utcnow()
-    with suppress(Exception):
-        await db_mod.db.refresh_tokens.update_one({'_id': rec['_id']}, {'$set': {'token_hash': new_hash, 'created_at': now, 'expires_at': now + __import__('datetime').timedelta(days=int(os.getenv('REFRESH_TOKEN_DAYS', '30')))}})
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+    # Implement single-use rotation: insert new refresh record and delete the old one
+    new_doc = {
+        'user_email': rec['user_email'],
+        'token_hash': new_hash,
+        'created_at': now,
+        'expires_at': now + __import__('datetime').timedelta(days=int(os.getenv('REFRESH_TOKEN_DAYS', '30'))),
+    }
+    try:
+        await db_mod.db.refresh_tokens.insert_one(new_doc)
+        # best-effort delete of previous token record to avoid reuse
+        await db_mod.db.refresh_tokens.delete_one({'_id': rec['_id']})
+    except Exception:
+        # Fallback: attempt to update the old record if insert/delete fails
+        with suppress(Exception):
+            await db_mod.db.refresh_tokens.update_one({'_id': rec['_id']}, {'$set': {'token_hash': new_hash, 'created_at': now, 'expires_at': now + __import__('datetime').timedelta(days=int(os.getenv('REFRESH_TOKEN_DAYS', '30')))}})
 
     secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
     use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
@@ -569,7 +589,7 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
             update_data['optional_profile_completed'] = True
             update_data['profile_prompt_pending'] = False
             update_data.pop('skip_optional_profile', None)
-    update_data['updated_at'] = __import__('datetime').datetime.utcnow()
+    update_data['updated_at'] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": update_data})
     u = await db_mod.db.users.find_one({"email": current_user['email']})
     # If email changed, lookup by new email
@@ -603,7 +623,7 @@ async def verify_email(token: str | None = None):
         raise HTTPException(status_code=404, detail='Verification token not found')
     # check expiry
     expires_at = rec.get('expires_at')
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     # rec.expires_at may be timezone-aware; compare safely
     try:
         if expires_at and isinstance(expires_at, __import__('datetime').datetime) and expires_at < now:
@@ -615,7 +635,7 @@ async def verify_email(token: str | None = None):
         pass
 
     # mark user as verified
-    await db_mod.db.users.update_one({"email": rec['email']}, {"$set": {"email_verified": True, "updated_at": __import__('datetime').datetime.utcnow()}})
+    await db_mod.db.users.update_one({"email": rec['email']}, {"$set": {"email_verified": True, "updated_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc)}})
     # delete the token for one-time use
     await db_mod.db.email_verifications.delete_one({"_id": rec['_id']})
     return {"status": "verified"}
@@ -657,7 +677,7 @@ async def change_password(payload: ChangePasswordIn, current_user=Depends(get_cu
     # validate new password
     validate_password(payload.new_password)
     # set new password hash
-    await db_mod.db.users.update_one({'email': current_user['email']}, {'$set': {'password_hash': hash_password(payload.new_password), 'updated_at': __import__('datetime').datetime.utcnow()}})
+    await db_mod.db.users.update_one({'email': current_user['email']}, {'$set': {'password_hash': hash_password(payload.new_password), 'updated_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc)}})
     return {"status": "password_changed"}
 
 
@@ -685,7 +705,7 @@ async def forgot_password(payload: ForgotPasswordIn):
         except (TypeError, ValueError):
             reset_bytes = None
         token, token_hash = generate_token_pair(reset_bytes)
-        now = __import__('datetime').datetime.utcnow()
+        now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
         try:
             ttl_hours = int(os.getenv('PASSWORD_RESET_EXPIRES_HOURS', '4'))
         except (TypeError, ValueError):
@@ -741,7 +761,7 @@ async def reset_password(request: Request):
         raise HTTPException(status_code=404, detail='Reset token not found')
     # check expiry
     expires_at = rec.get('expires_at')
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     try:
         if expires_at and isinstance(expires_at, __import__('datetime').datetime) and expires_at < now:
             await db_mod.db.password_resets.update_one({'_id': rec['_id']}, {'$set': {'status': 'expired', 'expired_at': now}})
@@ -751,7 +771,7 @@ async def reset_password(request: Request):
     # validate password policy
     validate_password(new_password)
     # update user's password
-    await db_mod.db.users.update_one({'email': rec['email']}, {'$set': {'password_hash': hash_password(new_password), 'updated_at': __import__('datetime').datetime.utcnow()}})
+    await db_mod.db.users.update_one({'email': rec['email']}, {'$set': {'password_hash': hash_password(new_password), 'updated_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc)}})
     # delete/reset token
     with suppress(Exception):
         await db_mod.db.password_resets.delete_one({'_id': rec['_id']})
@@ -773,7 +793,7 @@ async def reset_password_form(token: str | None = None):
         raise HTTPException(status_code=404, detail='Reset token not found')
     # check expiry
     expires_at = rec.get('expires_at')
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     try:
         if expires_at and isinstance(expires_at, __import__('datetime').datetime) and expires_at < now:
             await db_mod.db.password_resets.update_one({'_id': rec['_id']}, {'$set': {'status': 'expired', 'expired_at': now}})
@@ -822,7 +842,7 @@ async def update_optional_profile(payload: OptionalProfileUpdate, current_user=D
     u = await db_mod.db.users.find_one({"email": current_user['email']})
     if not u:
         raise HTTPException(status_code=404, detail='User not found')
-    set_fields: dict = {"updated_at": __import__('datetime').datetime.utcnow()}
+    set_fields: dict = {"updated_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc)}
     if payload.skip:
         set_fields['profile_prompt_pending'] = False
         await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": set_fields})
