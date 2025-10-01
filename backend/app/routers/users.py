@@ -8,6 +8,7 @@ Migration note (2025-09):
 Existing records may still contain 'name' or 'is_verified'; they are ignored.
 """
 import os
+import re
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal, List
 from contextlib import suppress
@@ -29,6 +30,30 @@ VALID_ALLERGIES = [
     "sesame"
 ]
 
+
+def _normalize_phone_number(phone: str | None) -> str | None:
+    if phone is None:
+        return None
+    if isinstance(phone, (int, float)):
+        phone = str(phone)
+    if not isinstance(phone, str):
+        raise ValueError('Phone number must be a string')
+    stripped = phone.strip()
+    if not stripped:
+        return None
+    cleaned = re.sub(r"[^0-9+]", "", stripped)
+    if cleaned.startswith('+'):
+        core = cleaned[1:]
+        prefix = '+'
+    else:
+        core = cleaned
+        prefix = ''
+    if not core.isdigit():
+        raise ValueError('Phone number must contain digits only')
+    if len(core) < 6:
+        raise ValueError('Phone number must contain at least 6 digits')
+    return prefix + core
+
 ######### Router / Endpoints #########
 
 router = APIRouter()
@@ -46,11 +71,20 @@ class UserCreate(BaseModel):
     postal_code: str
     city: str
     gender: Literal['female','male','diverse','prefer_not_to_say']
+    phone_number: str | None = None
     # Optional extras
     lat: float | None = None
     lon: float | None = None
     allergies: list[str] | None = []
     
+    @field_validator('phone_number')
+    @classmethod
+    def validate_phone(cls, v):
+        try:
+            return _normalize_phone_number(v)
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     @field_validator('allergies')
     @classmethod
     def validate_allergies(cls, v):
@@ -80,6 +114,7 @@ class UserOut(BaseModel):
     email: EmailStr
     # Structured address components stored under `address_struct`.
     address: dict | None = None
+    phone_number: Optional[str] = None
     allergies: list[str] | None = []
     roles: list[str] | None = []
     # Optional profile fields
@@ -111,6 +146,7 @@ async def register(u: UserCreate):
         'first_name': u.first_name.strip(),
         'last_name': u.last_name.strip(),
         'gender': (u.gender or 'prefer_not_to_say').lower(),
+        'phone_number': u.phone_number,
         'address_struct': {
             'street': u.street,
             'street_no': u.street_no,
@@ -340,7 +376,16 @@ class ProfileUpdate(BaseModel):
     lat: float | None = None
     lon: float | None = None
     allergies: list[str] | None = None
+    phone_number: Optional[str] = None
     
+    @field_validator('phone_number')
+    @classmethod
+    def validate_phone(cls, v):
+        try:
+            return _normalize_phone_number(v)
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     @field_validator('allergies')
     @classmethod
     def validate_allergies(cls, v):
@@ -385,6 +430,7 @@ async def get_profile(current_user=Depends(get_current_user)):
         email=u.get('email'),
         # Return the structured address components stored in `address_struct`.
         address=u.get('address_struct'),
+        phone_number=u.get('phone_number'),
         allergies=u.get('allergies', []),
         roles=u.get('roles', []),
         kitchen_available=u.get('kitchen_available'),
@@ -397,7 +443,11 @@ async def get_profile(current_user=Depends(get_current_user)):
 
 @router.put('/profile', response_model=UserOut)
 async def update_profile(payload: ProfileUpdate, current_user=Depends(get_current_user)):
-    update_data = {k: v for k, v in payload.dict().items() if v is not None}
+    raw_payload = payload.dict()
+    update_data = {k: v for k, v in raw_payload.items() if v is not None}
+    fields_set = getattr(payload, '__fields_set__', None) or getattr(payload, 'model_fields_set', None) or set()
+    if 'phone_number' in fields_set and raw_payload.get('phone_number') is None:
+        update_data['phone_number'] = None
     if 'password' in update_data:
         # migrating update: accept 'password' input, store as password_hash
         update_data['password_hash'] = hash_password(update_data['password'])
@@ -466,6 +516,7 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
         last_name=u.get('last_name'),
         email=u.get('email'),
         address=u.get('address_struct'),
+        phone_number=u.get('phone_number'),
         allergies=u.get('allergies', []),
         roles=u.get('roles', []),
         kitchen_available=u.get('kitchen_available'),

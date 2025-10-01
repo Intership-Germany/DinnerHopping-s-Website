@@ -127,11 +127,13 @@ Stripe Checkout relies on server-created sessions and a lightweight frontend red
 2. **Frontend initialization** — call `GET /payments/stripe/config` to retrieve `{ publishableKey, currency, mode }`. Initialize Stripe.js with the publishable key and use the returned Checkout Session URL to redirect users.
 3. **Create payments** — send `POST /payments/create` with `provider="stripe"`. The backend stores the payment document, creates a Checkout Session, and responds with a redirect URL. The existing frontend modal already redirects when it receives `payment_link`.
 4. **Handle completions** — configure a Stripe webhook (e.g. `checkout.session.completed`) pointing to `/payments/webhooks/stripe`. Provide `STRIPE_WEBHOOK_SECRET` so signatures are validated. The webhook handler marks the payment and registration as succeeded.
+	- In sandbox, the current secret used in development is `whsec_` (set this in `STRIPE_WEBHOOK_SECRET`). Rotate it before going live.
 
 Notes:
 - The backend auto-selects the default provider based on configured credentials; if PayPal is absent but Stripe keys are present, Stripe will be offered automatically to users.
 - `mode` in the config payload is inferred from the key prefixes (`pk_test` / `sk_test`).
 - For local testing use https tunnel tooling (ngrok, Cloudflare tunnel) so Stripe can reach your webhook endpoint.
+- The admin fallback `POST /payments/{payment_id}/capture` checks the Checkout Session status via the Stripe API before confirming a payment, guaranteeing that “payment completed” only occurs when Stripe reports the session as paid.
 
 ### Wero Manual SEPA Flow
 

@@ -419,6 +419,41 @@ async def get_event(event_id) -> Optional[dict]:
     return await db_mod.db.events.find_one({'_id': oid})
 
 
+async def get_registration_by_any_id(registration_id) -> Optional[dict]:
+    """Return a registration document by id accepting either ObjectId-like strings or raw string IDs.
+
+    This helper first tries to interpret the input as a BSON ObjectId and query by
+    {'_id': ObjectId(...)}, and if that fails or returns nothing it falls back to
+    querying the collection with the raw value ({'_id': registration_id}).
+    """
+    if not registration_id:
+        return None
+    # try ObjectId conversion first
+    try:
+        oid = registration_id if isinstance(registration_id, ObjectId) else ObjectId(registration_id)
+    except (InvalidId, TypeError, ValueError):
+        oid = None
+
+    if oid is not None:
+        try:
+            reg = await db_mod.db.registrations.find_one({'_id': oid})
+            if reg:
+                return reg
+        except PyMongoError:
+            # ignore DB errors here and try raw lookup below
+            pass
+
+    # fallback: try raw string _id (some fixtures or older records may store string ids)
+    try:
+        reg = await db_mod.db.registrations.find_one({'_id': registration_id})
+        if reg:
+            return reg
+    except PyMongoError:
+        return None
+
+    return None
+
+
 async def require_event_published(event_id) -> dict:
     """Raise HTTPException if event not found or not in an accessible lifecycle state.
 
@@ -481,6 +516,40 @@ def _is_admin(user: dict) -> bool:
     return 'admin' in roles
 
 
+async def get_registration_by_any_id(registration_id) -> dict | None:
+    if registration_id is None:
+        return None
+    candidate_values: list = []
+    if isinstance(registration_id, ObjectId):
+        candidate_values.append(registration_id)
+        candidate_values.append(str(registration_id))
+    elif isinstance(registration_id, str):
+        rid = registration_id.strip()
+        if not rid:
+            return None
+        try:
+            candidate_values.append(ObjectId(rid))
+        except (InvalidId, TypeError):
+            pass
+        candidate_values.append(rid)
+    else:
+        try:
+            candidate_values.append(ObjectId(registration_id))
+        except (InvalidId, TypeError):
+            pass
+        candidate_values.append(registration_id)
+
+    seen: set = set()
+    for value in candidate_values:
+        if value in seen:
+            continue
+        seen.add(value)
+        reg = await db_mod.db.registrations.find_one({'_id': value})
+        if reg:
+            return reg
+    return None
+
+
 async def require_registration_owner_or_admin(user: dict, registration_id) -> dict:
     """Return registration document if current user is its owner or admin; else raise 403.
 
@@ -489,16 +558,13 @@ async def require_registration_owner_or_admin(user: dict, registration_id) -> di
     """
     if registration_id is None:
         raise _HTTPException(status_code=400, detail='registration_id required')
-    try:
-        oid = registration_id if isinstance(registration_id, ObjectId) else ObjectId(registration_id)
-    except Exception as exc:
-        raise _HTTPException(status_code=400, detail='invalid registration_id') from exc
-    reg = await db_mod.db.registrations.find_one({'_id': oid})
+    if isinstance(registration_id, str) and not registration_id.strip():
+        raise _HTTPException(status_code=400, detail='registration_id required')
+    reg = await get_registration_by_any_id(registration_id)
     if not reg:
         raise _HTTPException(status_code=404, detail='Registration not found')
     if _is_admin(user):
         return reg
-    # Check ownership by id or email snapshot
     if reg.get('user_id') == user.get('_id'):
         return reg
     if (reg.get('user_email_snapshot') or '').lower() == (user.get('email') or '').lower():

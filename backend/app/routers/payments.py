@@ -45,12 +45,10 @@ async def paypal_config():
 
     Returns the client-id and currency so the JS SDK can be initialized.
     """
-    client_id = os.getenv('PAYPAL_CLIENT_ID')
-    if not client_id:
-        raise HTTPException(status_code=400, detail='PayPal not configured')
-    currency = (os.getenv('PAYMENT_CURRENCY') or 'EUR').upper()
-    env = (os.getenv('PAYPAL_MODE') or os.getenv('PAYPAL_ENV') or 'sandbox').lower()
-    return {"clientId": client_id, "currency": currency, "env": env}
+    try:
+        return paypal_provider.get_frontend_config()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get('/stripe/config')
@@ -100,42 +98,13 @@ async def paypal_create_order(payload: CreatePaymentIn, current_user=Depends(get
     if payload.amount_cents and payload.amount_cents != canonical_amount_cents:
         raise HTTPException(status_code=400, detail='Amount must match event fee configured by organizer')
 
-    # Idempotency: return existing order for this registration if present
-    existing = await db_mod.db.payments.find_one({"registration_id": reg_obj, "provider": "paypal"})
-    if existing and existing.get('provider_payment_id'):
-        log.debug('paypal.order.idempotent registration_id=%s payment_id=%s order_id=%s', payload.registration_id, existing.get('_id'), existing.get('provider_payment_id'))
-        return {"id": existing.get('provider_payment_id')}
-    # Upsert payment doc
-    initial_doc = {
-        "registration_id": reg_obj,
-        "amount": canonical_amount_cents / 100.0,
-        "currency": (payload.currency or 'EUR').upper(),
-        "status": "pending",
-        "provider": "paypal",
-        "idempotency_key": payload.idempotency_key,
-        "meta": {},
-        "created_at": datetime.datetime.utcnow(),
-    }
-    doc = await db_mod.db.payments.find_one_and_update(
-        {"registration_id": reg_obj},
-        {"$setOnInsert": initial_doc},
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
+    result = await paypal_provider.get_or_create_order_for_registration(
+        reg_obj,
+        amount_cents=canonical_amount_cents,
+        currency=payload.currency or 'EUR',
+        idempotency_key=payload.idempotency_key,
     )
-    payment_id = doc.get('_id')
-
-    # Create PayPal order
-    log.info('payment.create.paypal_order registration_id=%s payment_id=%s amount_cents=%s', payload.registration_id, payment_id, canonical_amount_cents)
-    order = await paypal_provider.create_order(canonical_amount_cents, payload.currency or 'EUR', payment_id)
-    order_id = order.get('id')
-    approval = order.get('approval_link')
-    await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"provider_payment_id": order_id, "payment_link": approval, "meta.create_order": order}})
-    try:
-        await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
-    except PyMongoError:
-        pass
-    log.info('payment.create.paypal_order.ok registration_id=%s payment_id=%s order_id=%s', payload.registration_id, payment_id, order_id)
-    return {"id": order_id}
+    return {"id": result.get('order_id')}
 
 
 @router.post('/paypal/orders/{order_id}/capture')
@@ -234,45 +203,13 @@ async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_curr
 
     # Handle PayPal
     if provider == 'paypal':
-        # idempotency by registration
-        existing_by_reg = await db_mod.db.payments.find_one({"registration_id": reg_obj})
-        if existing_by_reg:
-            log.debug('payment.create.paypal.existing registration_id=%s payment_id=%s', payload.registration_id, existing_by_reg.get('_id'))
-            return {"payment_id": str(existing_by_reg.get('_id')), "payment_link": existing_by_reg.get('payment_link'), "status": existing_by_reg.get('status')}
-
-        initial_doc = {
-            "registration_id": reg_obj,
-            "amount": canonical_amount_cents / 100.0,
-            "currency": (payload.currency or 'EUR').upper(),
-            "status": "pending",
-            "provider": "paypal",
-            "idempotency_key": payload.idempotency_key,
-            "meta": {},
-            "created_at": datetime.datetime.utcnow(),
-        }
-        doc = await db_mod.db.payments.find_one_and_update(
-            {"registration_id": reg_obj},
-            {"$setOnInsert": initial_doc},
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
+        doc = await paypal_provider.ensure_paypal_payment(
+            reg_obj,
+            amount_cents=canonical_amount_cents,
+            currency=payload.currency or 'EUR',
+            idempotency_key=payload.idempotency_key,
         )
-        payment_id = doc.get('_id')
-        # if already created and has approval link, return
-        if doc.get('provider_payment_id') and doc.get('payment_link'):
-            return {"payment_id": str(payment_id), "payment_link": doc.get('payment_link'), "status": doc.get('status')}
-
-        # Create PayPal order
-        log.info('payment.create paypal registration_id=%s payment_id=%s amount_cents=%s', payload.registration_id, payment_id, canonical_amount_cents)
-        order = await paypal_provider.create_order(canonical_amount_cents, payload.currency or 'EUR', payment_id)
-        approval = order.get('approval_link')
-        order_id = order.get('id')
-        await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"provider_payment_id": order_id, "payment_link": approval, "meta": {"create_order": order}}})
-        try:
-            await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
-        except PyMongoError:
-            pass
-        log.info('payment.create.paypal.ok payment_id=%s order_id=%s', payment_id, order_id)
-        return {"payment_id": str(payment_id), "payment_link": approval, "status": "pending"}
+        return {"payment_id": str(doc.get('_id')), "payment_link": doc.get('payment_link'), "status": doc.get('status')}
 
     # Handle Stripe (existing)
     stripe_key = os.getenv('STRIPE_API_KEY')
@@ -523,13 +460,38 @@ async def capture_payment(payment_id: str, payload: CapturePaymentIn, current_us
         # Stripe should use webhooks to confirm payment. For completeness, we
         # accept a manual confirmation here if provider_payment_id is provided
         # and the caller is admin.
-        if not pay.get('provider_payment_id'):
+        session_id = pay.get('provider_payment_id')
+        if not session_id:
             raise HTTPException(status_code=400, detail='Missing Stripe session id')
         # Only allow admin-triggered manual confirms for Stripe via this route
         if not await require_admin(current_user):
             raise HTTPException(status_code=403, detail='Admin required to manually confirm Stripe payments')
+        try:
+            session = stripe_provider.retrieve_checkout_session(session_id)
+        except ValueError as exc:  # missing session id
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:  # Stripe not configured
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        except Exception as exc:  # pragma: no cover - Stripe SDK errors
+            raise HTTPException(status_code=502, detail=f'Stripe error: {str(exc)}') from exc
+        session_dict = session.to_dict() if hasattr(session, 'to_dict') else session
+        payment_status = session_dict.get('payment_status') if isinstance(session_dict, dict) else getattr(session, 'payment_status', None)
+        session_status = session_dict.get('status') if isinstance(session_dict, dict) else getattr(session, 'status', None)
+        if payment_status != 'paid':
+            detail = f'Stripe session not paid (status={session_status}, payment_status={payment_status})'
+            raise HTTPException(status_code=409, detail=detail)
         now = datetime.datetime.utcnow()
-        await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now}})
+        confirmation_meta = {
+            "provider": "stripe",
+            "confirmed_at": now,
+            "session_id": session_id,
+            "session_status": session_status,
+            "payment_status": payment_status,
+        }
+        if isinstance(session_dict, dict):
+            confirmation_meta["amount_total"] = session_dict.get('amount_total')
+            confirmation_meta["currency"] = session_dict.get('currency')
+        await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now, "meta.manual_confirmation": confirmation_meta}})
         log.info('payment.capture.stripe.manual payment_id=%s', payment_id)
         await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
         return {"status": "paid"}

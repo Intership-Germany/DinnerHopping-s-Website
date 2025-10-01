@@ -11,6 +11,7 @@
         firstName: document.getElementById('profile-firstname'),
         lastName: document.getElementById('profile-lastname'),
         email: document.getElementById('profile-email'),
+  phone: document.getElementById('profile-phone'),
         address: document.getElementById('profile-address'),
         fullNameView: document.getElementById('profile-fullname'),
         firstNameLabel: document.querySelector('label[for="profile-firstname"]'),
@@ -107,6 +108,20 @@
         const right = [a.postal_code, a.city].filter(Boolean).join(' ');
         return [left, right].filter(Boolean).join(', ');
       }
+      function normalizePhoneInput(value) {
+        if (!value) return '';
+        let normalized = String(value).trim().replace(/[^0-9+]/g, '');
+        if (!normalized) return '';
+        if (normalized.startsWith('+')) {
+          normalized = '+' + normalized.slice(1).replace(/\+/g, '');
+        } else {
+          normalized = normalized.replace(/\+/g, '');
+        }
+        const digits = normalized.startsWith('+') ? normalized.slice(1) : normalized;
+        if (!/^[0-9]+$/.test(digits) || digits.length < 6)
+          throw new Error('Please enter a valid phone number with at least 6 digits.');
+        return normalized;
+      }
       function computeViewAddress() {
         const city = el.addrCity?.value?.trim() || '';
         const postal = el.addrPostal?.value?.trim() || '';
@@ -188,6 +203,7 @@
         if (!data.first_name) missing.push('first name');
         if (!data.last_name) missing.push('last name');
         if (!data.email) missing.push('email');
+        if (!data.phone_number) missing.push('phone number');
         if (!data.address) missing.push('address');
         if (
           !data.preferences ||
@@ -226,6 +242,7 @@
         if (el.firstName) el.firstName.value = data.first_name || '';
         if (el.lastName) el.lastName.value = data.last_name || '';
         if (el.email) el.email.value = data.email || '';
+  if (el.phone) el.phone.value = data.phone_number || '';
         if (el.fullNameView) el.fullNameView.value = fullName;
         const addr = data.address && typeof data.address === 'object' ? data.address : null;
         if (el.address) el.address.value = formatAddressStruct(addr || data.address);
@@ -247,6 +264,7 @@
           first_name: data.first_name || '',
           last_name: data.last_name || '',
           email: data.email || '',
+          phone_number: data.phone_number || '',
           address: data.address || '',
           preferences: data.preferences || {},
           optional: {
@@ -269,6 +287,7 @@
           first_name: el.firstName?.value?.trim() || '',
           last_name: el.lastName?.value?.trim() || '',
           email: el.email?.value?.trim() || '',
+          phone: el.phone?.value?.trim() || '',
           address:
             el.addressEditGroup && !el.addressEditGroup.classList.contains('hidden')
               ? computeViewAddress()
@@ -279,18 +298,28 @@
         const sameFirst = current.first_name === (initial.first_name || '');
         const sameLast = current.last_name === (initial.last_name || '');
         const sameEmail = current.email === (initial.email || '');
+        let samePhone = false;
+        try {
+          const normalizedCurrent = normalizePhoneInput(current.phone);
+          const normalizedInitial = initial.phone_number || '';
+          samePhone = normalizedCurrent === (normalizedInitial || '');
+          if (!normalizedCurrent && !normalizedInitial) samePhone = true;
+        } catch {
+          samePhone = false;
+        }
         const sameAddr = current.address === formatAddressStruct(initial.address || '');
         const samePrefs =
           canonicalizePrefs(current.preferences) === canonicalizePrefs(initial.preferences);
         const sameOpt =
           canonicalizePrefs(current.optional) === canonicalizePrefs(initial.optional || {});
-        return !(sameFirst && sameLast && sameEmail && sameAddr && samePrefs && sameOpt);
+        return !(sameFirst && sameLast && sameEmail && samePhone && sameAddr && samePrefs && sameOpt);
       }
       function setEditMode(on) {
         isEditing = !!on;
         disableInput(el.email, true);
         disableInput(el.firstName, !isEditing);
         disableInput(el.lastName, !isEditing);
+  disableInput(el.phone, !isEditing);
         if (el.fullNameView) setHidden(el.fullNameView, isEditing);
         if (el.fullNameLabel) setHidden(el.fullNameLabel, isEditing);
         if (el.firstName) setHidden(el.firstName, !isEditing);
@@ -310,6 +339,7 @@
           'addrPostal',
           'addrStreet',
           'addrNumber',
+          'phone',
           'preferences',
           'kitchenAvailable',
           'mainCoursePossible',
@@ -384,6 +414,19 @@
         if (lName !== initial.last_name) payload.last_name = lName;
         const newEmail = el.email?.value?.trim();
         if (newEmail && newEmail !== initial.email) payload.email = newEmail;
+        const phoneRaw = el.phone?.value?.trim() || '';
+        const initialPhone = initial.phone_number || '';
+        if (phoneRaw) {
+          let normalizedPhone = '';
+          try {
+            normalizedPhone = normalizePhoneInput(phoneRaw);
+          } catch (err) {
+            throw err instanceof Error ? err : new Error('Please enter a valid phone number with at least 6 digits.');
+          }
+          if (normalizedPhone !== initialPhone) payload.phone_number = normalizedPhone;
+        } else if (initialPhone) {
+          throw new Error('Phone number cannot be empty once provided.');
+        }
         const city = el.addrCity?.value?.trim();
         const postal = el.addrPostal?.value?.trim();
         const street = el.addrStreet?.value?.trim();
