@@ -63,14 +63,29 @@ except (ImportError, AttributeError):
     # best-effort only; don't fail startup for environments without bcrypt
     pass
 
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+        # startup
+        await connect_to_mongo()
+        try:
+                yield
+        finally:
+                # shutdown
+                await close_mongo()
+
+
 app = FastAPI(title=settings.app_name,
-              debug=settings.debug,
-              version="1.0.0",
-              root_path=os.getenv('BACKEND_ROOT_PATH', ''),
-              docs_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/docus',
-              redoc_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/redocu',
-              openapi_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/openapi.json'
-            )
+                            debug=settings.debug,
+                            version="1.0.0",
+                            root_path=os.getenv('BACKEND_ROOT_PATH', ''),
+                            docs_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/docus',
+                            redoc_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/redocu',
+                            openapi_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/openapi.json',
+                            lifespan=_lifespan,
+                        )
 
 ######## Structured Logging & Request ID Middleware ########
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -208,15 +223,7 @@ app.add_middleware(CSRFMiddleware)
 # simple in-memory rate limiter (dev)
 app.add_middleware(RateLimit, max_requests=300, window_sec=60)
 
-@app.on_event("startup")
-async def startup():
-    """Connect to MongoDB on startup."""
-    await connect_to_mongo()
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Disconnect from MongoDB on shutdown."""
-    await close_mongo()
+# Lifespan provided above via asynccontextmanager (_lifespan)
 
 # Expose the users router at the root so endpoints like /register, /login, /profile exist
 app.include_router(users.router, prefix="", tags=["users"])
