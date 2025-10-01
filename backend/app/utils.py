@@ -353,7 +353,8 @@ async def generate_and_send_verification(recipient: str) -> tuple[str, bool]:
         logger.warning("Could not persist verification token for %s: %s", recipient, e)
 
     base = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
-    verification_url = f"{base}/verify-email?token={token}"
+    frontend_base = os.getenv("FRONTEND_BASE_URL", base)
+    verification_url = f"{frontend_base}/verify-email.html?token={token}"
     subject = "Please verify your DinnerHopping account"
     body = (
         f"Hi,\n\nPlease verify your email by clicking the link below:\n{verification_url}\n\n"

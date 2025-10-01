@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Header, Request, Depends
 from pydantic import BaseModel
 import os, datetime, logging
+from enum import Enum
 from typing import Optional
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
@@ -24,11 +25,24 @@ from app.payments_providers import wero as wero_provider
 router = APIRouter()
 log = logging.getLogger('payments')
 
-class CreatePaymentIn(BaseModel):
+class PaymentProvider(str, Enum):
+    auto = 'auto'
+    paypal = 'paypal'
+    stripe = 'stripe'
+    wero = 'wero'
+
+
+class PaymentFlow(str, Enum):
+    redirect = 'redirect'
+    order = 'order'  # PayPal JS SDK order creation flow
+
+
+class CreatePaymentRequest(BaseModel):
     registration_id: str
-    amount_cents: int  # client supplies minor units (cents)
+    amount_cents: int | None = None
     idempotency_key: str | None = None
-    provider: Optional[str] = None  # 'paypal' | 'wero' | 'stripe' (default based on env)
+    provider: PaymentProvider | None = PaymentProvider.auto
+    flow: PaymentFlow | None = PaymentFlow.redirect
     currency: Optional[str] = 'EUR'
 
 
@@ -61,50 +75,6 @@ async def stripe_config():
     currency = (os.getenv('PAYMENT_CURRENCY') or 'EUR').upper()
     mode = 'test' if publishable.startswith('pk_test_') or (secret or '').startswith('sk_test_') else 'live'
     return {"publishableKey": publishable, "currency": currency, "mode": mode}
-
-
-@router.post('/paypal/orders')
-async def paypal_create_order(payload: CreatePaymentIn, current_user=Depends(get_current_user)):
-    """Create a PayPal Order for Standard Checkout and return the order id.
-
-    This endpoint mirrors /payments/create for provider=paypal but returns an
-    order id instead of an approval link, so it can be used with PayPal JS SDK
-    (Standard Checkout buttons) per PayPal documentation.
-    """
-    # Validate registration and permissions
-    try:
-        reg_obj = ObjectId(payload.registration_id)
-    except InvalidId as exc:
-        raise HTTPException(status_code=400, detail='Invalid registration_id') from exc
-    reg = await require_registration_owner_or_admin(current_user, reg_obj)
-    if not reg:
-        raise HTTPException(status_code=404, detail='Registration not found')
-
-    # Load event and validate window
-    ev = None
-    try:
-        ev = await db_mod.db.events.find_one({"_id": reg.get('event_id')}) if reg and reg.get('event_id') else None
-    except PyMongoError:
-        ev = None
-    if ev:
-        await require_event_published(ev.get('_id'))
-        require_event_payment_open(ev)
-    event_fee_cents = int((ev or {}).get('fee_cents') or 0)
-    # multiply by team_size (default 1)
-    team_size = int((reg or {}).get('team_size') or 1)
-    canonical_amount_cents = event_fee_cents * max(team_size, 1)
-    if canonical_amount_cents <= 0:
-        return {"status": "no_payment_required", "amount_cents": 0}
-    if payload.amount_cents and payload.amount_cents != canonical_amount_cents:
-        raise HTTPException(status_code=400, detail='Amount must match event fee configured by organizer')
-
-    result = await paypal_provider.get_or_create_order_for_registration(
-        reg_obj,
-        amount_cents=canonical_amount_cents,
-        currency=payload.currency or 'EUR',
-        idempotency_key=payload.idempotency_key,
-    )
-    return {"id": result.get('order_id')}
 
 
 @router.post('/paypal/orders/{order_id}/capture')
@@ -142,164 +112,297 @@ async def paypal_get_order(order_id: str):
         raise HTTPException(status_code=502, detail=f'PayPal error: {str(e)}') from e
     return details
 
+def _enum_value(value, enum_cls):
+    if value is None:
+        return None
+    if isinstance(value, enum_cls):
+        return value.value
+    return str(value).lower().strip()
 
-@router.post('/create')
-async def create_payment(payload: CreatePaymentIn, current_user=Depends(get_current_user)):
-    """Create a payment record and return a payment link.
 
-    The user chooses a provider (paypal, stripe or wero). For PayPal we create
-    an order and return the approval link. Stripe uses Checkout Sessions and
-    Wero returns bank transfer instructions. The frontend should call the
-    provider flow and then notify the backend (or use webhooks) to confirm
-    payment validity which updates the DB.
-    """
-    # ensure registration exists
+def _build_payment_response(
+    *,
+    payment_doc,
+    provider: str,
+    amount_cents: int,
+    currency: str,
+    idempotency_key: str,
+    next_action: Optional[dict] = None,
+) -> dict:
+    amount_minor = amount_cents
+    if payment_doc and not amount_minor:
+        amount_minor = int(round((payment_doc.get('amount') or 0) * 100))
+    if not amount_minor and payment_doc:
+        amount_minor = 0
+    resp = {
+        "payment_id": str(payment_doc.get('_id')) if payment_doc else None,
+        "status": (payment_doc or {}).get('status') or 'pending',
+        "amount_cents": amount_minor,
+        "currency": (payment_doc or {}).get('currency') or currency,
+        "provider": provider,
+        "idempotency_key": idempotency_key,
+    }
+    if payment_doc:
+        link = payment_doc.get('payment_link')
+        if link:
+            resp['payment_link'] = link
+        if payment_doc.get('meta') and isinstance(payment_doc['meta'], dict):
+            resp['meta'] = payment_doc['meta']
+    if next_action:
+        resp['next_action'] = next_action
+    return resp
+
+
+@router.post('/')
+async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get_current_user)):
+    """Create a payment record and return the next action to the client."""
+
     try:
         reg_obj = ObjectId(payload.registration_id)
     except InvalidId as exc:
         raise HTTPException(status_code=400, detail='Invalid registration_id') from exc
 
-    # Enforce owner-or-admin for payment creation
     reg = await require_registration_owner_or_admin(current_user, reg_obj)
     if not reg:
         raise HTTPException(status_code=404, detail='Registration not found')
 
-    # idempotency: if a payment with same idempotency_key exists, return it
-    if payload.idempotency_key:
-        existing = await db_mod.db.payments.find_one({"idempotency_key": payload.idempotency_key})
-        if existing:
-            log.debug('payment.create.idempotent key=%s payment_id=%s', payload.idempotency_key, existing.get('_id'))
-            return {"payment_id": str(existing.get('_id')), "payment_link": existing.get('payment_link'), "status": existing.get('status')}
+    provider = _enum_value(payload.provider, PaymentProvider) or 'auto'
+    flow = _enum_value(payload.flow, PaymentFlow) or 'redirect'
 
-    provider = (payload.provider or '').lower().strip()
-    # default provider if not given
-    if not provider:
+    if flow == 'order' and provider not in ('paypal', 'auto'):
+        raise HTTPException(status_code=400, detail='flow "order" is only supported with provider=paypal')
+
+    # Auto-select provider when requested
+    if provider in ('', 'auto', None):
         paypal_configured = os.getenv('PAYPAL_CLIENT_ID') and (os.getenv('PAYPAL_CLIENT_SECRET') or os.getenv('PAYPAL_SECRET'))
         provider = 'paypal' if paypal_configured else ('stripe' if os.getenv('STRIPE_API_KEY') else 'wero')
 
-    # Derive amount from the event settings (admin-controlled). Use event.fee_cents as source of truth.
-    # Load the registration to get event_id (we already loaded `reg` above).
+    currency = (payload.currency or 'EUR').upper()
+
     ev = None
     try:
         ev = await db_mod.db.events.find_one({"_id": reg.get('event_id')}) if reg and reg.get('event_id') else None
     except PyMongoError:
         ev = None
-    # Do not allow payment creation for events that aren't published
+
     if ev:
         await require_event_published(ev.get('_id'))
-        # Ensure payment window is still open
         require_event_payment_open(ev)
+
     event_fee_cents = int((ev or {}).get('fee_cents') or 0)
     team_size = int((reg or {}).get('team_size') or 1)
     canonical_amount_cents = event_fee_cents * max(team_size, 1)
-    if canonical_amount_cents <= 0:
-        # No payment required for this registration/event
-        return {"status": "no_payment_required", "amount_cents": 0}
 
-    # If client passed an explicit amount, ensure it matches the admin-configured fee
+    if canonical_amount_cents <= 0:
+        return {
+            "status": "no_payment_required",
+            "amount_cents": 0,
+            "provider": provider,
+            "idempotency_key": None,
+        }
+
     if payload.amount_cents and payload.amount_cents != canonical_amount_cents:
         raise HTTPException(status_code=400, detail='Amount must match event fee configured by organizer')
-    # canonical_amount_cents computed above includes team_size
 
-    # Handle PayPal
+    canonical_idempotency = payload.idempotency_key or f"{reg_obj}:{provider}:{flow}"
+
+    existing = await db_mod.db.payments.find_one({"idempotency_key": canonical_idempotency})
+    if existing:
+        log.debug('payment.create.idempotent key=%s payment_id=%s', canonical_idempotency, existing.get('_id'))
+        next_action = None
+        if provider == 'paypal' and flow == 'order':
+            next_action = {
+                "type": "paypal_order",
+                "order_id": existing.get('provider_payment_id'),
+                "approval_link": existing.get('payment_link'),
+            }
+        elif existing.get('payment_link'):
+            next_action = {"type": "redirect", "url": existing.get('payment_link')}
+        return _build_payment_response(
+            payment_doc=existing,
+            provider=provider,
+            amount_cents=canonical_amount_cents,
+            currency=currency,
+            idempotency_key=canonical_idempotency,
+            next_action=next_action,
+        )
+
+    existing_for_registration = await db_mod.db.payments.find_one({"registration_id": reg_obj, "provider": provider})
+    if existing_for_registration and not existing_for_registration.get('idempotency_key'):
+        await db_mod.db.payments.update_one({"_id": existing_for_registration.get('_id')}, {"$set": {"idempotency_key": canonical_idempotency}})
+        existing_for_registration['idempotency_key'] = canonical_idempotency
+
+    if existing_for_registration and flow == 'order':
+        next_action = {
+            "type": "paypal_order",
+            "order_id": existing_for_registration.get('provider_payment_id'),
+            "approval_link": existing_for_registration.get('payment_link'),
+        }
+        return _build_payment_response(
+            payment_doc=existing_for_registration,
+            provider=provider,
+            amount_cents=canonical_amount_cents,
+            currency=currency,
+            idempotency_key=canonical_idempotency,
+            next_action=next_action,
+        )
+
+    # Provider-specific flows
     if provider == 'paypal':
-        doc = await paypal_provider.ensure_paypal_payment(
+        if flow == 'order':
+            result = await paypal_provider.get_or_create_order_for_registration(
+                reg_obj,
+                amount_cents=canonical_amount_cents,
+                currency=currency,
+                idempotency_key=canonical_idempotency,
+            )
+            payment_doc = (result or {}).get('payment')
+            order_id = (result or {}).get('order_id')
+            if not payment_doc or not order_id:
+                raise HTTPException(status_code=500, detail='Failed to prepare PayPal order')
+            if payment_doc.get('idempotency_key') != canonical_idempotency:
+                await db_mod.db.payments.update_one({"_id": payment_doc.get('_id')}, {"$set": {"idempotency_key": canonical_idempotency}})
+                payment_doc['idempotency_key'] = canonical_idempotency
+            next_action = {
+                "type": "paypal_order",
+                "order_id": order_id,
+                "approval_link": payment_doc.get('payment_link'),
+            }
+            return _build_payment_response(
+                payment_doc=payment_doc,
+                provider=provider,
+                amount_cents=canonical_amount_cents,
+                currency=currency,
+                idempotency_key=canonical_idempotency,
+                next_action=next_action,
+            )
+
+        payment_doc = await paypal_provider.ensure_paypal_payment(
             reg_obj,
             amount_cents=canonical_amount_cents,
-            currency=payload.currency or 'EUR',
-            idempotency_key=payload.idempotency_key,
+            currency=currency,
+            idempotency_key=canonical_idempotency,
         )
-        return {"payment_id": str(doc.get('_id')), "payment_link": doc.get('payment_link'), "status": doc.get('status')}
+        if payment_doc.get('idempotency_key') != canonical_idempotency:
+            await db_mod.db.payments.update_one({"_id": payment_doc.get('_id')}, {"$set": {"idempotency_key": canonical_idempotency}})
+            payment_doc['idempotency_key'] = canonical_idempotency
+        next_action = {"type": "redirect", "url": payment_doc.get('payment_link')}
+        return _build_payment_response(
+            payment_doc=payment_doc,
+            provider=provider,
+            amount_cents=canonical_amount_cents,
+            currency=currency,
+            idempotency_key=canonical_idempotency,
+            next_action=next_action,
+        )
 
-    # Handle Stripe (existing)
-    stripe_key = os.getenv('STRIPE_API_KEY')
-    if provider == 'stripe' and stripe_key:
-        # if a payment already exists for this registration, return it
-        existing_by_reg = await db_mod.db.payments.find_one({"registration_id": reg_obj})
-        if existing_by_reg:
-            log.debug('payment.create.stripe.existing registration_id=%s payment_id=%s', payload.registration_id, existing_by_reg.get('_id'))
-            return {"payment_id": str(existing_by_reg.get('_id')), "payment_link": existing_by_reg.get('payment_link'), "status": existing_by_reg.get('status')}
-        # also respect idempotency key if provided
-        if payload.idempotency_key:
-            existing_by_idem = await db_mod.db.payments.find_one({"idempotency_key": payload.idempotency_key})
-            if existing_by_idem:
-                return {"payment_id": str(existing_by_idem.get('_id')), "payment_link": existing_by_idem.get('payment_link'), "status": existing_by_idem.get('status')}
+    if provider == 'stripe':
+        stripe_key = os.getenv('STRIPE_API_KEY')
+        if not stripe_key:
+            raise HTTPException(status_code=400, detail='Stripe not configured')
 
-        # create or return an existing payment doc atomically using upsert to avoid races
         initial_doc = {
             "registration_id": reg_obj,
             "amount": canonical_amount_cents / 100.0,
-            "currency": 'EUR',
+            "currency": currency,
             "status": "pending",
             "provider": "stripe",
-            "idempotency_key": payload.idempotency_key,
+            "idempotency_key": canonical_idempotency,
             "meta": {},
             "created_at": datetime.datetime.utcnow(),
         }
         doc = await db_mod.db.payments.find_one_and_update(
-            {"registration_id": reg_obj},
+            {"registration_id": reg_obj, "provider": "stripe"},
             {"$setOnInsert": initial_doc},
             upsert=True,
             return_document=ReturnDocument.AFTER,
         )
+        if doc.get('idempotency_key') != canonical_idempotency:
+            await db_mod.db.payments.update_one({"_id": doc.get('_id')}, {"$set": {"idempotency_key": canonical_idempotency}})
+            doc['idempotency_key'] = canonical_idempotency
+
         payment_id = doc.get('_id')
-        # if provider details already present return immediately
         if doc.get('provider_payment_id') and doc.get('payment_link'):
-            return {"payment_id": str(payment_id), "payment_link": doc.get('payment_link'), "status": doc.get('status')}
+            next_action = {"type": "redirect", "url": doc.get('payment_link')}
+            return _build_payment_response(
+                payment_doc=doc,
+                provider=provider,
+                amount_cents=canonical_amount_cents,
+                currency=currency,
+                idempotency_key=canonical_idempotency,
+                next_action=next_action,
+            )
 
-        # create stripe checkout session via provider helper
         try:
-            session = stripe_provider.create_checkout_session(canonical_amount_cents, payment_id, payload.idempotency_key)
-
-        except Exception as e:  # keeping broad due to provider SDK variability
+            session = stripe_provider.create_checkout_session(canonical_amount_cents, payment_id, canonical_idempotency)
+        except Exception as exc:  # noqa: BLE001
             try:
                 await db_mod.db.payments.delete_one({"_id": payment_id, "provider_payment_id": {"$exists": False}})
             except PyMongoError:
                 pass
-            raise HTTPException(status_code=500, detail=f'Stripe error: {str(e)}') from e
+            raise HTTPException(status_code=500, detail=f'Stripe error: {str(exc)}') from exc
 
-        # update payment with provider details
-        await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"provider_payment_id": session.get('id'), "payment_link": session.get('url')}})
+        await db_mod.db.payments.update_one(
+            {"_id": payment_id},
+            {"$set": {"provider_payment_id": session.get('id'), "payment_link": session.get('url')}}
+        )
         log.info('payment.create.stripe.ok payment_id=%s session_id=%s', payment_id, session.get('id'))
         try:
             await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
         except PyMongoError:
             pass
-        return {"payment_id": str(payment_id), "payment_link": session.get('url'), "status": "pending"}
+        next_action = {"type": "redirect", "url": session.get('url')}
+        doc['provider_payment_id'] = session.get('id')
+        doc['payment_link'] = session.get('url')
+        return _build_payment_response(
+            payment_doc=doc,
+            provider=provider,
+            amount_cents=canonical_amount_cents,
+            currency=currency,
+            idempotency_key=canonical_idempotency,
+            next_action=next_action,
+        )
 
-    # WERO: publish EPC-compliant bank transfer instructions for manual wires.
     if provider == 'wero':
         amount_cents = canonical_amount_cents
-        # Upsert payment doc for WERO (bank transfer)
         wero_doc = {
             "registration_id": reg_obj,
             "amount": amount_cents / 100.0,
-            "currency": (payload.currency or 'EUR').upper(),
+            "currency": currency,
             "status": "pending",
             "provider": "wero",
-            "idempotency_key": payload.idempotency_key,
+            "idempotency_key": canonical_idempotency,
             "meta": {},
             "created_at": datetime.datetime.utcnow(),
         }
         doc = await db_mod.db.payments.find_one_and_update(
-            {"registration_id": reg_obj},
+            {"registration_id": reg_obj, "provider": "wero"},
             {"$setOnInsert": wero_doc},
             upsert=True,
             return_document=ReturnDocument.AFTER,
         )
-        payment_id = doc.get('_id')
-        # Build the dataset consumed by the frontend to display IBAN/BIC/QR code.
-        instructions = wero_provider.build_instructions(payment_id, amount_cents, payload.currency or 'EUR')
-        log.info('payment.create.wero.ok payment_id=%s amount_cents=%s', payment_id, amount_cents)
-        await db_mod.db.payments.update_one({"_id": payment_id}, {"$set": {"meta.instructions": instructions}})
+        if doc.get('idempotency_key') != canonical_idempotency:
+            await db_mod.db.payments.update_one({"_id": doc.get('_id')}, {"$set": {"idempotency_key": canonical_idempotency}})
+            doc['idempotency_key'] = canonical_idempotency
+        instructions = wero_provider.build_instructions(doc.get('_id'), amount_cents, currency)
+        await db_mod.db.payments.update_one({"_id": doc.get('_id')}, {"$set": {"meta.instructions": instructions}})
+        log.info('payment.create.wero.ok payment_id=%s amount_cents=%s', doc.get('_id'), amount_cents)
         try:
-            await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
+            await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": doc.get('_id')}})
         except PyMongoError:
             pass
-        return {"payment_id": str(payment_id), "status": "pending", "instructions": instructions}
+        next_action = {"type": "instructions", "instructions": instructions}
+        response = _build_payment_response(
+            payment_doc=doc,
+            provider=provider,
+            amount_cents=amount_cents,
+            currency=currency,
+            idempotency_key=canonical_idempotency,
+            next_action=next_action,
+        )
+        response['instructions'] = instructions
+        return response
 
-    # If provider is not supported or not configured, reject request. All
-    # supported providers are handled above (paypal, stripe, wero).
     raise HTTPException(status_code=400, detail='Unsupported payment provider or provider not configured')
 
 

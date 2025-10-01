@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal
 from app import db as db_mod
 from app.auth import get_current_user
@@ -8,16 +8,43 @@ from bson.objectid import ObjectId
 from bson.errors import InvalidId
 import datetime
 import os
+from app.enums import Gender, DietaryPreference, CoursePreference
 
 router = APIRouter()
 
 
+def _require_exactly_one_partner(partner_existing, partner_external):
+    if bool(partner_existing) == bool(partner_external):
+        raise HTTPException(status_code=400, detail='exactly one of partner_existing or partner_external required')
+
+
+def _enum_value(enum_cls, value, default=None):
+    if value is None:
+        return default
+    if isinstance(value, enum_cls):
+        return value.value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        return normalized or default
+    return default
+
+
 class SoloRegistrationIn(BaseModel):
     event_id: str
-    dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    dietary_preference: DietaryPreference | None = None
     kitchen_available: Optional[bool] = None
     main_course_possible: Optional[bool] = None
-    course_preference: Optional[Literal['appetizer','main','dessert']] = None
+    course_preference: CoursePreference | None = None
+
+    @field_validator('dietary_preference', mode='before')
+    @classmethod
+    def normalize_dietary(cls, value):
+        return DietaryPreference.normalize(value)
+
+    @field_validator('course_preference', mode='before')
+    @classmethod
+    def normalize_course(cls, value):
+        return CoursePreference.normalize(value)
 
 
 class TeamExistingUser(BaseModel):
@@ -27,11 +54,23 @@ class TeamExistingUser(BaseModel):
 class TeamExternalPartner(BaseModel):
     name: str
     email: EmailStr
-    gender: Optional[Literal['female','male','diverse','prefer_not_to_say']] = None
-    dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    gender: Gender | None = None
+    dietary_preference: DietaryPreference | None = None
     field_of_study: Optional[str] = None
     kitchen_available: Optional[bool] = None
     main_course_possible: Optional[bool] = None
+
+    @field_validator('gender', mode='before')
+    @classmethod
+    def normalize_gender(cls, value):
+        if value is None:
+            return None
+        return Gender.normalize(value)
+
+    @field_validator('dietary_preference', mode='before')
+    @classmethod
+    def normalize_dietary(cls, value):
+        return DietaryPreference.normalize(value)
 
 
 class TeamRegistrationIn(BaseModel):
@@ -41,11 +80,21 @@ class TeamRegistrationIn(BaseModel):
     # Which address hosts cooking ("creator" or "partner")
     cooking_location: Literal['creator','partner']
     # Creator overrides for this event
-    dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    dietary_preference: DietaryPreference | None = None
     kitchen_available: Optional[bool] = None
     main_course_possible: Optional[bool] = None
     # Team course preference
-    course_preference: Optional[Literal['appetizer','main','dessert']] = None
+    course_preference: CoursePreference | None = None
+
+    @field_validator('dietary_preference', mode='before')
+    @classmethod
+    def normalize_dietary(cls, value):
+        return DietaryPreference.normalize(value)
+
+    @field_validator('course_preference', mode='before')
+    @classmethod
+    def normalize_course(cls, value):
+        return CoursePreference.normalize(value)
 
 
 class ReplacePartnerExisting(BaseModel):
@@ -55,19 +104,36 @@ class ReplacePartnerExisting(BaseModel):
 class ReplacePartnerExternal(BaseModel):
     name: str
     email: EmailStr
-    gender: Optional[Literal['female','male','diverse','prefer_not_to_say']] = None
-    dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    gender: Gender | None = None
+    dietary_preference: DietaryPreference | None = None
     field_of_study: Optional[str] = None
     kitchen_available: Optional[bool] = None
     main_course_possible: Optional[bool] = None
+
+    @field_validator('gender', mode='before')
+    @classmethod
+    def normalize_gender(cls, value):
+        if value is None:
+            return None
+        return Gender.normalize(value)
+
+    @field_validator('dietary_preference', mode='before')
+    @classmethod
+    def normalize_dietary(cls, value):
+        return DietaryPreference.normalize(value)
 
 
 class ReplacePartnerIn(BaseModel):
     partner_existing: Optional[ReplacePartnerExisting] = None
     partner_external: Optional[ReplacePartnerExternal] = None
     # Optional updated course preference / cooking location (cannot violate constraints)
-    course_preference: Optional[Literal['appetizer','main','dessert']] = None
+    course_preference: CoursePreference | None = None
     cooking_location: Optional[Literal['creator','partner']] = None
+
+    @field_validator('course_preference', mode='before')
+    @classmethod
+    def normalize_course(cls, value):
+        return CoursePreference.normalize(value)
 
 
 def _now():
@@ -153,10 +219,14 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
     creator = await _ensure_user(current_user['email'])
     if not creator:
         raise HTTPException(status_code=404, detail='User not found')
-    diet = (payload.dietary_preference or creator.get('default_dietary_preference') or 'omnivore').lower()
+    diet = (
+        _enum_value(DietaryPreference, payload.dietary_preference)
+        or _enum_value(DietaryPreference, creator.get('default_dietary_preference'))
+        or 'omnivore'
+    )
     kitchen_available = payload.kitchen_available if payload.kitchen_available is not None else bool(creator.get('kitchen_available'))
     main_possible = payload.main_course_possible if payload.main_course_possible is not None else bool(creator.get('main_course_possible'))
-    course = (payload.course_preference or '').lower() or None
+    course = _enum_value(CoursePreference, payload.course_preference)
     _validate_course_choice(course, main_possible)
 
     # Upsert registration per (event,user)
@@ -213,21 +283,18 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
 
     # Create payment (one person fee)
     # Payment amount per person comes from event.fee_cents; keep payments router logic for provider integration
-    # Just return a pointer for client to call /payments/create
+    # Just return a pointer for client to call /payments
     return {
         'registration_id': str(reg_id),
         'team_size': 1,
         'amount_cents': int(ev.get('fee_cents') or 0),
-        'payment_create_endpoint': '/payments/create',
+    'payment_create_endpoint': '/payments',
     }
 
 
 @router.post('/team')
 async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_current_user)):
-    if not payload.partner_existing and not payload.partner_external:
-        raise HTTPException(status_code=400, detail='Provide partner_existing or partner_external')
-    if payload.partner_existing and payload.partner_external:
-        raise HTTPException(status_code=400, detail='Provide only one partner type')
+    _require_exactly_one_partner(payload.partner_existing, payload.partner_external)
 
     ev = await _get_event_or_404(payload.event_id)
     creator = await _ensure_user(current_user['email'])
@@ -264,6 +331,8 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
     else:
         # External partner: store minimal snapshot in team doc
         partner_external_info = payload.partner_external.model_dump()
+        partner_external_info['dietary_preference'] = _enum_value(DietaryPreference, partner_external_info.get('dietary_preference'))
+        partner_external_info['gender'] = _enum_value(Gender, partner_external_info.get('gender'))
 
     # Compute per-person overrides for creator and partner snapshot
     creator_kitchen = payload.kitchen_available if payload.kitchen_available is not None else bool(creator.get('kitchen_available'))
@@ -277,15 +346,20 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             chosen_location_main = bool(partner_user.get('main_course_possible'))
         else:
             chosen_location_main = bool(partner_external_info.get('main_course_possible')) if partner_external_info else False
-    _validate_course_choice(payload.course_preference, chosen_location_main)
+    normalized_course = _enum_value(CoursePreference, payload.course_preference)
+    _validate_course_choice(normalized_course, chosen_location_main)
 
     # Team dietary: precedence Vegan > Vegetarian > Omnivore
-    creator_diet = (payload.dietary_preference or creator.get('default_dietary_preference') or 'omnivore').lower()
+    creator_diet = (
+        _enum_value(DietaryPreference, payload.dietary_preference)
+        or _enum_value(DietaryPreference, creator.get('default_dietary_preference'))
+        or 'omnivore'
+    )
     partner_diet = None
     if partner_user:
-        partner_diet = (partner_user.get('default_dietary_preference') or 'omnivore').lower()
+        partner_diet = _enum_value(DietaryPreference, partner_user.get('default_dietary_preference')) or 'omnivore'
     elif partner_external_info:
-        partner_diet = (partner_external_info.get('dietary_preference') or 'omnivore').lower()
+        partner_diet = partner_external_info.get('dietary_preference') or 'omnivore'
     team_diet = compute_team_diet(creator_diet, partner_diet)
 
     # Create team document
@@ -304,7 +378,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             }
         ],
         'cooking_location': payload.cooking_location,  # 'creator' | 'partner'
-        'course_preference': payload.course_preference,
+        'course_preference': normalized_course,
         'team_diet': team_diet,
         'created_at': now,
         'updated_at': now,
@@ -317,7 +391,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             'email': partner_user.get('email'),
             'kitchen_available': bool(partner_user.get('kitchen_available')),
             'main_course_possible': bool(partner_user.get('main_course_possible')),
-            'diet': (partner_user.get('default_dietary_preference') or 'omnivore').lower(),
+            'diet': _enum_value(DietaryPreference, partner_user.get('default_dietary_preference')) or 'omnivore',
         })
     else:
         team_doc['members'].append({
@@ -325,7 +399,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             'name': partner_external_info.get('name'),
             'email': partner_external_info.get('email').lower(),
             'gender': partner_external_info.get('gender'),
-            'diet': (partner_external_info.get('dietary_preference') or 'omnivore').lower(),
+            'diet': partner_external_info.get('dietary_preference') or 'omnivore',
             'field_of_study': partner_external_info.get('field_of_study'),
             'kitchen_available': bool(partner_external_info.get('kitchen_available')),
             'main_course_possible': bool(partner_external_info.get('main_course_possible')),
@@ -357,7 +431,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             'team_id': team_id,
             'team_size': 2,
             'preferences': {
-                'course_preference': payload.course_preference,
+                'course_preference': normalized_course,
                 'cooking_location': payload.cooking_location,
             },
             'diet': team_diet,
@@ -395,7 +469,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
         'team_id': team_id,
         'team_size': 2,
         'preferences': {
-            'course_preference': payload.course_preference,
+            'course_preference': normalized_course,
             'cooking_location': payload.cooking_location,
         },
         'diet': team_diet,
@@ -448,7 +522,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
         'partner_registration_id': str(reg_partner_id) if reg_partner_id else None,
         'team_size': 2,
         'amount_cents': team_amount,
-        'payment_create_endpoint': '/payments/create',
+    'payment_create_endpoint': '/payments',
     }
 
 
@@ -653,10 +727,7 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
     if _cancellation_deadline_passed(ev):
         raise HTTPException(status_code=400, detail='Replacement deadline passed')
     # Validate payload
-    if not payload.partner_existing and not payload.partner_external:
-        raise HTTPException(status_code=400, detail='Provide partner_existing or partner_external')
-    if payload.partner_existing and payload.partner_external:
-        raise HTTPException(status_code=400, detail='Provide only one partner type')
+    _require_exactly_one_partner(payload.partner_existing, payload.partner_external)
     # Build new member snapshot
     now = datetime.datetime.utcnow()
     partner_user = None

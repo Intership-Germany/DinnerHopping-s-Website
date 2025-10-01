@@ -9,11 +9,13 @@ Existing records may still contain 'name' or 'is_verified'; they are ignored.
 """
 import os
 import re
+import json
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal, List
 from contextlib import suppress
 from ..auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
 from ..utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair, send_email
+from ..enums import Gender
 from .. import db as db_mod
 
 ######### Constants #########
@@ -70,7 +72,7 @@ class UserCreate(BaseModel):
     street_no: str
     postal_code: str
     city: str
-    gender: Literal['female','male','diverse','prefer_not_to_say']
+    gender: Gender
     phone_number: str | None = None
     # Optional extras
     lat: float | None = None
@@ -100,6 +102,11 @@ class UserCreate(BaseModel):
                 # Allow custom allergies that aren't in the predefined list
                 validated_allergies.append(allergy.strip())
         return validated_allergies
+
+    @field_validator('gender', mode='before')
+    @classmethod
+    def normalize_gender(cls, value):
+        return Gender.normalize(value)
 
 class UserOut(BaseModel):
     """Public/own profile user representation without duplicated full name field.
@@ -145,7 +152,7 @@ async def register(u: UserCreate):
         'email': email_lower,
         'first_name': u.first_name.strip(),
         'last_name': u.last_name.strip(),
-        'gender': (u.gender or 'prefer_not_to_say').lower(),
+    'gender': Gender.normalize(u.gender).value,
         'phone_number': u.phone_number,
         'address_struct': {
             'street': u.street,
@@ -198,8 +205,89 @@ class LoginIn(BaseModel):
     username: EmailStr
     password: str
 
+
+def _extract_credentials_from_source(source, current_username: str | None, current_password: str | None):
+    if not isinstance(source, dict):
+        return current_username, current_password
+
+    candidate_username = source.get('username') or source.get('email')
+    if isinstance(candidate_username, str) and candidate_username.strip() and not current_username:
+        current_username = candidate_username.strip()
+
+    candidate_password = source.get('password')
+    if isinstance(candidate_password, str) and candidate_password and not current_password:
+        current_password = candidate_password
+
+    # Inspect nested payloads commonly used by clients
+    nested_keys = ('payload', 'data', 'credentials')
+    for key in nested_keys:
+        nested = source.get(key)
+        if isinstance(nested, dict):
+            current_username, current_password = _extract_credentials_from_source(nested, current_username, current_password)
+        elif isinstance(nested, str):
+            try:
+                nested_dict = json.loads(nested)
+            except (TypeError, ValueError):
+                continue
+            current_username, current_password = _extract_credentials_from_source(nested_dict, current_username, current_password)
+
+    return current_username, current_password
+
+
+async def _resolve_login_credentials(
+    request: Request,
+    username_field: str | None,
+    password_field: str | None,
+    payload_form: str | None,
+    payload_inline: str | None,
+) -> tuple[str, str]:
+    sources: list[dict] = []
+
+    for raw in (payload_form, payload_inline):
+        if raw is None:
+            continue
+        try:
+            parsed = json.loads(raw) if raw else {}
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail='payload must be valid JSON') from exc
+        else:
+            if isinstance(parsed, dict):
+                sources.append(parsed)
+
+    with suppress(Exception):
+        data = await request.json()
+        if isinstance(data, dict):
+            sources.append(data)
+
+    username_value = username_field.strip() if isinstance(username_field, str) and username_field.strip() else None
+    password_value = password_field.strip() if isinstance(password_field, str) and password_field.strip() else None
+
+    for source in sources:
+        username_value, password_value = _extract_credentials_from_source(source, username_value, password_value)
+        if username_value and password_value:
+            break
+
+    if not (username_value and password_value):
+        with suppress(Exception):
+            form_data = await request.form()
+            if form_data:
+                form_dict = {key: form_data.get(key) for key in form_data.keys()}
+                sources.append(form_dict)
+                username_value, password_value = _extract_credentials_from_source(form_dict, username_value, password_value)
+
+    if not (username_value and password_value):
+        raise HTTPException(status_code=422, detail='username and password required')
+
+    return username_value.lower(), password_value
+
 @router.post('/login', response_model=TokenOut, responses={401: {"description": "Unauthorized - invalid credentials or email not verified"}, 422: {"description": "Validation error"}})
-async def login(request: Request, username: EmailStr | None = Form(None), password: str | None = Form(None), payload_form: str | None = Form(None)):
+async def login(
+    request: Request,
+    username: EmailStr | None = Form(None),
+    password: str | None = Form(None),
+    payload_form: str | None = Form(None),
+    payload: str | None = Form(None),
+):
     """Login accepting either JSON body {username,password} or form data.
 
     This maintains compatibility with OAuth2PasswordRequestForm clients and
@@ -207,37 +295,7 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
     """
     # Accept credentials from multiple client types: form-data (OAuth2 clients),
     # optional `payload_form` (a JSON string or empty string), or a raw JSON body.
-    import json
-    payload = None
-    # 1) payload_form (form field) — some clients send payload="" or payload="{...}"
-    if payload_form is not None:
-        try:
-            payload = json.loads(payload_form) if payload_form else {}
-        except (ValueError, TypeError):
-            payload = {}
-
-    # 2) if no payload yet, attempt to read JSON body (best-effort; will raise if body is form-encoded)
-    if payload is None:
-        with suppress(Exception):
-            data = await request.json()
-            if isinstance(data, dict):
-                payload = data
-
-    # If we were given a payload (dict), extract username/password from it
-    if isinstance(payload, dict):
-        username = username or payload.get('username') or payload.get('email')
-        password = password or payload.get('password')
-
-    # 3) finally fallback to explicit form fields
-    if not username or not password:
-        with suppress(Exception):
-            form = await request.form()
-            username = username or form.get('username')
-            password = password or form.get('password')
-
-    if not username or not password:
-        raise HTTPException(status_code=422, detail='username and password required')
-    username = username.lower()
+    username, password = await _resolve_login_credentials(request, username, password, payload_form, payload)
     # require verified email
     user_obj = await get_user_by_email(username)
     if not user_obj:
@@ -366,7 +424,7 @@ async def refresh(request: Request, response: Response):
 class ProfileUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    gender: Optional[Literal['female','male','diverse','prefer_not_to_say']] = None
+    gender: Gender | None = None
     email: EmailStr | None = None
     # Structured address components only
     street: Optional[str] = None
@@ -402,6 +460,13 @@ class ProfileUpdate(BaseModel):
                 # Allow custom allergies that aren't in the predefined list
                 validated_allergies.append(allergy.strip())
         return validated_allergies
+
+    @field_validator('gender', mode='before')
+    @classmethod
+    def normalize_gender(cls, value):
+        if value is None:
+            return None
+        return Gender.normalize(value)
     # Optional profile fields (user-editable)
     kitchen_available: Optional[bool] = None
     main_course_possible: Optional[bool] = None
@@ -470,8 +535,8 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
             raise HTTPException(status_code=400, detail='Invalid email')
     # no longer maintaining combined 'name' field; clients compose front-end
     # normalize gender
-    if 'gender' in update_data and isinstance(update_data.get('gender'), str):
-        update_data['gender'] = update_data['gender'].lower()
+    if 'gender' in update_data:
+        update_data['gender'] = Gender.normalize(update_data.get('gender')).value
     # handle structured address updates
     if any(k in update_data for k in ('street','street_no','postal_code','city')):
         existing = current_user.get('address_struct') or {}

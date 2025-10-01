@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DinnerHopping - PayPal Example</title>
+  <script src="./config.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
+    .box { max-width: 720px; margin: 0 auto; padding: 1rem 1.25rem; border: 1px solid #ddd; border-radius: 8px; }
+    label { display: block; margin-top: .75rem; font-weight: 600; }
+    input[type="text"] { width: 100%; padding: .5rem; border: 1px solid #ccc; border-radius: 4px; }
+    .note { color: #555; font-size: .9rem; }
+    #result { margin-top: 1rem; white-space: pre-wrap; background: #f7f7f7; padding: .5rem; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>PayPal Standard Checkout (Demo)</h1>
+    <p class="note">This page demonstrates using the PayPal JS SDK Buttons with backend endpoints.<br/>
+      You must be logged in to the backend (cookie session/JWT) and have a valid registration_id.
+    </p>
+
+    <label for="registration">Registration ID</label>
+    <input id="registration" type="text" placeholder="64b1f..." />
+
+    <div id="paypal-buttons" style="margin-top:1rem;"></div>
+    <div id="result"></div>
+  </div>
+
+  <script>
+    (async function () {
+  const backend = window.BACKEND_BASE_URL.replace(/\/$/, ''); // fallback removed
+      const res = document.getElementById('result');
+      function log(msg, obj) {
+        res.textContent = (msg || '') + (obj ? '\n' + JSON.stringify(obj, null, 2) : '');
+      }
+      function getCookie(name) {
+        return document.cookie.split('; ').reduce((r, v) => { const p = v.split('='); return p[0] === name ? decodeURIComponent(p[1]) : r; }, '');
+      }
+      function csrfHeaders(h = {}) {
+        const csrf = getCookie('__Host-csrf_token') || getCookie('csrf_token');
+        if (csrf) h['X-CSRF-Token'] = csrf;
+        return h;
+      }
+
+      // Fetch PayPal config (clientId, currency, env)
+      let cfg;
+      try {
+        const r = await fetch(`${backend}/payments/paypal/config`, { credentials: 'include' });
+        if (!r.ok) throw new Error(`config ${r.status}`);
+        cfg = await r.json();
+      } catch (e) {
+        log('Failed to load PayPal config. Are PAYPAL_* env vars set and server running?', { error: String(e) });
+        return;
+      }
+
+      // Dynamically load the PayPal JS SDK with the returned client-id and currency
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        const params = new URLSearchParams({ 'client-id': cfg.clientId, currency: cfg.currency });
+        s.src = `https://www.paypal.com/sdk/js?${params.toString()}`;
+        s.onload = resolve; s.onerror = () => reject(new Error('Failed to load PayPal SDK'));
+        document.head.appendChild(s);
+      });
+
+      paypal.Buttons({
+        createOrder: async function () {
+          const regId = document.getElementById('registration').value.trim();
+          if (!regId) { alert('Enter registration_id'); throw new Error('missing registration'); }
+          const body = { registration_id: regId, amount_cents: 0, provider: 'paypal', currency: cfg.currency, flow: 'order' };
+          const r = await fetch(`${backend}/payments`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: csrfHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify(body)
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) { log('Create order failed', j); throw new Error('create failed'); }
+          const next = j && j.next_action ? j.next_action : {};
+          const orderId = next.type === 'paypal_order' ? next.order_id : (j.order_id || j.id);
+          if (!orderId) throw new Error('missing order id');
+          return orderId; // return PayPal order id
+        },
+        onApprove: async function (data) {
+          const r = await fetch(`${backend}/payments/paypal/orders/${encodeURIComponent(data.orderID)}/capture`, {
+            method: 'POST', credentials: 'include', headers: csrfHeaders({ 'Content-Type': 'application/json' })
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) { log('Capture failed', j); return; }
+          log('Payment result', j);
+        },
+        onError: function (err) { log('PayPal error', { error: String(err) }); }
+      }).render('#paypal-buttons');
+    })();
+  </script>
+</body>
+</html>
