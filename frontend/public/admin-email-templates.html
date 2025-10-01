@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - Email Templates</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <script src="js/config.js"></script>
+  <script src="js/core/client.js"></script>
+  <script src="js/core/auth.js"></script>
+  <script src="js/utils/network-errors.js"></script>
+  <script src="js/debug-banner.js"></script>
+  <script src="js/core/includes.js" defer></script>
+</head>
+<body class="text-[#172a3a] bg-[#f0f4f7] min-h-screen font-inter">
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    <h1 class="text-2xl font-bold mb-2 text-[#172a3a]">Email Templates</h1>
+    <p class="text-sm text-gray-600 mb-6">Use {{variable}} placeholders. Available variables are free-form; document them in description. HTML will be downgraded to plain text in current email sender.</p>
+
+    <div class="flex gap-6">
+      <div class="w-1/3">
+        <button id="newBtn" class="w-full mb-3 py-2 rounded-xl bg-[#f46f47] text-white font-semibold">+ New Template</button>
+        <ul id="templateList" class="space-y-2"></ul>
+      </div>
+
+      <div id="editor" class="w-2/3 bg-white p-6 rounded-2xl shadow border border-[#f0f4f7] hidden">
+        <h2 id="editorTitle" class="text-lg font-semibold text-[#f46f47] mb-4">Template</h2>
+
+        <label class="block text-sm font-medium text-gray-700">Key</label>
+        <input id="tplKey" class="mt-1 mb-3 border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50" />
+
+        <label class="block text-sm font-medium text-gray-700">Subject</label>
+        <input id="tplSubject" class="mt-1 mb-3 border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50" />
+
+        <label class="block text-sm font-medium text-gray-700">Description</label>
+        <textarea id="tplDescription" placeholder="Explain usage and variables" class="mt-1 mb-3 border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50"></textarea>
+
+        <label class="block text-sm font-medium text-gray-700">Variables (comma separated)</label>
+        <input id="tplVars" placeholder="event_title, event_date, email" class="mt-1 mb-3 border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50" />
+
+        <label class="block text-sm font-medium text-gray-700">HTML Body</label>
+        <textarea id="tplHtml" class="mt-1 mb-3 border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none bg-gray-50 min-h-[180px]"></textarea>
+
+        <div class="flex items-center gap-3 mt-2">
+          <button id="saveBtn" class="px-4 py-2 bg-[#f46f47] text-white rounded-xl font-semibold">Save</button>
+          <button id="cancelBtn" class="px-4 py-2 bg-gray-600 text-white rounded-xl">Cancel</button>
+          <button id="deleteBtn" class="px-4 py-2 bg-red-600 text-white rounded-xl">Delete</button>
+        </div>
+        <div id="status" class="mt-3 text-sm"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/admin-email-templates.js" defer></script>
+</body>
+</html>

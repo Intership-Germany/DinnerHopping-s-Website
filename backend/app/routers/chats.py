@@ -25,7 +25,7 @@ class PostMessageIn(BaseModel):
 
 @router.post('/groups')
 async def create_group(payload: CreateGroupIn, current_user=Depends(get_current_user)):
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     # ensure event exists and is published; ensure user is registered or organizer
     ev = await require_event_published(payload.event_id)
     await require_user_registered_or_organizer(current_user, payload.event_id)
@@ -92,7 +92,7 @@ async def list_messages(group_id: str, current_user=Depends(get_current_user)):
 
 @router.post('/messages')
 async def post_message(payload: PostMessageIn, current_user=Depends(get_current_user)):
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     doc = {
         'group_id': payload.group_id,
         'sender_email': current_user.get('email'),
