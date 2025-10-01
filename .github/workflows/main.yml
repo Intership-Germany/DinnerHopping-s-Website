@@ -1,0 +1,185 @@
+name: Deploy DinnerHopping
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: VPS_HOST
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Configure SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+      
+      - name: Add host to known_hosts
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          PORT=${DEPLOY_PORT:-22}
+          mkdir -p ~/.ssh
+          ssh-keyscan -p ${PORT} -H ${DEPLOY_HOST} >> ~/.ssh/known_hosts 2>/dev/null || true
+      
+      - name: Deploy to production
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          REMOTE_GHCR_USER: ${{ secrets.REMOTE_GHCR_USER }}
+          REMOTE_GHCR_PAT: ${{ secrets.REMOTE_GHCR_PAT }}
+        run: |
+          PORT=${DEPLOY_PORT:-22}
+          
+          ssh -p ${PORT} ${DEPLOY_USER}@${DEPLOY_HOST} \
+            "REMOTE_GHCR_USER='${REMOTE_GHCR_USER}' REMOTE_GHCR_PAT='${REMOTE_GHCR_PAT}' bash -s" <<'ENDSSH'
+          set -euo pipefail
+          
+          APP_DIR="/opt/dinnerhopping"
+          COMPOSE_FILE="deploy/production-docker-compose.yml"
+          SERVICE_NAME="docker-compose-app.service"
+          HEALTH_URL="https://dinnerhoppings.acrevon.fr/api/health"
+          
+          echo "📁 Navigating to application directory..."
+          cd ${APP_DIR} || { echo "❌ Failed to access ${APP_DIR}"; exit 1; }
+          
+          echo "🔄 Updating repository..."
+          # Ensure main branch exists and is checked out
+          if ! git show-ref --verify --quiet refs/heads/main; then
+            git fetch origin main:main
+          fi
+          git checkout main
+          
+          # Check for local modifications
+          if ! git diff-files --quiet || ! git diff-index --quiet --cached HEAD --; then
+            echo "⚠️  Local modifications detected, stashing..."
+            git stash push -m "Auto-stash before deployment $(date +%Y%m%d-%H%M%S)" || true
+          fi
+          
+          git fetch --all --prune
+          
+          # Check if there are updates
+          LOCAL=$(git rev-parse @)
+          REMOTE=$(git rev-parse @{u})
+          
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "ℹ️  Already up to date"
+          else
+            # Reset to remote state (discards any local commits)
+            git reset --hard origin/main || { echo "❌ Failed to reset to origin/main"; exit 1; }
+            echo "✅ Repository updated to $(git rev-parse --short HEAD)"
+          fi
+          
+          # Clean any untracked files
+          git clean -fd
+          
+          echo "🐳 Detecting Docker Compose command..."
+          if command -v docker compose >/dev/null 2>&1; then
+            COMPOSE_CMD="docker compose"
+          elif command -v docker-compose >/dev/null 2>&1; then
+            COMPOSE_CMD="docker-compose"
+          else
+            echo "❌ Docker Compose not found"
+            exit 1
+          fi
+          echo "Using: ${COMPOSE_CMD}"
+          
+          # Show disk usage before deployment
+          echo "💾 Disk usage before deployment:"
+          df -h / | grep -v Filesystem
+          echo "🐳 Docker disk usage:"
+          sudo docker system df || true
+          
+          echo "🛑 Stopping application service..."
+          sudo systemctl stop ${SERVICE_NAME} || true
+          
+          # Tag current images to preserve them during build
+          echo "🏷️  Tagging current images..."
+          CURRENT_IMAGES=$(sudo ${COMPOSE_CMD} -f ${COMPOSE_FILE} images -q 2>/dev/null || true)
+          
+          echo "🔨 Building Docker images..."
+          sudo ${COMPOSE_CMD} -f ${COMPOSE_FILE} build --pull || {
+            echo "❌ Build failed"
+            exit 1
+          }
+          
+          echo "🚀 Starting application service..."
+          sudo systemctl daemon-reload
+          sudo systemctl start ${SERVICE_NAME} || {
+            echo "❌ Failed to start service"
+            exit 1
+          }
+          
+          echo "⏳ Waiting for service to be ready..."
+          sleep 5
+          
+          echo "🏥 Running health check..."
+          DEPLOYMENT_SUCCESSFUL=false
+          for i in {1..12}; do
+            HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" ${HEALTH_URL} 2>/dev/null || echo "000")
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ Health check passed (${HTTP_CODE})"
+              DEPLOYMENT_SUCCESSFUL=true
+              break
+            fi
+            
+            echo "⏳ Attempt $i/12: HTTP ${HTTP_CODE}, retrying in 5s..."
+            sleep 5
+          done
+          
+          if [ "$DEPLOYMENT_SUCCESSFUL" = true ]; then
+            echo "🧹 Cleaning up old Docker resources..."
+            
+            # Remove unused images (keeps currently running images)
+            sudo docker image prune -af --filter "until=24h" || true
+            
+            # Remove unused containers
+            sudo docker container prune -f || true
+            
+            # Remove unused volumes (be careful with this!)
+            # Uncomment only if you're sure you don't need old volumes
+            # sudo docker volume prune -f || true
+            
+            # Remove unused networks
+            sudo docker network prune -f || true
+            
+            # Remove build cache older than 7 days
+            sudo docker builder prune -af --keep-storage 2GB --filter "until=168h" || true
+            
+            echo "💾 Disk usage after cleanup:"
+            df -h / | grep -v Filesystem
+            echo "🐳 Docker disk usage after cleanup:"
+            sudo docker system df || true
+            
+            echo "🎉 Deployment successful!"
+            exit 0
+          else
+            echo "❌ Health check failed after 60 seconds"
+            echo "📋 Checking service status..."
+            sudo systemctl status ${SERVICE_NAME} --no-pager || true
+            echo "⚠️  Skipping cleanup due to failed deployment"
+            exit 1
+          fi
+          ENDSSH
+      
+      - name: Deployment summary
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Deployment completed successfully"
+          else
+            echo "❌ Deployment failed - check logs above"
+          fi
