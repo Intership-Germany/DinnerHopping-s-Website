@@ -84,6 +84,7 @@ async def verified_user(client):
         "password_confirm": "Userpass1",
         "first_name": "Test",
         "last_name": "User",
+    "phone_number": "+4915112345678",
         "street": "Main",
         "street_no": "1",
         "postal_code": "12345",

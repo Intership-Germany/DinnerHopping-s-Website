@@ -190,6 +190,7 @@
         const firstname = document.getElementById('signup-firstname').value.trim();
         const lastname = document.getElementById('signup-lastname').value.trim();
         const email = document.getElementById('signup-email').value.trim();
+  const phoneRaw = document.getElementById('signup-phone').value.trim();
         const password = document.getElementById('signup-password').value;
         const confirm = document.getElementById('signup-password-confirm').value;
         const street = document.getElementById('signup-street').value.trim();
@@ -203,6 +204,23 @@
         }
         if (!email) {
           showMessage('Enter a valid email.', 'error');
+          return;
+        }
+        if (!phoneRaw) {
+          showMessage('Enter your phone number.', 'error');
+          return;
+        }
+        let normalizedPhone = phoneRaw.replace(/[^0-9+]/g, '');
+        if (normalizedPhone.startsWith('+')) {
+          normalizedPhone = '+' + normalizedPhone.slice(1).replace(/\+/g, '');
+        } else {
+          normalizedPhone = normalizedPhone.replace(/\+/g, '');
+        }
+        const phoneDigits = normalizedPhone.startsWith('+')
+          ? normalizedPhone.slice(1)
+          : normalizedPhone;
+        if (!/^[0-9]+$/.test(phoneDigits) || phoneDigits.length < 6) {
+          showMessage('Enter a valid phone number with at least 6 digits.', 'error');
           return;
         }
         if (!password || !confirm) {
@@ -248,6 +266,7 @@
           postal_code: postal,
           city,
           gender,
+          phone_number: normalizedPhone,
           preferences: {},
         };
         try {
