@@ -11,6 +11,26 @@ async def test_register_login_event_registration_flow(client: AsyncClient, admin
         pytest.skip(f"User login failed: {login_resp.status_code} {login_resp.text}")
     user_token = login_resp.json()["access_token"]
 
+    # 1b. Fetch profile to confirm phone number stored correctly
+    profile_resp = await client.get("/profile", headers={"Authorization": f"Bearer {user_token}"})
+    assert profile_resp.status_code == 200, profile_resp.text
+    profile_body = profile_resp.json()
+    assert profile_body.get("phone_number") == "+4915112345678"
+
+    # 1c. Update phone number and confirm normalization
+    new_phone = "+49 30 5556677"
+    update_resp = await client.put(
+        "/profile",
+        json={"phone_number": new_phone},
+        headers={"Authorization": f"Bearer {user_token}"},
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    assert update_resp.json().get("phone_number") == "+49305556677"
+
+    refreshed = await client.get("/profile", headers={"Authorization": f"Bearer {user_token}"})
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json().get("phone_number") == "+49305556677"
+
     # 2. Admin creates event (draft)
     event_payload = {
         "title": "Integration Test Event",

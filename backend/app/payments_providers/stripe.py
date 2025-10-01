@@ -20,3 +20,15 @@ def create_checkout_session(amount_cents: int, payment_id, idempotency_key: str 
         },
     )
     return {"id": session.id, "url": session.url, "raw": session}
+
+
+def retrieve_checkout_session(session_id: str):
+    """Fetch a Stripe Checkout Session using the secret API key."""
+    stripe_key = os.getenv('STRIPE_API_KEY')
+    if not stripe_key:
+        raise RuntimeError('Stripe not configured')
+    if not session_id:
+        raise ValueError('session_id required')
+    import stripe
+    stripe.api_key = stripe_key
+    return stripe.checkout.Session.retrieve(session_id)
