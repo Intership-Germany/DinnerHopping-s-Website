@@ -29,7 +29,8 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app):
         super().__init__(app)
-        self.enabled = os.getenv('CSRF_ENFORCE', 'true').lower() in ('1', 'true', 'yes')
+        # do not cache enforcement flag at init: allow tests to toggle via env var
+        self.enabled = None
         self.exempt_prefixes = (
             '/login', '/logout', '/refresh', '/docs', '/openapi.json',
             '/payments/webhooks', '/payments/paypal/return', '/webhooks',
@@ -38,7 +39,8 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         )
 
     async def dispatch(self, request: Request, call_next):
-        if not self.enabled:
+        enabled = os.getenv('CSRF_ENFORCE', 'true').lower() in ('1', 'true', 'yes')
+        if not enabled:
             return await call_next(request)
 
         method = request.method.upper()

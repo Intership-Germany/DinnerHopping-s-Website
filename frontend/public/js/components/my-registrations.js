@@ -59,7 +59,7 @@
             (!regInfo.payment_status || regInfo.payment_status === 'pending')
           ) {
             const { res: r, data } = await (window.dh?.apiPost
-              ? window.dh.apiPost('/payments/create', {
+              ? window.dh.apiPost('/payments', {
                   registration_id: regInfo.registration_id,
                   amount_cents: amountCents,
                 })
@@ -124,7 +124,7 @@
             btnPay.addEventListener('click', async () => {
               try {
                 const { res: r, data } = await (window.dh?.apiPost
-                  ? window.dh.apiPost('/payments/create', {
+                  ? window.dh.apiPost('/payments', {
                       registration_id: regInfo.registration_id,
                       amount_cents: amountCents,
                     })
@@ -136,10 +136,19 @@
                   if (data.status) stored.payment_status = data.status;
                   localStorage.setItem(key, JSON.stringify(stored));
                 } catch {}
-                const link =
-                  data.payment_link ||
-                  (data.instructions &&
-                    (data.instructions.approval_link || data.instructions.link));
+                const link = (() => {
+                  if (!data) return null;
+                  const next = data.next_action || {};
+                  if (next.type === 'redirect' && next.url) return next.url;
+                  if (next.type === 'instructions' && next.instructions) {
+                    const inst = next.instructions;
+                    return inst.approval_link || inst.link || null;
+                  }
+                  if (data.payment_link) return data.payment_link;
+                  const inst = data.instructions;
+                  if (inst) return inst.approval_link || inst.link || null;
+                  return null;
+                })();
                 if (link)
                   window.location.assign(
                     link.startsWith('http') ? link : window.BACKEND_BASE_URL + link
@@ -158,7 +167,7 @@
                   return;
                 }
                 const { res: r, data } = await (window.dh?.apiPost
-                  ? window.dh.apiPost('/payments/create', {
+                  ? window.dh.apiPost('/payments', {
                       registration_id: regInfo.registration_id,
                       amount_cents: amountCents,
                     })

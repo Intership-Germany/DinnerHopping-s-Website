@@ -101,7 +101,7 @@ def _verify_legacy_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict, expires_minutes: int | None = None):
     to_encode = data.copy()
-    now_dt = datetime.datetime.utcnow()  # still use datetime for JWT exp/iat numeric processing
+    now_dt = datetime.datetime.now(datetime.timezone.utc)  # still use datetime for JWT exp/iat numeric processing
     exp_minutes = expires_minutes if isinstance(expires_minutes, int) and expires_minutes > 0 else _access_token_ttl_minutes()
     expire = now_dt + datetime.timedelta(minutes=exp_minutes)
     # Standard JWT claims
@@ -133,7 +133,12 @@ async def authenticate_user(email: str, password: str):
                 lock_until_dt = parse_iso(lock_until)
             else:
                 lock_until_dt = lock_until
-            if lock_until_dt and datetime.datetime.utcnow().replace(tzinfo=None) < lock_until_dt.replace(tzinfo=None):
+            now_cmp = datetime.datetime.now(datetime.timezone.utc)
+            # ensure both sides are timezone-aware datetimes for comparison
+            if lock_until_dt and isinstance(lock_until_dt, datetime.datetime):
+                if lock_until_dt.tzinfo is None:
+                    lock_until_dt = lock_until_dt.replace(tzinfo=datetime.timezone.utc)
+            if lock_until_dt and now_cmp < lock_until_dt:
                 auth_logger.warning('auth.login.locked email=%s until=%s', email, lock_until)
                 return None
         except (TypeError, ValueError):
@@ -150,11 +155,11 @@ async def authenticate_user(email: str, password: str):
         ok = stored_hash == password
     if not ok:
         # increment failed attempts
-        await db_mod.db.users.update_one({"email": email}, {"$inc": {"failed_login_attempts": 1}})
         user = await get_user_by_email(email)
+        # lock the account for 15 minutes if too many attempts
         if user.get('failed_login_attempts', 0) >= 5:
-            # lock the account for 15 minutes
-            lock_until_iso = to_iso(datetime.datetime.utcnow() + datetime.timedelta(minutes=15))
+            # compute timezone-aware lock_until
+            lock_until_iso = to_iso(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=15))
             await db_mod.db.users.update_one({"email": email}, {"$set": {"lockout_until": lock_until_iso}})
             auth_logger.warning('auth.login.lockout email=%s attempts=%s', email, user.get('failed_login_attempts'))
         else:
@@ -170,7 +175,7 @@ async def authenticate_user(email: str, password: str):
         updates['password_hash'] = hash_password(password)
         unset['password'] = ""
     else:
-        stored_hash = user.get('password_hash')
+        await db_mod.db.users.update_one({"email": email}, {"$set": updates, "$unset": unset})
         if stored_hash:
             try:
                 if pwd_context.needs_update(stored_hash):
