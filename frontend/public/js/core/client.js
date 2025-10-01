@@ -239,4 +239,12 @@
   window.dh.apiPut = apiPut;
   window.dh.apiPatch = apiPatch;
   window.dh.apiDelete = apiDelete;
+
+  // Legacy global fallbacks (some older pages still call window.apiFetch / window.initCsrf)
+  if (typeof window.apiFetch !== 'function') {
+    window.apiFetch = window.dh.apiFetch;
+  }
+  if (typeof window.initCsrf !== 'function') {
+    window.initCsrf = window.dh.initCsrf;
+  }
 })();
