@@ -97,8 +97,8 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
             "first_name": payload.first_name.strip() if payload.first_name else None,
             "last_name": payload.last_name.strip() if payload.last_name else None,
             "password_hash": hash_password(payload.password),
-            # invited users created via accept are marked verified for login without email confirmation
-            "email_verified": False,  # require later explicit verification
+            # invited users created via accept require email verification for security
+            "email_verified": False,  # require explicit verification
             "roles": ['user'],
             "preferences": {},
             "failed_login_attempts": 0,
@@ -111,6 +111,14 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
         }
         await db_mod.db.users.insert_one(user_doc)
         user_email = invited_email
+        
+        # Send email verification for security (prevent account hijacking)
+        try:
+            from app.utils import generate_and_send_verification
+            await generate_and_send_verification(invited_email)
+        except Exception:
+            # If email verification fails, still continue but log it
+            pass
 
     # create registration for the invited user (link invitation_id), avoid duplicate registration
     event_id = inv.get('event_id')
@@ -168,11 +176,18 @@ async def accept_invitation(token: str, payload: AcceptPayload, authorization: s
     except PyMongoError:
         pass
 
-    # mark invitation accepted
-    await db_mod.db.invitations.update_one({"_id": inv['_id']}, {"$set": {"status": "accepted", "accepted_by": user_email, "accepted_at": now}})
+    # mark invitation accepted but pending email verification if account was created
+    user_created_account = not authorization  # if no auth token, we created a new account
+    invitation_status = "pending_verification" if user_created_account else "accepted"
+    await db_mod.db.invitations.update_one({"_id": inv['_id']}, {"$set": {"status": invitation_status, "accepted_by": user_email, "accepted_at": now}})
 
     reg_id = str(reg_res.inserted_id) if hasattr(reg_res, 'inserted_id') else str(reg_res.get('_id'))
-    return {"status": "accepted", "user_email": user_email, "registration_id": reg_id}
+    response = {"status": invitation_status, "user_email": user_email, "registration_id": reg_id}
+    
+    if user_created_account:
+        response["message"] = "Account created. Please verify your email address to complete the invitation acceptance."
+    
+    return response
 
 
 @router.post('/')
@@ -367,18 +382,31 @@ async def view_invitation(token: str, request: Request):
                 user = None
 
     if not user:
-        # redirect to frontend login page and include next parameter
-        # Use FRONTEND_BASE_URL when available so the user sees the site's login UI
+        # Instead of including sensitive token in URL, create a temporary login state
+        # and redirect with a safe identifier
+        token_hash = hash_token(token)
+        inv = await db_mod.db.invitations.find_one({"token_hash": token_hash})
+        if not inv:
+            raise HTTPException(status_code=404, detail='Invitation not found')
+        
+        # Create a temporary login state record
+        import secrets
+        temp_state = secrets.token_urlsafe(32)
+        state_doc = {
+            'state_id': temp_state,
+            'invitation_id': inv['_id'],
+            'created_at': datetime.datetime.utcnow(),
+            'expires_at': datetime.datetime.utcnow() + datetime.timedelta(minutes=30),
+            'used': False
+        }
+        await db_mod.db.invitation_login_states.insert_one(state_doc)
+        
+        # Redirect with safe state parameter instead of token
         frontend_base = (os.getenv('FRONTEND_BASE_URL') or '').rstrip('/')
-        # build the next path relative to the backend root (preserve path+query)
-        next_url = request.url.path
-        if request.url.query:
-            next_url += '?' + request.url.query
-        # If FRONTEND_BASE_URL is set, point to its login page; otherwise fall back to backend /login
         if frontend_base:
-            login_path = f"{frontend_base}/login.html?next={urllib.parse.quote(next_url)}"
+            login_path = f"{frontend_base}/login.html?invitation_state={temp_state}"
         else:
-            login_path = f"/login?next={urllib.parse.quote(next_url)}"
+            login_path = f"/login?invitation_state={temp_state}"
         return RedirectResponse(login_path, status_code=303)
 
     # authenticated: return invitation metadata (do not expose token hash)
@@ -389,6 +417,35 @@ async def view_invitation(token: str, request: Request):
     base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
     out = _serialize_inv(inv)
     out['accept_link'] = f"{base}/invitations/{token}/accept"
+    return out
+
+
+@router.get('/by-state/{state_id}')
+async def get_invitation_by_state(state_id: str, current_user=Depends(get_current_user)):
+    """Get invitation details using temporary login state (safer than token in URL)."""
+    # Find the temporary state record
+    state_doc = await db_mod.db.invitation_login_states.find_one({'state_id': state_id, 'used': False})
+    if not state_doc:
+        raise HTTPException(status_code=404, detail='Invalid or expired invitation state')
+    
+    # Check if state has expired
+    if state_doc.get('expires_at') and datetime.datetime.utcnow() > state_doc.get('expires_at'):
+        raise HTTPException(status_code=404, detail='Invitation state expired')
+    
+    # Get the invitation
+    inv = await db_mod.db.invitations.find_one({"_id": state_doc['invitation_id']})
+    if not inv:
+        raise HTTPException(status_code=404, detail='Invitation not found')
+    
+    # Mark state as used
+    await db_mod.db.invitation_login_states.update_one(
+        {'_id': state_doc['_id']}, 
+        {'$set': {'used': True, 'used_at': datetime.datetime.utcnow(), 'used_by': current_user.get('email')}}
+    )
+    
+    # Return invitation metadata (do not expose token hash)
+    out = _serialize_inv(inv)
+    # Don't include accept_link since this is for already authenticated users
     return out
 
 

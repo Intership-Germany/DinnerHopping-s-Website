@@ -15,6 +15,7 @@ from app.utils import (
     require_registration_owner_or_admin,
     require_event_payment_open,
     finalize_registration_payment,
+    _is_admin,
 )
 from app.payments_providers import paypal as paypal_provider
 from app.payments_providers import stripe as stripe_provider
@@ -64,6 +65,25 @@ async def paypal_config():
         return paypal_provider.get_frontend_config()
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get('/providers')
+async def list_providers_early():
+    """List available payment providers (registered early to avoid param route capture).
+
+    This duplicate is intentionally placed before parameterized routes so that
+    the static path `/providers` is matched instead of the generic `/{payment_id}`.
+    """
+    providers = []
+    paypal_configured = os.getenv('PAYPAL_CLIENT_ID') and (os.getenv('PAYPAL_CLIENT_SECRET') or os.getenv('PAYPAL_SECRET'))
+    if paypal_configured:
+        providers.append('paypal')
+    if os.getenv('STRIPE_API_KEY'):
+        providers.append('stripe')
+    # Wero is always available as manual SEPA transfer
+    providers.append('wero')
+    default = 'paypal' if 'paypal' in providers else ('stripe' if 'stripe' in providers else 'wero')
+    return {"providers": providers, "default": default}
 
 
 @router.get('/stripe/config')
@@ -426,8 +446,11 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
 
 
 @router.get('/{payment_id}/cancel')
-async def payment_cancel(payment_id: str):
-    """Generic cancel landing endpoint for providers. Marks payment as failed (non-destructive)."""
+async def payment_cancel(payment_id: str, current_user=Depends(get_current_user)):
+    """Generic cancel landing endpoint for providers. Marks payment as failed (non-destructive).
+    
+    Requires authentication and verifies user owns the payment through registration ownership.
+    """
     try:
         oid = ObjectId(payment_id)
     except InvalidId as exc:
@@ -435,8 +458,19 @@ async def payment_cancel(payment_id: str):
     p = await db_mod.db.payments.find_one({"_id": oid})
     if not p:
         raise HTTPException(status_code=404, detail='Payment not found')
-    await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "updated_at": datetime.datetime.now(datetime.timezone.utc)}})
-    log.info('payment.cancel payment_id=%s', payment_id)
+
+    # Verify user owns this payment through registration ownership
+    reg_id = p.get('registration_id')
+    if reg_id:
+        # authorization helper will raise HTTPException if not owner/admin
+        await require_registration_owner_or_admin(current_user, reg_id)
+    else:
+        # Fallback: check if user is admin for orphaned payments
+        if not _is_admin(current_user):
+            raise HTTPException(status_code=403, detail='Access denied')
+    
+    await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "updated_at": datetime.datetime.utcnow()}})
+    log.info('payment.cancel payment_id=%s user_email=%s', payment_id, current_user.get('email'))
     return {"status": "cancelled"}
 
 
@@ -629,6 +663,11 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
     """
     payload = await request.body()
     webhook_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
+    
+    # Check if we're in production environment
+    is_production = os.getenv('ENVIRONMENT', '').lower() in ('production', 'prod') or \
+                   os.getenv('STRIPE_API_KEY', '').startswith('sk_live_')
+    
     if webhook_secret:
         import stripe
         try:
@@ -638,7 +677,13 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
             log.warning('webhook.stripe.invalid_signature detail=%s', str(e))
             raise HTTPException(status_code=400, detail=f'Invalid signature: {str(e)}') from e
     else:
-        # If no webhook secret, trust the payload (dev only). Parse as JSON.
+        # In production, webhook signature validation is mandatory for security
+        if is_production:
+            raise HTTPException(
+                status_code=400, 
+                detail='Webhook signature validation required in production. Configure STRIPE_WEBHOOK_SECRET.'
+            )
+        # Development only: trust the payload without signature validation
         import json
         try:
             event = json.loads(payload)
@@ -730,6 +775,11 @@ async def paypal_webhook(request: Request):
         body = await request.json()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail='Invalid payload') from exc
+    
+    # Check if we're in production environment
+    is_production = os.getenv('ENVIRONMENT', '').lower() in ('production', 'prod') or \
+                   os.getenv('PAYPAL_CLIENT_ID', '').find('live') != -1
+    
     # Optional signature verification if PAYPAL_WEBHOOK_ID present
     webhook_id = os.getenv('PAYPAL_WEBHOOK_ID')
     if webhook_id:
@@ -749,11 +799,26 @@ async def paypal_webhook(request: Request):
                     transmission_sig=transmission_sig,
                     event_body=body,
                 )
-            except Exception:
+            except Exception as e:
+                log.exception('paypal webhook signature verification failed: %s', str(e))
                 ok = False
             if not ok:
                 log.warning('webhook.paypal.invalid_signature transmission_id=%s', transmission_id)
                 raise HTTPException(status_code=400, detail='Invalid PayPal webhook signature')
+        else:
+            # Missing required headers for signature verification
+            if is_production:
+                raise HTTPException(
+                    status_code=400, 
+                    detail='Missing PayPal webhook signature headers in production'
+                )
+    else:
+        # In production, webhook signature validation is mandatory for security
+        if is_production:
+            raise HTTPException(
+                status_code=400, 
+                detail='Webhook signature validation required in production. Configure PAYPAL_WEBHOOK_ID.'
+            )
     typ = body.get('event_type') or body.get('type')
     resource = body.get('resource') or {}
     order_id = resource.get('id') or resource.get('supplementary_data', {}).get('related_ids', {}).get('order_id')
@@ -804,16 +869,4 @@ async def confirm_manual_payment(payment_id: str, _current_user=Depends(require_
     return {"status": "paid"}
 
 
-@router.get('/providers')
-async def list_providers():
-    """List available payment providers based on environment configuration and defaults."""
-    providers = []
-    paypal_configured = os.getenv('PAYPAL_CLIENT_ID') and (os.getenv('PAYPAL_CLIENT_SECRET') or os.getenv('PAYPAL_SECRET'))
-    if paypal_configured:
-        providers.append('paypal')
-    if os.getenv('STRIPE_API_KEY'):
-        providers.append('stripe')
-    # Wero is always available as manual SEPA transfer
-    providers.append('wero')
-    default = 'paypal' if 'paypal' in providers else ('stripe' if 'stripe' in providers else 'wero')
-    return {"providers": providers, "default": default}
+

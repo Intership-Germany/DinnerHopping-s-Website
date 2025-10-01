@@ -533,10 +533,14 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
     fields_set = getattr(payload, '__fields_set__', None) or getattr(payload, 'model_fields_set', None) or set()
     if 'phone_number' in fields_set and raw_payload.get('phone_number') is None:
         update_data['phone_number'] = None
+    
+    # Security: Reject password updates via profile endpoint
     if 'password' in update_data:
-        # migrating update: accept 'password' input, store as password_hash
-        update_data['password_hash'] = hash_password(update_data['password'])
-        update_data.pop('password', None)
+        raise HTTPException(
+            status_code=400, 
+            detail='Password updates must use the dedicated /users/password endpoint for security'
+        )
+    
     # handle email change: require uniqueness and mark unverified
     if 'email' in update_data:
         new_email = update_data.get('email')
