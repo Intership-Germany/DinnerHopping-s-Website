@@ -26,12 +26,15 @@ if (!fs.existsSync(envPath)) {
 
 const envVars = parseEnv(fs.readFileSync(envPath, 'utf8'));
 let js = '';
+const baseVarNames = [];
 // Dynamically export all env variables
 // 1) Keys ending with _BASE -> window.<KEY>_URL
 // 2) DEBUG_BANNER -> window.DEBUG_BANNER (boolean)
 for (const [key, value] of Object.entries(envVars)) {
   if (key.endsWith('_BASE')) {
-    const windowVar = `window.${key.replace(/_BASE$/, '_BASE_URL')}`;
+    const propName = key.replace(/_BASE$/, '_BASE_URL');
+    baseVarNames.push(propName);
+    const windowVar = `window.${propName}`;
     js += `${windowVar} = "${value}";\n`;
   } else if (key === 'DEBUG_BANNER') {
     // Accept true/false/1/0/yes/no (case-insensitive)

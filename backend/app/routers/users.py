@@ -8,12 +8,13 @@ Migration note (2025-09):
 Existing records may still contain 'name' or 'is_verified'; they are ignored.
 """
 import os
+import re
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal, List
 from contextlib import suppress
-from app.auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
-from app.utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair, send_email
-from app import db as db_mod
+from ..auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
+from ..utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair, send_email
+from .. import db as db_mod
 
 ######### Constants #########
 
@@ -28,6 +29,30 @@ VALID_ALLERGIES = [
     "fish",
     "sesame"
 ]
+
+
+def _normalize_phone_number(phone: str | None) -> str | None:
+    if phone is None:
+        return None
+    if isinstance(phone, (int, float)):
+        phone = str(phone)
+    if not isinstance(phone, str):
+        raise ValueError('Phone number must be a string')
+    stripped = phone.strip()
+    if not stripped:
+        return None
+    cleaned = re.sub(r"[^0-9+]", "", stripped)
+    if cleaned.startswith('+'):
+        core = cleaned[1:]
+        prefix = '+'
+    else:
+        core = cleaned
+        prefix = ''
+    if not core.isdigit():
+        raise ValueError('Phone number must contain digits only')
+    if len(core) < 6:
+        raise ValueError('Phone number must contain at least 6 digits')
+    return prefix + core
 
 ######### Router / Endpoints #########
 
@@ -46,11 +71,20 @@ class UserCreate(BaseModel):
     postal_code: str
     city: str
     gender: Literal['female','male','diverse','prefer_not_to_say']
+    phone_number: str | None = None
     # Optional extras
     lat: float | None = None
     lon: float | None = None
     allergies: list[str] | None = []
     
+    @field_validator('phone_number')
+    @classmethod
+    def validate_phone(cls, v):
+        try:
+            return _normalize_phone_number(v)
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     @field_validator('allergies')
     @classmethod
     def validate_allergies(cls, v):
@@ -80,6 +114,7 @@ class UserOut(BaseModel):
     email: EmailStr
     # Structured address components stored under `address_struct`.
     address: dict | None = None
+    phone_number: Optional[str] = None
     allergies: list[str] | None = []
     roles: list[str] | None = []
     # Optional profile fields
@@ -96,9 +131,9 @@ class TokenOut(BaseModel):
 
 @router.post('/register', status_code=status.HTTP_201_CREATED, responses={400: {"description": "Bad Request - e.g. Email already registered or password validation failed"}})
 async def register(u: UserCreate):
-    # normalize email to lowercase
-    u.email = u.email.lower()
-    existing = await db_mod.db.users.find_one({"email": u.email})
+    # normalize email to lowercase (keep EmailStr type intact; use a local string for storage)
+    email_lower = str(u.email).lower()
+    existing = await db_mod.db.users.find_one({"email": email_lower})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     # validate password under policy
@@ -107,10 +142,11 @@ async def register(u: UserCreate):
     validate_password(u.password)
     # Build user document explicitly (do not trust arbitrary fields)
     user_doc = {
-        'email': u.email.lower(),
+        'email': email_lower,
         'first_name': u.first_name.strip(),
         'last_name': u.last_name.strip(),
         'gender': (u.gender or 'prefer_not_to_say').lower(),
+        'phone_number': u.phone_number,
         'address_struct': {
             'street': u.street,
             'street_no': u.street_no,
@@ -151,7 +187,7 @@ async def register(u: UserCreate):
     # send verification email (prints link in dev)
     email_sent = False
     with suppress(Exception):
-        _token, email_sent = await generate_and_send_verification(u.email)
+        _token, email_sent = await generate_and_send_verification(email_lower)
     # Respond to client that the user was created successfully, include email_sent flag & message if failed
     resp = {"message": "Utilisateur créé avec succès", "id": user_doc['id'], "email_sent": email_sent}
     if not email_sent:
@@ -340,7 +376,16 @@ class ProfileUpdate(BaseModel):
     lat: float | None = None
     lon: float | None = None
     allergies: list[str] | None = None
+    phone_number: Optional[str] = None
     
+    @field_validator('phone_number')
+    @classmethod
+    def validate_phone(cls, v):
+        try:
+            return _normalize_phone_number(v)
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     @field_validator('allergies')
     @classmethod
     def validate_allergies(cls, v):
@@ -385,6 +430,7 @@ async def get_profile(current_user=Depends(get_current_user)):
         email=u.get('email'),
         # Return the structured address components stored in `address_struct`.
         address=u.get('address_struct'),
+        phone_number=u.get('phone_number'),
         allergies=u.get('allergies', []),
         roles=u.get('roles', []),
         kitchen_available=u.get('kitchen_available'),
@@ -397,7 +443,11 @@ async def get_profile(current_user=Depends(get_current_user)):
 
 @router.put('/profile', response_model=UserOut)
 async def update_profile(payload: ProfileUpdate, current_user=Depends(get_current_user)):
-    update_data = {k: v for k, v in payload.dict().items() if v is not None}
+    raw_payload = payload.dict()
+    update_data = {k: v for k, v in raw_payload.items() if v is not None}
+    fields_set = getattr(payload, '__fields_set__', None) or getattr(payload, 'model_fields_set', None) or set()
+    if 'phone_number' in fields_set and raw_payload.get('phone_number') is None:
+        update_data['phone_number'] = None
     if 'password' in update_data:
         # migrating update: accept 'password' input, store as password_hash
         update_data['password_hash'] = hash_password(update_data['password'])
@@ -466,6 +516,7 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
         last_name=u.get('last_name'),
         email=u.get('email'),
         address=u.get('address_struct'),
+        phone_number=u.get('phone_number'),
         allergies=u.get('allergies', []),
         roles=u.get('roles', []),
         kitchen_available=u.get('kitchen_available'),
@@ -555,7 +606,7 @@ async def forgot_password(payload: ForgotPasswordIn):
 
     Response is intentionally generic to avoid revealing account existence.
     """
-    email = payload.email.lower()
+    email = str(payload.email).lower()
     user = await db_mod.db.users.find_one({'email': email})
     email_sent = False
     # Always respond success; if user exists, create reset token and send email
@@ -734,3 +785,16 @@ async def update_optional_profile(payload: OptionalProfileUpdate, current_user=D
 
     await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": set_fields})
     return {"status": "updated", "optional_profile_completed": bool(set_fields.get('optional_profile_completed', u.get('optional_profile_completed')))}
+
+@router.get('/csrf')
+async def get_csrf(request: Request, response: Response):
+    """Expose CSRF token for browser clients.
+
+    Reads the CSRF cookie (__Host-csrf_token or csrf_token) and returns it in JSON
+    and as an X-CSRF-Token header so fetch clients can store it for subsequent
+    mutating requests.
+    """
+    token = request.cookies.get('__Host-csrf_token') or request.cookies.get('csrf_token') or ''
+    if token:
+        response.headers['X-CSRF-Token'] = token
+    return { 'csrf_token': token }

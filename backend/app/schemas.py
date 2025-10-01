@@ -2,14 +2,33 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Optional, List, Any, Dict
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from datetime import datetime
 
 class EventStatus(str, Enum):
+    # Extended lifecycle (new model)
     draft = 'draft'
-    published = 'published'
+    coming_soon = 'coming_soon'
+    open = 'open'
     closed = 'closed'
+    matched = 'matched'
+    released = 'released'
     cancelled = 'cancelled'
+    # Legacy value (kept for backward compatibility in persisted records / migrations)
+    published = 'published'
+
+    @classmethod
+    def normalize(cls, v: Optional[str]) -> 'EventStatus':
+        if not v:
+            return cls.draft
+        value = str(v).lower().strip()
+        # map legacy -> new canonical names
+        if value == 'published':
+            value = 'open'
+        if value not in {m.value for m in cls}:
+            return cls.draft
+        # If value is legacy published we already mapped; ensure member exists
+        return cls(value)  # type: ignore[arg-type]
 
 
 class MatchingStatus(str, Enum):
@@ -82,6 +101,14 @@ class EventOut(EventBase):
     created_by: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    @field_validator('status', mode='before')
+    @classmethod
+    def _normalize_status(cls, v):  # type: ignore[override]
+        try:
+            return EventStatus.normalize(v)
+        except Exception:
+            return EventStatus.draft
 
 
 class RegistrationBase(BaseModel):

@@ -13,104 +13,141 @@ import os
 
 ######### Helpers #########
 
-def _serialize(obj):
-    if isinstance(obj, dict):
-        return {k: _serialize(v) for k, v in obj.items()}
+_ALLOWED_STATUSES = {'draft','coming_soon','open','closed','matched','released','cancelled'}
+_LEGACY_MAP = { 'published': 'open' }
 
-    if isinstance(obj, list):
-        return [_serialize(v) for v in obj]
-
-    if isinstance(obj, ObjectId):
-        return str(obj)
-
-    if isinstance(obj, (datetime.datetime, datetime.date)):
-        try:
-            # prefer isoformat for datetimes; ensure timezone-naive datetimes are treated as UTC
-            if isinstance(obj, datetime.datetime):
-                return obj.isoformat()
-            return obj.isoformat()
-        except (TypeError, ValueError):
-            return str(obj)
-    return obj
-
-
-def _fmt_date(v):
-    """Return ISO string for date/datetime, otherwise return value unchanged."""
-    if isinstance(v, (datetime.datetime, datetime.date)):
-        try:
-            return v.isoformat()
-        except (TypeError, ValueError):
-            return str(v)
-    return v
-
-
-def _normalize_location_for_output(loc):
-    """Ensure location shape is suitable for LocationOut.
-
-    Historical data may store the geometry under `zip` or even as a numeric value.
-    This helper coerces those variants into the expected GeoJSON dict or None so
-    that Pydantic validation for `EventOut` never fails.
-    """
-    if loc is None:
-        return None
-
-    # Accept Pydantic models or raw dicts coming from MongoDB.
-    if hasattr(loc, 'model_dump'):
-        try:
-            loc = loc.model_dump(exclude_unset=True)
-        except TypeError:
-            loc = loc.model_dump()
-
-    if not isinstance(loc, dict):
-        return None
-
-    out = {}
-    if 'address_public' in loc:
-        out['address_public'] = loc.get('address_public')
-
-    pt = loc.get('point')
-    if not isinstance(pt, dict):
-        candidate = loc.get('zip')
-        pt = candidate if isinstance(candidate, dict) else None
-
-    if isinstance(pt, dict):
-        coords = pt.get('coordinates')
-        if isinstance(coords, (list, tuple)) and len(coords) == 2:
-            lon, lat = coords
-
-            def _as_float(value):
-                if isinstance(value, (int, float)):
-                    return float(value)
-                try:
-                    return float(value)
-                except (TypeError, ValueError):
-                    return None
-
-            lon_f = _as_float(lon)
-            lat_f = _as_float(lat)
-            if lon_f is not None and lat_f is not None:
-                out['point'] = {
-                    'type': pt.get('type', 'Point'),
-                    'coordinates': [lon_f, lat_f]
-                }
-            else:
-                out['point'] = None
-        else:
-            out['point'] = pt if pt else None
-    else:
-        out['point'] = None
-
-    return out
-
-######### Router / Endpoints #########
+def _normalize_status(v: Optional[str]) -> str:
+    if not v:
+        return 'draft'
+    s = str(v).strip().lower()
+    s = _LEGACY_MAP.get(s, s)
+    return s if s in _ALLOWED_STATUSES else 'draft'
 
 router = APIRouter()
+
+# --- Date/Datetime helpers (added to fix InvalidDocument for datetime.date) ---
+
+def _parse_incoming_date(name: str, value):
+    """Best-effort parse of incoming date/time strings.
+
+    Returns one of:
+    - None if value is falsy
+    - datetime.datetime for datetime-like fields (start_at, registration_deadline, payment_deadline)
+    - str (ISO date) for the 'date' field (kept as string for legacy compatibility)
+    - original value on failure
+    """
+    if value in (None, ''):
+        return None
+    # Already acceptable types
+    if isinstance(value, datetime.datetime):
+        return value
+    if isinstance(value, datetime.date):  # promote to datetime for non-'date' fields
+        if name == 'date':
+            return value.isoformat()
+        return datetime.datetime.combine(value, datetime.time(0, 0))
+    if isinstance(value, str):
+        txt = value.strip()
+        if not txt:
+            return None
+        # Handle trailing Z (UTC) which fromisoformat doesn't parse directly
+        if txt.endswith('Z'):
+            txt_stripped = txt[:-1]
+        else:
+            txt_stripped = txt
+        try:
+            if name == 'date' and len(txt_stripped) == 10:
+                # YYYY-MM-DD
+                return datetime.date.fromisoformat(txt_stripped).isoformat()
+            # Try full datetime
+            dt = datetime.datetime.fromisoformat(txt_stripped)
+            # For pure date (no time) fromisoformat returns datetime with 00:00 time
+            if name == 'date':
+                return dt.date().isoformat()
+            return dt
+        except ValueError:
+            # Fallback: if looks like YYYY-MM-DD for non-'date' -> promote to datetime midnight
+            if len(txt) == 10 and txt.count('-') == 2:
+                try:
+                    d = datetime.date.fromisoformat(txt)
+                    if name == 'date':
+                        return d.isoformat()
+                    return datetime.datetime.combine(d, datetime.time(0, 0))
+                except ValueError:
+                    return value
+            return value
+    return value
+
+def _sanitize_event_doc(doc: dict) -> dict:
+    """Mutate & return event doc ensuring Mongo encodable values for date/time fields.
+
+    - 'date' stored as ISO date string (YYYY-MM-DD)
+    - datetime.date objects for other fields are promoted to datetime.datetime midnight
+    - Leaves other values untouched.
+    """
+    if not isinstance(doc, dict):
+        return doc
+    date_fields = ['date', 'start_at', 'registration_deadline', 'payment_deadline']
+    for f in date_fields:
+        if f in doc:
+            parsed = _parse_incoming_date(f, doc.get(f))
+            # Promote stray datetime.date (non 'date') to datetime
+            if isinstance(parsed, datetime.date) and not isinstance(parsed, datetime.datetime):
+                if f == 'date':
+                    parsed = parsed.isoformat()
+                else:
+                    parsed = datetime.datetime.combine(parsed, datetime.time(0, 0))
+            # Ensure 'date' is plain string
+            if f == 'date' and isinstance(parsed, datetime.datetime):
+                parsed = parsed.date().isoformat()
+            doc[f] = parsed
+    return doc
+
+def _fmt_date(v):
+    """Format stored date/datetime value to API string.
+
+    Returns:
+    - ISO date (YYYY-MM-DD) for date/datetime representing date-only
+    - ISO 8601 datetime without microseconds for datetimes
+    - Original string if already a string
+    - None if value falsy
+    """
+    if not v:
+        return None
+    if isinstance(v, str):
+        return v
+    if isinstance(v, datetime.datetime):
+        # If time is midnight and no tz info, treat as date-only
+        if v.hour == 0 and v.minute == 0 and v.second == 0 and v.microsecond == 0:
+            return v.date().isoformat()
+        return v.replace(microsecond=0).isoformat()
+    if isinstance(v, datetime.date):
+        return v.isoformat()
+    return str(v)
+
+# Generic serializer (recursive) to convert ObjectId & datetime for JSON responses
+# (events.py referenced _serialize without defining it previously)
+def _serialize(obj):
+    if obj is None:
+        return None
+    if isinstance(obj, list):
+        return [_serialize(x) for x in obj]
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            out[k] = _serialize(v)
+        return out
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    if isinstance(obj, datetime.datetime):
+        return _fmt_date(obj)
+    if isinstance(obj, datetime.date):
+        return obj.isoformat()
+    return obj
 
 class LocationIn(BaseModel):
     address: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
-
 
 class EventCreate(BaseModel):
     """Admin event creation/update payload (simplified pricing).
@@ -140,7 +177,6 @@ class LocationOut(BaseModel):
     address_public: Optional[str] = None
     point: Optional[dict] = None
 
-
 class EventOut(BaseModel):
     id: str
     title: str
@@ -165,6 +201,24 @@ class EventOut(BaseModel):
     refund_on_cancellation: Optional[bool] = None
     chat_enabled: Optional[bool] = None
 
+def _safe_location(loc: Optional[dict]) -> Optional[dict]:
+    """Coerce location-like dict to API-friendly shape.
+
+    Ensures 'point' is a dict or None; drops invalid types to prevent Pydantic errors.
+    Accepts both after_party_location and legacy 'location' shapes.
+    """
+    if not isinstance(loc, dict):
+        return None
+    out: dict = {}
+    ap = loc.get('address_public')
+    if ap is not None:
+        out['address_public'] = ap if isinstance(ap, str) else str(ap)
+    pt = loc.get('point')
+    if not isinstance(pt, dict):
+        pt = loc.get('zip') if isinstance(loc.get('zip'), dict) else None
+    out['point'] = pt if isinstance(pt, dict) else None
+    return out
+
 @router.get("/", response_model=list[EventOut])
 async def list_events(date: Optional[str] = None, status: Optional[str] = None, lat: Optional[float] = None, lon: Optional[float] = None, radius_m: Optional[int] = None, participant: Optional[str] = None, current_user=Depends(get_current_user)):
     """List events with optional filters:
@@ -176,82 +230,62 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
     if date:
         query['date'] = date
     if status:
-        # map legacy 'published' to 'open'
+        # unify requested 'published' to 'open'
         if status == 'published':
             status = 'open'
         query['status'] = status
-    # simple radius -> degree bounding box
     if lat is not None and lon is not None and radius_m is not None:
-        # approx degrees per meter: 1 deg ~ 111_000 m
         delta_deg = radius_m / 111000.0
         query['lat'] = {"$gte": lat - delta_deg, "$lte": lat + delta_deg}
         query['lon'] = {"$gte": lon - delta_deg, "$lte": lon + delta_deg}
 
-    # if participant filter provided, resolve to event_ids via registrations
     if participant:
-        # support special keyword 'me' to mean currently authenticated user
         target_email = None
         target_user_id = None
         if participant == 'me':
-            # current_user is provided by dependency; use their _id
             target_user_id = current_user.get('_id')
         else:
-            # if looks like an email use snapshot match, otherwise treat as user_id
             if '@' in participant:
                 target_email = participant.lower()
             else:
                 try:
                     target_user_id = ObjectId(participant)
                 except (InvalidId, TypeError, ValueError):
-                    # fallback: treat as email snapshot
                     target_email = participant.lower()
-
         reg_query = {}
         if target_user_id is not None:
             reg_query['user_id'] = target_user_id
         if target_email is not None:
             reg_query['user_email_snapshot'] = target_email
-
         event_ids = set()
         async for r in db_mod.db.registrations.find(reg_query, {'event_id': 1}):
             if r.get('event_id') is not None:
                 event_ids.add(r['event_id'])
-
-        # if no registrations found, return empty list
         if not event_ids:
             return []
-
-        # restrict events query to these ids
         query['_id'] = {'$in': list(event_ids)}
 
-    # hide draft events from non-admins unless they are the organizer
     roles = current_user.get('roles') or []
     is_admin = 'admin' in roles
-    if not is_admin:
-        if not status:
-            # show coming_soon + open + matched + released (public phases)
-            query['status'] = {'$in': ['coming_soon','open','matched','released']}
+    if not is_admin and not status:
+        query['status'] = {'$in': ['coming_soon','open','matched','released']}
 
     events_resp = []
     async for e in db_mod.db.events.find(query):
-        # ZIP whitelist filtering for non-admins
         if not is_admin:
             valid_zips = e.get('valid_zip_codes') or []
             user_zip = (current_user.get('postal_code') or '').strip()
             if valid_zips and user_zip and user_zip not in valid_zips:
                 continue
-
-        # format date-like fields as strings to match EventOut typing
         date_val = _fmt_date(e.get('date')) or ''
         start_val = _fmt_date(e.get('start_at'))
         registration_deadline_val = _fmt_date(e.get('registration_deadline'))
         payment_deadline_val = _fmt_date(e.get('payment_deadline'))
 
-        raw_loc = e.get('after_party_location')
-        if raw_loc is None:
-            raw_loc = e.get('location')
-        after_party_loc = _normalize_location_for_output(raw_loc)
-        
+        # Normalize after_party_location using the safe helper when building the response
+        # (previous call to `_normalize_location_for_output` was undefined and unused)
+        # raw_loc = e.get('after_party_location') or e.get('location')
+
         events_resp.append(EventOut(
             id=str(e.get('_id')),
             title=e.get('title') or e.get('name') or 'Untitled',
@@ -265,10 +299,10 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
             fee_cents=e.get('fee_cents', 0),
             city=e.get('city'),
             attendee_count=e.get('attendee_count', 0),
-            status=e.get('status'),
+            status=_normalize_status(e.get('status')),
             organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
             created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
-            after_party_location=after_party_loc,
+            after_party_location=_safe_location(e.get('after_party_location') or e.get('location')),
             created_at=e.get('created_at'),
             updated_at=e.get('updated_at'),
             refund_on_cancellation=e.get('refund_on_cancellation'),
@@ -281,7 +315,7 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
 @router.post('/', response_model=EventOut)
 async def create_event(payload: EventCreate, current_user=Depends(require_admin)):
     # admin-only: only admins can create events
-    now = __import__('datetime').datetime.utcnow()
+    now = datetime.datetime.utcnow()
     doc = payload.model_dump()
     # build after_party_location subdocument if provided (accept legacy 'location')
     loc_in = doc.pop('after_party_location', None)
@@ -293,6 +327,15 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         address = loc_in.get('address')
         lat = loc_in.get('lat')
         lon = loc_in.get('lon')
+        # Attempt geocoding if address present but no coordinates
+        if address and (lat is None or lon is None):
+            try:
+                from app.services.geocoding import geocode_address  # local import to avoid circular imports at module load
+                latlon = await geocode_address(address)
+                if latlon:
+                    lat, lon = latlon
+            except Exception:
+                pass
         if address:
             after_party_location = {
                 'address_encrypted': encrypt_address(address),
@@ -325,12 +368,18 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
     doc['matching_status'] = doc.get('matching_status', 'not_started')
     doc['created_at'] = now
     doc['updated_at'] = now
+    # pass-through of valid_zip_codes if provided
+    if payload.valid_zip_codes is not None:
+        doc['valid_zip_codes'] = payload.valid_zip_codes
     # set created_by to current user
     doc['created_by'] = current_user.get('_id')
 
     # enforce status default (pydantic already defaults but ensure correct)
     if not doc.get('status'):
         doc['status'] = 'draft'
+
+    # Sanitize date/time fields for Mongo
+    _sanitize_event_doc(doc)
 
     res = await db_mod.db.events.insert_one(doc)
     return EventOut(
@@ -341,13 +390,13 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         date=_fmt_date(doc.get('date')) or '',
         start_at=_fmt_date(doc.get('start_at')),
         capacity=doc.get('capacity'),
-    fee_cents=doc.get('fee_cents', 0),
+        fee_cents=doc.get('fee_cents', 0),
         city=doc.get('city'),
         registration_deadline=_fmt_date(doc.get('registration_deadline')),
         payment_deadline=_fmt_date(doc.get('payment_deadline')),
-    after_party_location=_normalize_location_for_output(doc.get('after_party_location')),
+        after_party_location=_safe_location(doc.get('after_party_location')),
         attendee_count=0,
-        status=doc.get('status'),
+        status=_normalize_status(doc.get('status')),
         matching_status=doc.get('matching_status'),
         organizer_id=str(doc['organizer_id']) if doc.get('organizer_id') is not None else None,
         created_by=str(doc['created_by']) if doc.get('created_by') is not None else None,
@@ -390,10 +439,12 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
         if pub:
             serialized['after_party_location'] = {'address_public': pub}
         else:
-            # derive anonymised from point coordinates if present
-            pt = loc.get('point') if isinstance(loc.get('point'), dict) else None
-            if pt and isinstance(pt.get('coordinates'), list) and len(pt['coordinates']) == 2:
-                lon, lat = pt['coordinates']
+            # derive anonymised from point/zip coordinates if present
+            pt_raw = loc.get('point') if isinstance(loc.get('point'), dict) else None
+            if not pt_raw:
+                pt_raw = loc.get('zip') if isinstance(loc.get('zip'), dict) else None
+            if pt_raw and isinstance(pt_raw.get('coordinates'), list) and len(pt_raw['coordinates']) == 2:
+                lon, lat = pt_raw['coordinates']
                 if lat is not None and lon is not None:
                     serialized['after_party_location'] = anonymize_address(lat, lon)
     else:
@@ -418,9 +469,7 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
 
 @router.put('/{event_id}', response_model=EventOut)
 async def update_event(event_id: str, payload: EventCreate, _=Depends(require_admin)):
-    # Use model_dump (exclude_unset) instead of deprecated dict()
     update = payload.model_dump(exclude_unset=True)
-
     # handle after_party_location update (accept legacy 'location')
     loc_in = update.pop('after_party_location', None)
     if loc_in is None:
@@ -430,6 +479,15 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         address = loc_in.get('address')
         lat = loc_in.get('lat')
         lon = loc_in.get('lon')
+        # Attempt geocoding if address present but no coordinates
+        if address and (lat is None or lon is None):
+            try:
+                from app.services.geocoding import geocode_address
+                latlon = await geocode_address(address)
+                if latlon:
+                    lat, lon = latlon
+            except Exception:
+                pass
         if address:
             after_party_location = {
                 'address_encrypted': encrypt_address(address),
@@ -455,6 +513,9 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
     # set updated_at
     update['updated_at'] = datetime.datetime.now()
 
+    # Sanitize date/time fields for Mongo
+    _sanitize_event_doc(update)
+
     # Persist changes (model_dump with exclude_unset ensures we only touch provided fields)
     await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": update})
     e = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
@@ -470,9 +531,9 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         city=e.get('city'),
         registration_deadline=_fmt_date(e.get('registration_deadline')),
         payment_deadline=_fmt_date(e.get('payment_deadline')),
-        after_party_location=_normalize_location_for_output(e.get('after_party_location') if e.get('after_party_location') is not None else e.get('location')),
+        after_party_location=_safe_location(e.get('after_party_location') or e.get('location')),
         attendee_count=e.get('attendee_count', 0),
-        status=e.get('status'),
+        status=_normalize_status(e.get('status')),
         matching_status=e.get('matching_status', 'not_started'),
         organizer_id=str(e.get('organizer_id')) if e.get('organizer_id') is not None else None,
         created_by=str(e.get('created_by')) if e.get('created_by') is not None else None,
@@ -501,6 +562,65 @@ async def change_event_status(event_id: str, new_status: str, _=Depends(require_
         raise HTTPException(status_code=404, detail='Event not found')
     await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'status': new_status, 'updated_at': datetime.datetime.utcnow()}})
     return {'status': new_status}
+
+@router.delete('/{event_id}')
+async def delete_event(event_id: str, cascade: bool = True, _=Depends(require_admin)):
+    """Delete an event. If cascade is True (default), remove related records:
+    - registrations (+ invitations & payments by registration)
+    - matches (by string event_id)
+    - plans (by ObjectId event_id)
+    - teams (by ObjectId event_id)
+    Returns counts of deleted documents.
+    """
+    try:
+      oid = ObjectId(event_id)
+    except (InvalidId, TypeError, ValueError):
+      raise HTTPException(status_code=400, detail='invalid event_id')
+
+    e = await db_mod.db.events.find_one({'_id': oid})
+    if not e:
+      raise HTTPException(status_code=404, detail='Event not found')
+
+    deleted = {
+      'event': 0,
+      'registrations': 0,
+      'invitations': 0,
+      'payments': 0,
+      'matches': 0,
+      'plans': 0,
+      'teams': 0,
+    }
+
+    if cascade:
+      # registrations and dependent docs
+      reg_ids = [r['_id'] async for r in db_mod.db.registrations.find({'event_id': oid}, {'_id': 1})]
+      if reg_ids:
+        # invitations by registration_id
+        inv_res = await db_mod.db.invitations.delete_many({'registration_id': {'$in': reg_ids}})
+        deleted['invitations'] = getattr(inv_res, 'deleted_count', 0)
+        # payments by registration_id
+        pay_res = await db_mod.db.payments.delete_many({'registration_id': {'$in': reg_ids}})
+        deleted['payments'] = getattr(pay_res, 'deleted_count', 0)
+        # registrations themselves
+        reg_res = await db_mod.db.registrations.delete_many({'_id': {'$in': reg_ids}})
+        deleted['registrations'] = getattr(reg_res, 'deleted_count', 0)
+      # matches store event_id as string
+      m_res = await db_mod.db.matches.delete_many({'event_id': event_id})
+      deleted['matches'] = getattr(m_res, 'deleted_count', 0)
+      # plans store event_id as ObjectId
+      pl_res = await db_mod.db.plans.delete_many({'event_id': oid})
+      deleted['plans'] = getattr(pl_res, 'deleted_count', 0)
+      # teams store event_id as ObjectId (if teams collection used)
+      try:
+        t_res = await db_mod.db.teams.delete_many({'event_id': oid})
+        deleted['teams'] = getattr(t_res, 'deleted_count', 0)
+      except Exception:
+        pass
+
+    ev_res = await db_mod.db.events.delete_one({'_id': oid})
+    deleted['event'] = getattr(ev_res, 'deleted_count', 0)
+
+    return {'status': 'deleted', 'deleted': deleted}
 
 @router.post("/{event_id}/register")
 async def register_for_event(event_id: str, payload: dict, current_user=Depends(get_current_user)):
@@ -567,7 +687,7 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
     # handle invited_emails: create invitation records per email
     invited = payload.get('invited_emails') or []
     sent_invitations = []
-    from app.utils import generate_token_pair
+    from ..utils import generate_token_pair
     for em in invited:
         try:
             invite_bytes = int(os.getenv('INVITE_TOKEN_BYTES', os.getenv('TOKEN_BYTES', '18')))
@@ -613,6 +733,23 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
             print(f"[payment][error] failed to attach payment id to registration {res.inserted_id}: {exc}")
 
     return {"status": "registered", "registration_ids": created_regs, "invitations_sent": sent_invitations, "payment_link": payment_link}
+
+@router.post('/{event_id}/recount_attendees')
+async def recount_attendees(event_id: str, _=Depends(require_admin)):
+    """Recompute attendee_count from registrations that are not cancelled/refunded/expired and update the event."""
+    try:
+        oid = ObjectId(event_id)
+    except (InvalidId, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail='invalid event_id') from exc
+    e = await db_mod.db.events.find_one({'_id': oid})
+    if not e:
+        raise HTTPException(status_code=404, detail='Event not found')
+    active_status = {'pending','invited','confirmed','paid'}
+    count = 0
+    async for r in db_mod.db.registrations.find({'event_id': oid, 'status': {'$in': list(active_status)}}):
+        count += 1
+    await db_mod.db.events.update_one({'_id': oid}, {'$set': {'attendee_count': count, 'updated_at': datetime.datetime.utcnow()}})
+    return {'attendee_count': count}
 
 async def get_my_plan(current_user):
     # Fetch plan document and return a clean JSON-serializable representation

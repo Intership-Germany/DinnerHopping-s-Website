@@ -21,6 +21,7 @@
         firstName: document.getElementById('profile-firstname'),
         lastName: document.getElementById('profile-lastname'),
         email: document.getElementById('profile-email'),
+  phone: document.getElementById('profile-phone'),
         address: document.getElementById('profile-address'),
         fullNameView: document.getElementById('profile-fullname'),
         // Name labels
@@ -266,8 +267,20 @@
         const right = [a.postal_code, a.city].filter(Boolean).join(' ');
         return [left, right].filter(Boolean).join(', ');
       }
-
-      /** Build the (view) address string from the edit inputs */
+function normalizePhoneInput(value) {
+        if (!value) return '';
+        let normalized = String(value).trim().replace(/[^0-9+]/g, '');
+        if (!normalized) return '';
+        if (normalized.startsWith('+')) {
+          normalized = '+' + normalized.slice(1).replace(/\+/g, '');
+        } else {
+          normalized = normalized.replace(/\+/g, '');
+        }
+        const digits = normalized.startsWith('+') ? normalized.slice(1) : normalized;
+        if (!/^[0-9]+$/.test(digits) || digits.length < 6)
+          throw new Error('Please enter a valid phone number with at least 6 digits.');
+        return normalized;
+      }
       function computeViewAddress() {
         const city = el.addrCity?.value?.trim() || '';
         const postal = el.addrPostal?.value?.trim() || '';
@@ -534,6 +547,7 @@
         if (!data.first_name) missing.push('first name');
         if (!data.last_name) missing.push('last name');
         if (!data.email) missing.push('email');
+        if (!data.phone_number) missing.push('phone number');
         if (!data.address) missing.push('address');
         // For allergies, we don't consider it "missing" since having no allergies is valid
         // Remove the preferences check
@@ -581,6 +595,7 @@
         if (el.firstName) el.firstName.value = data.first_name || '';
         if (el.lastName) el.lastName.value = data.last_name || '';
         if (el.email) el.email.value = data.email || '';
+  if (el.phone) el.phone.value = data.phone_number || '';
         if (el.fullNameView) el.fullNameView.value = fullName;
 
         // Address (view + prefill edit fields when structured)
@@ -610,6 +625,7 @@
           first_name: data.first_name || '',
           last_name: data.last_name || '',
           email: data.email || '',
+          phone_number: data.phone_number || '',
           address: data.address || '',
           allergies: data.allergies || [],
           optional: {
@@ -637,6 +653,7 @@
           first_name: el.firstName?.value?.trim() || '',
           last_name: el.lastName?.value?.trim() || '',
           email: el.email?.value?.trim() || '',
+          phone: el.phone?.value?.trim() || '',
           address:
             el.addressEditGroup && !el.addressEditGroup.classList.contains('hidden')
               ? computeViewAddress()
@@ -644,14 +661,24 @@
           allergies: getAllergies(),
           optional: collectOptionalPayload(),
         };
-        const sameFirst = (current.first_name || '') === (initial.first_name || '');
-        const sameLast = (current.last_name || '') === (initial.last_name || '');
-        const sameEmail = (current.email || '') === (initial.email || '');
-        const sameAddr = (current.address || '') === formatAddressStruct(initial.address || '');
-        const sameAllergies =
-          canonicalizeAllergies(current.allergies) === canonicalizeAllergies(initial.allergies);
-        const sameOpt = JSON.stringify(current.optional) === JSON.stringify(initial.optional || {});
-        return !(sameFirst && sameLast && sameEmail && sameAddr && sameAllergies && sameOpt);
+        const sameFirst = current.first_name === (initial.first_name || '');
+        const sameLast = current.last_name === (initial.last_name || '');
+        const sameEmail = current.email === (initial.email || '');
+        let samePhone = false;
+        try {
+          const normalizedCurrent = normalizePhoneInput(current.phone);
+          const normalizedInitial = initial.phone_number || '';
+          samePhone = normalizedCurrent === (normalizedInitial || '');
+          if (!normalizedCurrent && !normalizedInitial) samePhone = true;
+        } catch {
+          samePhone = false;
+        }
+        const sameAddr = current.address === formatAddressStruct(initial.address || '');
+        const samePrefs =
+          canonicalizePrefs(current.preferences) === canonicalizePrefs(initial.preferences);
+        const sameOpt =
+          canonicalizePrefs(current.optional) === canonicalizePrefs(initial.optional || {});
+        return !(sameFirst && sameLast && sameEmail && samePhone && sameAddr && samePrefs && sameOpt);
       }
 
       /** Toggle edit mode and prepare inputs accordingly */
@@ -662,7 +689,7 @@
         // First/last name are editable in edit mode
         disableInput(el.firstName, !isEditing);
         disableInput(el.lastName, !isEditing);
-        // Show combined full name only in view mode
+  disableInput(el.phone, !isEditing);
         if (el.fullNameView) setHidden(el.fullNameView, isEditing);
         if (el.fullNameLabel) setHidden(el.fullNameLabel, isEditing);
         if (el.firstName) setHidden(el.firstName, !isEditing);
@@ -679,18 +706,18 @@
           if (el.addrPostal) el.addrPostal.value = initial.address.postal_code || '';
           if (el.addrCity) el.addrCity.value = initial.address.city || '';
         }
-        disableInput(el.addrCity, !isEditing);
-        disableInput(el.addrPostal, !isEditing);
-        disableInput(el.addrStreet, !isEditing);
-        disableInput(el.addrNumber, !isEditing);
-        // Enable/disable allergy checkboxes
-        el.allergyCheckboxes.forEach((checkbox) => disableInput(checkbox, !isEditing));
-        disableInput(el.allergyOtherCheckbox, !isEditing);
-        disableInput(el.allergyOtherInput, !isEditing);
-        disableInput(el.kitchenAvailable, !isEditing);
-        disableInput(el.mainCoursePossible, !isEditing);
-        disableInput(el.defaultDietary, !isEditing);
-        disableInput(el.fieldOfStudy, !isEditing);
+        [
+          'addrCity',
+          'addrPostal',
+          'addrStreet',
+          'addrNumber',
+          'phone',
+          'preferences',
+          'kitchenAvailable',
+          'mainCoursePossible',
+          'defaultDietary',
+          'fieldOfStudy',
+        ].forEach((k) => disableInput(el[k], !isEditing));
         setHidden(el.editBtn, isEditing);
         setHidden(el.editActions, !isEditing);
         setHidden(el.unsavedBanner, true);
@@ -761,7 +788,19 @@
         const newEmail = el.email?.value?.trim();
         if (newEmail && newEmail !== initial.email) payload.email = newEmail;
 
-        // Structured address (require all fields if any is edited)
+        const phoneRaw = el.phone?.value?.trim() || '';
+        const initialPhone = initial.phone_number || '';
+        if (phoneRaw) {
+          let normalizedPhone = '';
+          try {
+            normalizedPhone = normalizePhoneInput(phoneRaw);
+          } catch (err) {
+            throw err instanceof Error ? err : new Error('Please enter a valid phone number with at least 6 digits.');
+          }
+          if (normalizedPhone !== initialPhone) payload.phone_number = normalizedPhone;
+        } else if (initialPhone) {
+          throw new Error('Phone number cannot be empty once provided.');
+        }
         const city = el.addrCity?.value?.trim();
         const postal = el.addrPostal?.value?.trim();
         const street = el.addrStreet?.value?.trim();

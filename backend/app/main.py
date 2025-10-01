@@ -2,6 +2,7 @@
 FastAPI application for the DinnerHopping backend.
 """
 import os
+import json
 from fastapi import FastAPI, APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,9 +63,14 @@ except (ImportError, AttributeError):
     # best-effort only; don't fail startup for environments without bcrypt
     pass
 
-
-app = FastAPI(title=settings.app_name)
-
+app = FastAPI(title=settings.app_name,
+              debug=settings.debug,
+              version="1.0.0",
+              root_path=os.getenv('BACKEND_ROOT_PATH', ''),
+              docs_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/docus',
+              redoc_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/redocu',
+              openapi_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/openapi.json'
+            )
 
 ######## Structured Logging & Request ID Middleware ########
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -131,7 +137,7 @@ def custom_swagger_ui_html(*, openapi_url: str, title: str):
     swagger_js = """
     window.onload = function() {
         const ui = SwaggerUIBundle({
-            url: '%s',
+            url: %s,
             dom_id: '#swagger-ui',
             presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
             layout: 'StandaloneLayout',
@@ -155,7 +161,7 @@ def custom_swagger_ui_html(*, openapi_url: str, title: str):
         })
         window.ui = ui
     }
-    """ % openapi_url
+    """ % json.dumps(openapi_url)
     # generate the standard Swagger UI HTML and inject our custom script before </body>
     resp = get_swagger_ui_html(openapi_url=openapi_url, title=title)
     content = resp.body.decode(errors="ignore")

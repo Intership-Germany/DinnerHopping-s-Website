@@ -51,6 +51,7 @@ Centralized in `app/settings.py` using `pydantic-settings`. All env vars have sa
 | CORS | `ALLOWED_ORIGINS` | * | Comma list. To use cookies set explicit origins + `CORS_ALLOW_CREDENTIALS=true` |
 | Email | `SMTP_HOST` + related | — | If unset, dev print fallback used |
 | Payments | `STRIPE_API_KEY` | — | Enables Stripe Checkout when present |
+| Payments | `STRIPE_PUBLISHABLE_KEY` | — | Frontend key exposed via `/payments/stripe/config` |
 | Payments | `STRIPE_WEBHOOK_SECRET` | — | Signature verification for webhooks |
 | Payments | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | — | Enables PayPal Orders API |
 | Payments | `PAYPAL_ENV` | sandbox | sandbox or live |
@@ -116,6 +117,34 @@ Notes:
 * Idempotence: une seule commande PayPal par registration; les tentatives répétées renvoient l'`order_id` existant.
 * Pour changer de monnaie fixez `PAYMENT_CURRENCY` (défaut `EUR`).
 * Les captures peuvent se faire soit via `/payments/paypal/orders/{id}/capture` (JS SDK) soit via `GET /payments/paypal/return` (flow redirection classique).
+
+### Stripe Checkout (Test & Live)
+
+Stripe Checkout relies on server-created sessions and a lightweight frontend redirect. Setup checklist:
+
+1. **Environment variables** — set `STRIPE_API_KEY` and `STRIPE_PUBLISHABLE_KEY`.
+	These can live in `backend/app/.env` during development; switch to live keys before production cutover. Optionally set `STRIPE_WEBHOOK_SECRET` to verify webhooks.
+2. **Frontend initialization** — call `GET /payments/stripe/config` to retrieve `{ publishableKey, currency, mode }`. Initialize Stripe.js with the publishable key and use the returned Checkout Session URL to redirect users.
+3. **Create payments** — send `POST /payments/create` with `provider="stripe"`. The backend stores the payment document, creates a Checkout Session, and responds with a redirect URL. The existing frontend modal already redirects when it receives `payment_link`.
+4. **Handle completions** — configure a Stripe webhook (e.g. `checkout.session.completed`) pointing to `/payments/webhooks/stripe`. Provide `STRIPE_WEBHOOK_SECRET` so signatures are validated. The webhook handler marks the payment and registration as succeeded.
+	- In sandbox, the current secret used in development is `whsec_` (set this in `STRIPE_WEBHOOK_SECRET`). Rotate it before going live.
+
+Notes:
+- The backend auto-selects the default provider based on configured credentials; if PayPal is absent but Stripe keys are present, Stripe will be offered automatically to users.
+- `mode` in the config payload is inferred from the key prefixes (`pk_test` / `sk_test`).
+- For local testing use https tunnel tooling (ngrok, Cloudflare tunnel) so Stripe can reach your webhook endpoint.
+- The admin fallback `POST /payments/{payment_id}/capture` checks the Checkout Session status via the Stripe API before confirming a payment, guaranteeing that “payment completed” only occurs when Stripe reports the session as paid.
+
+### Wero Manual SEPA Flow
+
+Wero is implemented as a manual SEPA transfer option that emits EPC QR payloads so guests can pay via their banking app. Implementation steps:
+
+1. **Set environment variables** — provide at least `WERO_IBAN`, `WERO_BIC`, `WERO_BENEFICIARY` and `WERO_PURPOSE_PREFIX` (see `deploy/example.env`). The backend falls back to demo values if unset, but production deployments must override them.
+2. **Expose the provider in the UI** — call `POST /payments/create` with `provider="wero"`. When PayPal/Stripe are not configured the backend auto-selects Wero, so legacy forms work without changes.
+3. **Display instructions to the user** — the response returns `{ instructions: { iban, bic, beneficiary, amount, currency, remittance, epc_qr_payload } }`. Render the IBAN/BIC and optionally convert `epc_qr_payload` into a QR code (any EPC QR generator works).
+4. **Confirm incoming transfers** — once the wire hits the bank account, an admin calls `POST /payments/{payment_id}/confirm` (existing endpoint) to mark the payment as `succeeded`. The confirmation flow is identical to other manual transfers in the system.
+
+The helper `app/payments_providers/wero.py` now contains inline comments describing how the remittance reference is generated and how the EPC payload is assembled. Adjusting the env vars is all that is required to switch beneficiaries between environments.
 
 
 ### Email & Notifications
