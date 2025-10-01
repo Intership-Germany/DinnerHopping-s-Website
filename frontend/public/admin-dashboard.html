@@ -4,130 +4,260 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Dashboard | DinnerHopping</title>
-  <script src="js/auth-guard.js"></script>
+  <script src="js/core/auth-guard.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="js/config.js"></script>
-  <script src="js/auth.js"></script>
+  <script src="js/core/client.js"></script>
+  <script src="js/core/auth.js"></script>
+  <script src="js/utils/network-errors.js"></script>
   <script src="js/debug-banner.js"></script>
-  <script src="js/includes.js" defer></script>
+  <script src="js/core/includes.js" defer></script>
+  <!-- Leaflet for maps -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <style>
     body { font-family: 'Inter', sans-serif; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 12px; }
+    .tag-draft { background: #eee; color: #555; }
+    .tag-published { background: #e0f7f7; color: #026; }
+    /* Map 'open' to published style and add more statuses used by backend */
+    .tag-open { background: #e0f7f7; color: #026; }
+    .tag-coming_soon { background: #edf3ff; color: #123; }
+    .tag-closed { background: #ffe5d0; color: #6b4000; }
+    .tag-cancelled { background: #fde2e1; color: #7a0916; }
+    .tag-matched { background: #e8f5e9; color: #1b5e20; }
+    .tag-released { background: #e8f5e9; color: #1b5e20; }
+    .tag-proposed { background: #edf3ff; color: #123; }
+    .tag-finalized { background: #e8f5e9; color: #1b5e20; }
+    .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #f46f47; border-radius: 50%; width: 18px; height: 18px; animation: spin 1s linear infinite; display: inline-block; }
+    @keyframes spin { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);} }
+    .leaflet-container { background: #f9fafb; }
   </style>
 </head>
 <body class="text-[#172a3a] min-h-screen flex flex-col" style="background-color: #f0f4f7;">
-  
   <!-- Navigation Bar -->
   <div data-include="partials/header.html"></div>
 
-  <main class="flex-grow max-w-5xl mx-auto w-full px-4 py-10">
-    <!-- Create Event Section -->
-    <section class="bg-white/90 rounded-2xl shadow-xl p-6 mb-8 border border-[#f0f4f7]">
-      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Create New Event</h2>
-      <form class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <input type="text" placeholder="Event Name" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
-        <input type="date" placeholder="Date" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
-        <input type="time" placeholder="Start Time" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
-        <input type="time" placeholder="End Time" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
-        <input type="text" placeholder="Location" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
-        <input type="number" placeholder="Max Participants" class="border border-[#f0f4f7] rounded-xl p-3 focus:ring-2 focus:ring-[#f46f47] outline-none" required>
-        <textarea placeholder="Description" class="border border-[#f0f4f7] rounded-xl p-3 md:col-span-2 focus:ring-2 focus:ring-[#f46f47] outline-none" rows="2"></textarea>
-        <button type="submit" class="bg-[#f46f47] text-white rounded-xl px-4 py-3 mt-2 md:col-span-2 font-bold shadow-lg hover:bg-[#ff8c42] transition">Create Event</button>
+  <main class="flex-grow max-w-6xl mx-auto w-full px-4 py-10 space-y-8">
+    <!-- Create/Edit Event Section -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
+      <div class="flex items-center justify-between mb-4">
+        <h2 id="create-form-title" class="text-xl font-bold text-[#f46f47]">Create New Event</h2>
+        <button id="btn-cancel-edit" class="hidden bg-[#4a5568] text-white rounded-xl px-3 py-2 text-sm hover:opacity-90">Cancel edit</button>
+      </div>
+
+      <form id="create-event-form" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="md:col-span-2">
+          <label class="block text-sm font-semibold mb-1">Event title</label>
+          <input name="title" type="text" placeholder="e.g., Summer Dinner Hop" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none" required>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">City</label>
+          <input name="city" type="text" placeholder="e.g., Berlin" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+
+        <div>
+          <label class="block text-sm font-semibold mb-1">Event day</label>
+          <input name="date" type="date" placeholder="YYYY-MM-DD" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Start time</label>
+          <input name="start_at" type="datetime-local" placeholder="YYYY-MM-DDTHH:MM" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Registration deadline</label>
+          <input name="registration_deadline" type="datetime-local" placeholder="YYYY-MM-DDTHH:MM" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Payment deadline (optional)</label>
+          <input name="payment_deadline" type="datetime-local" placeholder="YYYY-MM-DDTHH:MM" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Capacity</label>
+          <input name="capacity" type="number" placeholder="Total number of people" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Fee (in cents)</label>
+          <input name="fee_cents" type="number" placeholder="e.g., 500 for 5.00 €" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div class="md:col-span-3">
+          <label class="block text-sm font-semibold mb-1">Valid ZIP codes (optional)</label>
+          <input name="valid_zip_codes" type="text" placeholder="Comma-separated: 37073, 37075, ..." class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div class="md:col-span-3">
+          <label class="block text-sm font-semibold mb-1">Final party address (optional)</label>
+          <input name="after_party_address" type="text" placeholder="Street and city, e.g., Alva-Myrdal-Weg, Göttingen" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+        </div>
+        <div class="md:col-span-3">
+          <label class="block text-sm font-semibold mb-1">Additional info (optional)</label>
+          <textarea name="extra_info" placeholder="Notes for participants, logistics, etc." class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none" rows="2"></textarea>
+        </div>
+        <div class="flex items-center gap-3 md:col-span-3">
+          <label class="flex items-center gap-2"><input type="checkbox" name="refund_on_cancellation" class="accent-[#f46f47]"> Refund on cancellation</label>
+          <label class="flex items-center gap-2"><input type="checkbox" name="chat_enabled" class="accent-[#f46f47]"> Enable chat</label>
+        </div>
+        <div class="md:col-span-3 flex gap-3 items-center">
+          <button type="submit" id="btn-submit-event" class="bg-[#f46f47] text-white rounded-xl px-4 py-3 font-bold shadow-lg hover:bg-[#ff8c42] transition">Create Event (Draft)</button>
+          <span id="create-event-msg" class="text-sm text-[#008080]"></span>
+        </div>
       </form>
     </section>
 
     <!-- Events List Section -->
-    <section class="bg-white/90 rounded-2xl shadow-xl p-6 mb-8 border border-[#f0f4f7]">
-      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Events Management</h2>
-      <table class="min-w-full text-sm">
-        <thead>
-          <tr class="bg-[#f0f4f7]">
-            <th class="p-2 text-left">Name</th>
-            <th class="p-2 text-left">Date</th>
-            <th class="p-2 text-left">Location</th>
-            <th class="p-2 text-left">Matching</th>
-            <th class="p-2 text-left">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <!-- Example row -->
-          <tr>
-            <td class="p-2">Spring Dinner</td>
-            <td class="p-2">2025-10-10</td>
-            <td class="p-2">Paris</td>
-            <td class="p-2">
-              <button class="bg-[#008080] text-white px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#00b3b3] transition">Activate</button>
-            </td>
-            <td class="p-2 space-x-2">
-              <button class="bg-[#f46f47] text-white px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#ff8c42] transition">View Matches</button>
-              <button class="bg-[#ffc241] text-[#172a3a] px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#ffe5d0] transition">Edit</button>
-            </td>
-          </tr>
-          <!-- More rows as needed -->
-        </tbody>
-      </table>
-    </section>
-
-    <!-- Matches Management Section -->
-    <section class="bg-white/90 rounded-2xl shadow-xl p-6 mb-8 border border-[#f0f4f7]">
-      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Matches Management</h2>
-      <table class="min-w-full text-sm">
-        <thead>
-          <tr class="bg-[#f0f4f7]">
-            <th class="p-2 text-left">Event</th>
-            <th class="p-2 text-left">User 1</th>
-            <th class="p-2 text-left">User 2</th>
-            <th class="p-2 text-left">Status</th>
-            <th class="p-2 text-left">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <!-- Example row -->
-          <tr>
-            <td class="p-2">Spring Dinner</td>
-            <td class="p-2">Alice</td>
-            <td class="p-2">Bob</td>
-            <td class="p-2">Pending</td>
-            <td class="p-2 space-x-2">
-              <button class="bg-[#008080] text-white px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#00b3b3] transition">Validate</button>
-              <button class="bg-[#ffc241] text-[#172a3a] px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#ffe5d0] transition">Edit</button>
-              <button class="bg-[#f46f47] text-white px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#ff8c42] transition">Cancel</button>
-            </td>
-          </tr>
-          <!-- More rows as needed -->
-        </tbody>
-      </table>
-    </section>
-
-    <!-- Cancellations Section -->
     <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
-      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">User Cancellations</h2>
-      <table class="min-w-full text-sm">
-        <thead>
-          <tr class="bg-[#f0f4f7]">
-            <th class="p-2 text-left">Event</th>
-            <th class="p-2 text-left">User</th>
-            <th class="p-2 text-left">Date Cancelled</th>
-            <th class="p-2 text-left">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <!-- Example row -->
-          <tr>
-            <td class="p-2">Spring Dinner</td>
-            <td class="p-2">Charlie</td>
-            <td class="p-2">2025-09-15</td>
-            <td class="p-2">
-              <button class="bg-[#008080] text-white px-3 py-1 rounded-xl font-semibold shadow hover:bg-[#00b3b3] transition">View Details</button>
-            </td>
-          </tr>
-          <!-- More rows as needed -->
-        </tbody>
-      </table>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold text-[#f46f47]">Events Management</h2>
+        <div class="text-sm text-[#4a5568]" id="events-count"></div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="bg-[#f0f4f7]">
+              <th class="p-2 text-left">Name</th>
+              <th class="p-2 text-left">Date</th>
+              <th class="p-2 text-left">City</th>
+              <th class="p-2 text-left">Status</th>
+              <th class="p-2 text-left">Matching</th>
+              <th class="p-2 text-left">Attendees</th>
+              <th class="p-2 text-left">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="events-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Matching Panel -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
+      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Matching and Comparison</h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div>
+          <label class="block text-sm font-semibold mb-1">Select Event</label>
+          <select id="matching-event-select" class="border border-[#f0f4f7] rounded-xl p-3 w-full"></select>
+        </div>
+        <div>
+          <label class="block text-sm">Weights: Travel</label>
+          <input id="w-dist" type="number" step="0.1" value="1" class="border border-[#f0f4f7] rounded-xl p-2 w-full">
+        </div>
+        <div>
+          <label class="block text-sm">Weights: Preference</label>
+          <input id="w-pref" type="number" step="0.1" value="5" class="border border-[#f0f4f7] rounded-xl p-2 w-full">
+        </div>
+        <div>
+          <label class="block text-sm">Weights: Allergy/Diet</label>
+          <input id="w-allergy" type="number" step="0.1" value="3" class="border border-[#f0f4f7] rounded-xl p-2 w-full">
+        </div>
+        <div class="md:col-span-4 flex flex-wrap gap-3 items-center">
+          <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-greedy" checked> Greedy</label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-random" checked> Random</label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-local" > Local search</label>
+          <button id="btn-start-matching" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Start Matching</button>
+          <button id="btn-refresh-matches" class="bg-[#ffc241] text-[#172a3a] rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#ffe5d0] transition">Refresh Proposals</button>
+          <button id="btn-delete-all-matches" class="bg-[#e53e3e] text-white rounded-xl px-4 py-2 font-semibold shadow hover:opacity-90 transition">Delete All Matches</button>
+          <span id="matching-msg" class="text-sm"></span>
+        </div>
+      </div>
+      <div class="mt-4">
+        <h3 class="font-semibold mb-2">Proposals</h3>
+        <div id="proposals" class="space-y-3"></div>
+      </div>
+      <div class="mt-6">
+        <h3 class="font-semibold mb-2">Match Details</h3>
+        <div id="match-details" class="space-y-4"></div>
+        <div id="match-details-msg" class="text-sm text-[#4a5568]"></div>
+      </div>
+    </section>
+
+    <!-- Manual Adjustments & Issues -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
+      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Manual Adjustments & Issues</h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div>
+          <label class="block text-sm font-semibold mb-1">Event</label>
+          <select id="issues-event-select" class="border border-[#f0f4f7] rounded-xl p-3 w-full"></select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Version</label>
+          <input id="issues-version" type="number" min="1" class="border border-[#f0f4f7] rounded-xl p-3 w-full">
+        </div>
+        <button id="btn-load-issues" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Load Issues</button>
+        <button id="btn-finalize" class="bg-[#1b5e20] text-white rounded-xl px-4 py-2 font-semibold shadow hover:opacity-90 transition">Release Final Plan</button>
+      </div>
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="md:col-span-1">
+          <h3 class="font-semibold">Move team between groups</h3>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <input id="move-phase" type="text" placeholder="Phase (appetizer/main/dessert)" class="border border-[#f0f4f7] rounded-xl p-2 col-span-2">
+            <input id="move-from" type="number" placeholder="From group index" class="border border-[#f0f4f7] rounded-xl p-2">
+            <input id="move-to" type="number" placeholder="To group index" class="border border-[#f0f4f7] rounded-xl p-2">
+            <input id="move-team" type="text" placeholder="Team ID" class="border border-[#f0f4f7] rounded-xl p-2 col-span-2">
+            <button id="btn-move-team" class="bg-[#ffc241] text-[#172a3a] rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#ffe5d0] transition col-span-2">Move Team</button>
+          </div>
+        </div>
+        <div class="md:col-span-2">
+          <h3 class="font-semibold">Detected issues</h3>
+          <div id="issues-list" class="space-y-2"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cancellations / Refunds -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
+      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Cancellations & Refunds</h2>
+      <div class="flex gap-3 items-end">
+        <select id="refunds-event-select" class="border border-[#f0f4f7] rounded-xl p-3"></select>
+        <button id="btn-load-refunds" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Load Overview</button>
+      </div>
+      <div id="refunds-overview" class="mt-4 text-sm"></div>
+    </section>
+
+    <!-- Travel Map -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
+      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Travel Map</h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div>
+          <label class="block text-sm font-semibold mb-1">Event</label>
+          <select id="map-event-select" class="border border-[#f0f4f7] rounded-xl p-3 w-full"></select>
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-semibold mb-1">Team IDs to display (comma-separated) — leave empty for all</label>
+          <input id="map-team-ids" type="text" placeholder="team1, team2, ..." class="border border-[#f0f4f7] rounded-xl p-3 w-full">
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="map-real-route" class="accent-[#f46f47]"> Real route</label>
+        </div>
+        <div class="md:col-span-4 flex flex-wrap gap-4 items-center justify-between">
+          <div class="flex gap-3 items-center">
+            <button id="btn-map-load" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Load/Refresh Paths</button>
+            <button id="btn-map-all" class="bg-[#4a5568] text-white rounded-xl px-4 py-2 font-semibold shadow hover:opacity-90 transition">Show all</button>
+            <span id="map-msg" class="text-sm"></span>
+          </div>
+          <div id="map-legend" class="flex gap-4"></div>
+        </div>
+      </div>
+      <div id="travel-map" class="mt-4 w-full h-[420px] rounded-xl border border-[#f0f4f7]"></div>
     </section>
   </main>
 
+  <!-- Team Map Modal -->
+  <div id="team-map-modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center">
+    <div class="bg-white rounded-2xl shadow-xl p-4 w-[90%] max-w-2xl">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="font-semibold">Team Travel</h3>
+        <button id="team-map-close" class="text-[#4a5568] hover:opacity-80">Close</button>
+      </div>
+      <div class="flex items-center gap-2 mb-2">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="team-map-real" class="accent-[#f46f47]"> Real route</label>
+        <button id="team-map-refresh" class="bg-[#008080] text-white rounded-xl px-3 py-1 text-sm">Refresh</button>
+        <span id="team-map-msg" class="text-sm"></span>
+      </div>
+      <div id="team-map" class="w-full h-[360px] rounded-xl border border-[#f0f4f7]"></div>
+    </div>
+  </div>
+
   <!-- Footer -->
   <div data-include="partials/footer.html"></div>
+  <script src="js/admin-dashboard.js"></script>
 </body>
 </html>

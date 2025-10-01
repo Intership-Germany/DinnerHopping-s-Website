@@ -389,6 +389,56 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
     except Exception:
         await _release_capacity(ev.get('_id'), 2)
         raise
+    # Create registrations for creator and partner (auto-register partner if existing user)
+    reg_common = {
+        'event_id': ev['_id'],
+        'team_id': team_id,
+        'team_size': 2,
+        'preferences': {
+            'course_preference': payload.course_preference,
+            'cooking_location': payload.cooking_location,
+        },
+        'diet': team_diet,
+        'status': 'pending',
+        'created_at': now,
+        'updated_at': now,
+    }
+    inc_count = 0
+    # creator registration (owner)
+    reg_creator = reg_common | {'user_id': creator.get('_id'), 'user_email_snapshot': creator.get('email')}
+    reg_creator_res = await db_mod.db.registrations.insert_one(reg_creator)
+    reg_creator_id = reg_creator_res.inserted_id
+    inc_count += 1
+
+    if partner_user:
+        # If partner already has a registration for this event, reuse it to avoid duplicate key
+        existing_partner_reg = await db_mod.db.registrations.find_one({'event_id': ev['_id'], 'user_id': partner_user.get('_id')})
+        if existing_partner_reg:
+            reg_partner_id = existing_partner_reg.get('_id')
+        else:
+            reg_partner = reg_common | {'user_id': partner_user.get('_id'), 'user_email_snapshot': partner_user.get('email'), 'status': 'invited'}
+            reg_partner_res = await db_mod.db.registrations.insert_one(reg_partner)
+            reg_partner_id = reg_partner_res.inserted_id
+            inc_count += 1
+        # Notify partner via email with decline link
+        base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+        decline_link = f"{base}/registrations/teams/{team_id}/decline"
+        subject = 'You have been added to a DinnerHopping team'
+        body = (
+            f"Hi,\n\nYou were added to a team for event '{ev.get('title')}'. If you cannot participate, you can decline here:\n{decline_link}\n\nThanks,\nDinnerHopping Team"
+        )
+        # best-effort notification
+        _ = await send_email(to=partner_user.get('email'), subject=subject, body=body, category='team_invitation')
+    else:
+        # External partner: no user account, no auto-registration. Store snapshot only.
+        reg_partner_id = None
+
+    # increment attendee_count for the number of newly created registrations in this team
+    if inc_count:
+        try:
+            await db_mod.db.events.update_one({'_id': ev['_id']}, {'$inc': {'attendee_count': inc_count}})
+        except Exception:
+            pass
 
     # Return team and payment info (single payment for €10 i.e., 2x fee)
     team_amount = int(ev.get('fee_cents') or 0) * 2
@@ -425,8 +475,13 @@ async def decline_team(team_id: str, current_user=Depends(get_current_user)):
     # mark team cancelled and cancel related partner registration if exists
     now = _now()
     await db_mod.db.teams.update_one({'_id': tid}, {'$set': {'status': 'cancelled', 'cancelled_by': current_user.get('email'), 'cancelled_at': now}})
-    # set partner registration cancelled_by_user
-    await db_mod.db.registrations.update_many({'team_id': tid, 'user_email_snapshot': current_user.get('email')}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now}})
+    # set partner registration cancelled_by_user and decrement attendee_count accordingly
+    res = await db_mod.db.registrations.update_many({'team_id': tid, 'user_email_snapshot': current_user.get('email')}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now}})
+    try:
+        if getattr(res, 'modified_count', 0) > 0:
+            await db_mod.db.events.update_one({'_id': team.get('event_id'), 'attendee_count': {'$gte': res.modified_count}}, {'$inc': {'attendee_count': -res.modified_count}})
+    except Exception:
+        pass
     return {'status': 'declined'}
 
 
@@ -547,6 +602,11 @@ async def cancel_team_member(team_id: str, registration_id: str, current_user=De
     await db_mod.db.registrations.update_one({'_id': reg['_id']}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
     # Mark team incomplete (custom status) without affecting payment (single payment stays)
     await db_mod.db.teams.update_one({'_id': tid}, {'$set': {'status': 'incomplete', 'updated_at': now}})
+    # decrement attendee_count for this cancelled member
+    try:
+        await db_mod.db.events.update_one({'_id': ev.get('_id'), 'attendee_count': {'$gt': 0}}, {'$inc': {'attendee_count': -1}})
+    except Exception:
+        pass
     # Notify creator
     creator_reg = await db_mod.db.registrations.find_one({'team_id': tid, 'user_id': team.get('created_by_user_id')})
     if creator_reg and creator_reg.get('user_email_snapshot'):
@@ -680,10 +740,14 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
             'updated_at': now,
         }
         await db_mod.db.registrations.insert_one(reg_common | {'user_id': partner_user.get('_id'), 'user_email_snapshot': partner_user.get('email')})
+        # increment attendee_count for the new partner
+        try:
+            await db_mod.db.events.update_one({'_id': ev['_id']}, {'$inc': {'attendee_count': 1}})
+        except Exception:
+            pass
         # Notify partner
         base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
         subject = 'You have been added to a DinnerHopping team (replacement)'
         body = f"Hi,\n\nYou were added as a replacement partner for event '{ev.get('title')}'.\nIf you cannot participate, you can cancel from your dashboard.\n\nThanks,\nDinnerHopping Team"
         _ = await send_email(to=partner_user.get('email'), subject=subject, body=body, category='team_replacement')
     return {'status': 'replaced', 'team_status': 'pending'}
-

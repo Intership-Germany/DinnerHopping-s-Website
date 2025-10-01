@@ -295,7 +295,8 @@ async def send_email(
                     if result:
                         logger.warning("SMTP partial failures: %s", result)
             return True, None
-        except smtplib.SMTPException as exc:
+        except Exception as exc:
+            # Catch all network/SMTP exceptions (e.g., socket.gaierror) and surface as (False, exc)
             return False, exc
 
     if not (smtp_host and smtp_port):
@@ -309,7 +310,10 @@ async def send_email(
     last_exc = None
     while attempt <= max_retries:
         attempt += 1
-        ok, exc = await asyncio.to_thread(_send_once)
+        try:
+            ok, exc = await asyncio.to_thread(_send_once)
+        except Exception as exc:  # defensive: to_thread or underlying raised unexpectedly
+            ok, exc = False, exc
         if ok:
             logger.info("Email sent category=%s to=%s attempt=%d", category, recipients, attempt)
             return True
@@ -451,17 +455,22 @@ async def get_registration_by_any_id(registration_id) -> Optional[dict]:
 
 
 async def require_event_published(event_id) -> dict:
-    """Raise HTTPException if event not found or not published/open.
+    """Raise HTTPException if event not found or not in an accessible lifecycle state.
 
-    In legacy/newer lifecycle we treat status 'open' as equivalent to historical
-    'published'. During tests (USE_FAKE_DB_FOR_TESTS) we relax the check to also
-    accept 'draft' to simplify integration setup if needed.
+    Backward compatibility: legacy 'published' maps to 'open'. We also allow
+    later lifecycle states (closed, matched, released) for read / matching /
+    refunds admin actions so that tooling can operate after registrations end.
+    In tests (USE_FAKE_DB_FOR_TESTS) we relax further to accept 'draft'.
     """
     ev = await get_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail='Event not found')
-    status = ev.get('status')
-    allowed = {'published', 'open'}
+    status = (ev.get('status') or '').lower()
+    if status == 'published':  # legacy migration path
+        status = 'open'
+    allowed = {'open', 'closed', 'matched', 'released'}  # active/visible phases
+    # Some admin flows may still reference 'published' directly in old data
+    allowed.add('published')
     if os.getenv('USE_FAKE_DB_FOR_TESTS'):
         allowed.add('draft')
     if status not in allowed:

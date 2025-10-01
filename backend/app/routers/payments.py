@@ -352,17 +352,12 @@ async def payment_details(payment_id: str, current_user=Depends(get_current_user
     # Authorization: require registration owner or admin
     reg_obj = pay.get('registration_id')
     if reg_obj:
-        # reuse existing helper to validate owner or admin
         reg = await require_registration_owner_or_admin(current_user, reg_obj)
-        if not reg:
-            # require_registration_owner_or_admin may return None for not found
-            # but if it returns None and the caller isn't admin, forbid
-            if not await require_admin(current_user):
-                raise HTTPException(status_code=403, detail='Not authorized')
+        if not reg and not await require_admin(current_user):
+            raise HTTPException(status_code=403, detail='Not authorized')
     else:
         # payment not tied to a registration - only admin may view
-        if not await require_admin(current_user):
-            raise HTTPException(status_code=403, detail='Not authorized')
+        await require_admin(current_user)
 
     # Normalize amount back to cents for clients
     amount_minor = int(round((pay.get('amount') or 0) * 100))
