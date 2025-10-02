@@ -12,17 +12,72 @@
  *  - Intentionally kept framework‑free & SSR‑agnostic.
  */
 // Slimmed-down home page script after utility extraction (see utils/*.js)
-(function(){
-  let __USER_PROFILE = null; let __USER_ZIP = null;
+(function () {
+  let __USER_PROFILE = null;
+  let __USER_ZIP = null;
   const U = (window.dh && window.dh.utils) || {};
-  const tpl = U.tpl || U.template || function(id){ const t=document.getElementById(id); return t && 'content' in t ? t.content.firstElementChild : null; };
-  const cloneTpl = U.cloneTpl || function(id){ const n = tpl(id); return n? n.cloneNode(true): null; };
-  const formatFeeCents = U.formatFeeCents || function(c){ if (typeof c!== 'number') return ''; if (c<=0) return 'Free'; return (c/100).toFixed(2)+' €'; };
-  const fetchPublishedEvents = U.fetchPublishedEvents || async function(){ const api = window.dh?.apiFetch || window.apiFetch; const r = await api('/events?status=open',{headers:{Accept:'application/json'}}); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); };
-  const fetchMyEvents = U.fetchMyEvents || async function(){ const api = window.dh?.apiFetch || window.apiFetch; const r = await api('/events?participant=me',{headers:{Accept:'application/json'}}); if(!r.ok) return []; return r.json(); };
+  const tpl =
+    U.tpl ||
+    U.template ||
+    function (id) {
+      const t = document.getElementById(id);
+      return t && 'content' in t ? t.content.firstElementChild : null;
+    };
+  const cloneTpl =
+    U.cloneTpl ||
+    function (id) {
+      const n = tpl(id);
+      return n ? n.cloneNode(true) : null;
+    };
+  const formatFeeCents =
+    U.formatFeeCents ||
+    function (c) {
+      if (typeof c !== 'number') return '';
+      if (c <= 0) return 'Free';
+      return (c / 100).toFixed(2) + ' €';
+    };
+  const fetchPublishedEvents =
+    U.fetchPublishedEvents ||
+    async function () {
+      const api = window.dh?.apiFetch || window.apiFetch;
+      const r = await api('/events?status=open', { headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    };
+  const fetchMyEvents =
+    U.fetchMyEvents ||
+    async function () {
+      const api = window.dh?.apiFetch || window.apiFetch;
+      const r = await api('/events?participant=me', { headers: { Accept: 'application/json' } });
+      if (!r.ok) return [];
+      return r.json();
+    };
   const buildRegistrationPayload = U.buildRegistrationPayload;
-  const aggregateDiet = U.aggregateDiet || function(a,b){ const o=['omnivore','vegetarian','vegan']; const ca=o.indexOf((a||'').toLowerCase()); const cb=o.indexOf((b||'').toLowerCase()); if(ca===-1) return b||a||''; if(cb===-1) return a||b||''; return o[Math.max(ca,cb)]; };
-  function openProviderModal(){ return U.openModalFromTemplate ? U.openModalFromTemplate('tpl-provider-modal') : (function(){ const t=tpl('tpl-provider-modal'); if(!t) return null; const n=t.cloneNode(true); document.body.appendChild(n); n.addEventListener('click',e=>{ if(e.target===n) n.remove(); }); n.querySelector('.provider-close')?.addEventListener('click',()=>n.remove()); return n; })(); }
+  const aggregateDiet =
+    U.aggregateDiet ||
+    function (a, b) {
+      const o = ['omnivore', 'vegetarian', 'vegan'];
+      const ca = o.indexOf((a || '').toLowerCase());
+      const cb = o.indexOf((b || '').toLowerCase());
+      if (ca === -1) return b || a || '';
+      if (cb === -1) return a || b || '';
+      return o[Math.max(ca, cb)];
+    };
+  function openProviderModal() {
+    return U.openModalFromTemplate
+      ? U.openModalFromTemplate('tpl-provider-modal')
+      : (function () {
+          const t = tpl('tpl-provider-modal');
+          if (!t) return null;
+          const n = t.cloneNode(true);
+          document.body.appendChild(n);
+          n.addEventListener('click', (e) => {
+            if (e.target === n) n.remove();
+          });
+          n.querySelector('.provider-close')?.addEventListener('click', () => n.remove());
+          return n;
+        })();
+  }
 
   function renderLoading(container) {
     container.innerHTML = '';
@@ -42,12 +97,6 @@
     const node = cloneTpl('tpl-empty');
     if (node) container.appendChild(node);
   }
-
-  // Event card rendering moved to components/event-card.js
-
-  // openRegisterModal now provided by components/register-modal.js
-
-  // buildRegistrationPayload now provided by utils/registration.js
 
   let __ALL_EVENTS = [];
   let __PAGE = 1;
@@ -188,17 +237,17 @@
       } else if (window.dh?.components?.renderEventCards) {
         window.dh.components.renderEventCards({
           container: listEl,
-            events: pageItems,
-            userZip: __USER_ZIP,
-            cloneTpl,
-            formatFeeCents,
-            onRegister: ctx => {
-              if (window.dh?.components?.openRegisterModal) {
-                window.dh.components.openRegisterModal({ ...ctx, userProfile: __USER_PROFILE });
-              } else {
-                console.warn('Register modal component missing');
-              }
+          events: pageItems,
+          userZip: __USER_ZIP,
+          cloneTpl,
+          formatFeeCents,
+          onRegister: (ctx) => {
+            if (window.dh?.components?.openRegisterModal) {
+              window.dh.components.openRegisterModal({ ...ctx, userProfile: __USER_PROFILE });
+            } else {
+              console.warn('Register modal component missing');
             }
+          },
         });
       }
     }
@@ -251,8 +300,6 @@
         applyFilters();
       });
   }
-  // fetchPublishedEvents / fetchMyEvents now in utils/events.js
-  // renderMyRegistrations moved to components/my-registrations.js
 
   document.addEventListener('DOMContentLoaded', async () => {
     const listEl = document.getElementById('events-list');
@@ -296,7 +343,11 @@
             .map(String)
         );
       } catch {}
-      try { if (window.dh?.components?.renderMyRegistrations) { window.dh.components.renderMyRegistrations(Array.isArray(myEvents)? myEvents: []); } } catch{}
+      try {
+        if (window.dh?.components?.renderMyRegistrations) {
+          window.dh.components.renderMyRegistrations(Array.isArray(myEvents) ? myEvents : []);
+        }
+      } catch {}
       try {
         applyFilters();
       } catch {}
