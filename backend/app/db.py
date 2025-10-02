@@ -77,6 +77,9 @@ if os.getenv('USE_FAKE_DB_FOR_TESTS'):
                     if '$in' in v:
                         if doc.get(k) not in v['$in']:
                             return False
+                    elif '$nin' in v:
+                        if doc.get(k) in v['$nin']:
+                            return False
                     elif '$gte' in v:
                         if (doc.get(k) or 0) < v['$gte']:
                             return False
@@ -339,6 +342,12 @@ class MongoDB:
             await self.db.chat_groups.create_index('event_id')
             await self.db.chat_groups.create_index('created_at')
             await self.db.chat_messages.create_index([('group_id', 1), ('created_at', -1)])
+
+            # AUDIT LOGS - track state changes for compliance and debugging
+            await self.db.audit_logs.create_index('entity_type')
+            await self.db.audit_logs.create_index('entity_id')
+            await self.db.audit_logs.create_index('timestamp')
+            await self.db.audit_logs.create_index([('entity_type', 1), ('entity_id', 1), ('timestamp', -1)])
 
         except PyMongoError as e:
             logging.warning("MongoDB index creation failed; continuing startup: %s", e)

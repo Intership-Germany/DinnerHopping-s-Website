@@ -15,6 +15,9 @@ from typing import Optional, Literal, List
 from contextlib import suppress
 from ..auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
 from ..utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair, send_email
+from ..utils import get_registration_by_any_id, require_registration_owner_or_admin, get_event
+from bson.objectid import ObjectId
+from bson.errors import InvalidId
 from ..enums import Gender
 from .. import db as db_mod
 

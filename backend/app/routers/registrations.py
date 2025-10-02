@@ -212,6 +212,32 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
     creator = await _ensure_user(current_user['email'])
     if not creator:
         raise HTTPException(status_code=404, detail='User not found')
+    
+    # Check for existing active registrations (single-active-registration rule - Option A)
+    # Active statuses: any status except cancelled
+    cancelled_states = {'cancelled_by_user', 'cancelled_admin'}
+    existing_active = await db_mod.db.registrations.find_one({
+        'user_id': creator.get('_id'),
+        'status': {'$nin': list(cancelled_states)},
+    })
+    
+    # Allow re-registration for the same event, but block if active registration for a DIFFERENT event
+    if existing_active and str(existing_active.get('event_id')) != str(ev['_id']):
+        event_info = await db_mod.db.events.find_one({'_id': existing_active.get('event_id')})
+        event_title = event_info.get('title') if event_info else 'another event'
+        raise HTTPException(
+            status_code=409,
+            detail={
+                'message': f'You already have an active registration for {event_title}. Please cancel that registration before registering for a new event.',
+                'existing_registration': {
+                    'registration_id': str(existing_active.get('_id')),
+                    'event_id': str(existing_active.get('event_id')),
+                    'event_title': event_title,
+                    'status': existing_active.get('status'),
+                },
+            }
+        )
+    
     diet = (
         _enum_value(DietaryPreference, payload.dietary_preference)
         or _enum_value(DietaryPreference, creator.get('default_dietary_preference'))
@@ -233,13 +259,13 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
     if existing and (existing.get('team_id') or existing.get('team_size', 1) != 1):
         raise HTTPException(status_code=400, detail='Already registered with a team for this event')
 
-    cancelled_states = {'cancelled_by_user', 'cancelled_admin'}
     needs_reserve = existing is None or (existing.get('status') in cancelled_states if existing else False)
     if needs_reserve:
         await _reserve_capacity(ev, 1)
 
     try:
         if existing:
+            old_status = existing.get('status')
             update_fields = {
                 'preferences': preferences,
                 'diet': diet,
@@ -247,13 +273,26 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
             }
             update_doc = {'$set': update_fields}
             if existing.get('status') in cancelled_states:
-                update_fields['status'] = 'pending'
+                update_fields['status'] = 'pending_payment'
                 update_doc = {
                     '$set': update_fields,
                     '$unset': {'cancelled_at': ''}
                 }
             await db_mod.db.registrations.update_one({'_id': existing['_id']}, update_doc)
             reg_id = existing['_id']
+            
+            # Audit log for status change
+            if old_status in cancelled_states and update_fields.get('status') == 'pending_payment':
+                from app.utils import create_audit_log
+                await create_audit_log(
+                    entity_type='registration',
+                    entity_id=reg_id,
+                    action='status_change',
+                    actor=creator.get('email'),
+                    old_state={'status': old_status},
+                    new_state={'status': 'pending_payment'},
+                    reason='Re-registration after cancellation'
+                )
         else:
             reg_doc = {
                 'event_id': ev['_id'],
@@ -263,12 +302,29 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
                 'team_size': 1,
                 'preferences': preferences,
                 'diet': diet,
-                'status': 'pending',
+                'status': 'pending_payment',
                 'created_at': now,
                 'updated_at': now,
             }
             res = await db_mod.db.registrations.insert_one(reg_doc)
             reg_id = res.inserted_id
+            
+            # Audit log for creation
+            from app.utils import create_audit_log, send_registration_notification
+            await create_audit_log(
+                entity_type='registration',
+                entity_id=reg_id,
+                action='created',
+                actor=creator.get('email'),
+                new_state={'status': 'pending_payment', 'team_size': 1},
+                reason='Solo registration created'
+            )
+            
+            # Send notification (best-effort, don't fail if it doesn't work)
+            try:
+                await send_registration_notification(reg_id, 'created')
+            except Exception:
+                pass  # Log but don't fail registration if notification fails
     except Exception:
         if needs_reserve:
             await _release_capacity(ev.get('_id'), 1)
@@ -281,7 +337,8 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
         'registration_id': str(reg_id),
         'team_size': 1,
         'amount_cents': int(ev.get('fee_cents') or 0),
-    'payment_create_endpoint': '/payments',
+        'payment_create_endpoint': '/payments',
+        'registration_status': 'pending_payment',
     }
 
 
@@ -294,7 +351,31 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
     if not creator:
         raise HTTPException(status_code=404, detail='User not found')
 
-    active_filter = {'$nin': ['cancelled_by_user', 'cancelled_admin']}
+    # Check for existing active registrations (single-active-registration rule - Option A)
+    cancelled_states = {'cancelled_by_user', 'cancelled_admin'}
+    existing_creator_active = await db_mod.db.registrations.find_one({
+        'user_id': creator.get('_id'),
+        'status': {'$nin': list(cancelled_states)},
+    })
+    
+    # Block if active registration for a DIFFERENT event
+    if existing_creator_active and str(existing_creator_active.get('event_id')) != str(ev['_id']):
+        event_info = await db_mod.db.events.find_one({'_id': existing_creator_active.get('event_id')})
+        event_title = event_info.get('title') if event_info else 'another event'
+        raise HTTPException(
+            status_code=409,
+            detail={
+                'message': f'You already have an active registration for {event_title}. Please cancel that registration before registering for a new event.',
+                'existing_registration': {
+                    'registration_id': str(existing_creator_active.get('_id')),
+                    'event_id': str(existing_creator_active.get('event_id')),
+                    'event_title': event_title,
+                    'status': existing_creator_active.get('status'),
+                },
+            }
+        )
+
+    active_filter = {'$nin': list(cancelled_states)}
     existing_creator_reg = await db_mod.db.registrations.find_one({
         'event_id': ev['_id'],
         'user_email_snapshot': creator.get('email'),
@@ -312,6 +393,20 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             raise HTTPException(status_code=404, detail='Invited user not found')
         if str(partner_user.get('_id')) == str(creator.get('_id')):
             raise HTTPException(status_code=400, detail='Cannot invite yourself as partner')
+        
+        # Check if partner has active registration for a different event
+        existing_partner_active = await db_mod.db.registrations.find_one({
+            'user_id': partner_user.get('_id'),
+            'status': {'$nin': list(cancelled_states)},
+        })
+        if existing_partner_active and str(existing_partner_active.get('event_id')) != str(ev['_id']):
+            partner_event_info = await db_mod.db.events.find_one({'_id': existing_partner_active.get('event_id')})
+            partner_event_title = partner_event_info.get('title') if partner_event_info else 'another event'
+            raise HTTPException(
+                status_code=409,
+                detail=f'Your partner already has an active registration for {partner_event_title}. They must cancel that registration first.'
+            )
+        
         existing_partner_reg = await db_mod.db.registrations.find_one({
             'event_id': ev['_id'],
             'user_email_snapshot': partner_user.get('email'),
@@ -428,7 +523,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
                 'cooking_location': payload.cooking_location,
             },
             'diet': team_diet,
-            'status': 'pending',
+            'status': 'pending_payment',
             'created_at': now,
             'updated_at': now,
         }
@@ -436,6 +531,17 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
         reg_creator = reg_common | {'user_id': creator.get('_id'), 'user_email_snapshot': creator.get('email')}
         reg_creator_res = await db_mod.db.registrations.insert_one(reg_creator)
         reg_creator_id = reg_creator_res.inserted_id
+        
+        # Audit log for creator registration
+        from app.utils import create_audit_log
+        await create_audit_log(
+            entity_type='registration',
+            entity_id=reg_creator_id,
+            action='created',
+            actor=creator.get('email'),
+            new_state={'status': 'pending_payment', 'team_size': 2, 'team_id': str(team_id)},
+            reason='Team registration created (creator)'
+        )
 
         if partner_user:
             reg_partner = reg_common | {'user_id': partner_user.get('_id'), 'user_email_snapshot': partner_user.get('email'), 'status': 'invited'}
@@ -456,56 +562,28 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
     except Exception:
         await _release_capacity(ev.get('_id'), 2)
         raise
-    # Create registrations for creator and partner (auto-register partner if existing user)
-    reg_common = {
-        'event_id': ev['_id'],
-        'team_id': team_id,
-        'team_size': 2,
-        'preferences': {
-            'course_preference': normalized_course,
-            'cooking_location': payload.cooking_location,
-        },
-        'diet': team_diet,
-        'status': 'pending',
-        'created_at': now,
-        'updated_at': now,
-    }
-    inc_count = 0
-    # creator registration (owner)
-    reg_creator = reg_common | {'user_id': creator.get('_id'), 'user_email_snapshot': creator.get('email')}
-    reg_creator_res = await db_mod.db.registrations.insert_one(reg_creator)
-    reg_creator_id = reg_creator_res.inserted_id
-    inc_count += 1
-
-    if partner_user:
-        # If partner already has a registration for this event, reuse it to avoid duplicate key
-        existing_partner_reg = await db_mod.db.registrations.find_one({'event_id': ev['_id'], 'user_id': partner_user.get('_id')})
-        if existing_partner_reg:
-            reg_partner_id = existing_partner_reg.get('_id')
-        else:
-            reg_partner = reg_common | {'user_id': partner_user.get('_id'), 'user_email_snapshot': partner_user.get('email'), 'status': 'invited'}
-            reg_partner_res = await db_mod.db.registrations.insert_one(reg_partner)
-            reg_partner_id = reg_partner_res.inserted_id
-            inc_count += 1
-        # Notify partner via email with decline link
-        base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
-        decline_link = f"{base}/registrations/teams/{team_id}/decline"
-        subject = 'You have been added to a DinnerHopping team'
-        body = (
-            f"Hi,\n\nYou were added to a team for event '{ev.get('title')}'. If you cannot participate, you can decline here:\n{decline_link}\n\nThanks,\nDinnerHopping Team"
+    
+    # increment attendee_count for the newly created registrations
+    inc_count = 1 if partner_user else 1  # Always 1 for creator, partner was already counted in try block
+    if partner_user and reg_partner_id:
+        inc_count = 2
+    
+    try:
+        await db_mod.db.events.update_one({'_id': ev['_id']}, {'$inc': {'attendee_count': inc_count}})
+    except Exception:
+        pass
+    
+    # Audit log for partner registration (if existing user)
+    if partner_user and reg_partner_id:
+        from app.utils import create_audit_log
+        await create_audit_log(
+            entity_type='registration',
+            entity_id=reg_partner_id,
+            action='created',
+            actor=creator.get('email'),
+            new_state={'status': 'invited', 'team_size': 2, 'team_id': str(team_id)},
+            reason='Team registration created (invited partner)'
         )
-        # best-effort notification
-        _ = await send_email(to=partner_user.get('email'), subject=subject, body=body, category='team_invitation')
-    else:
-        # External partner: no user account, no auto-registration. Store snapshot only.
-        reg_partner_id = None
-
-    # increment attendee_count for the number of newly created registrations in this team
-    if inc_count:
-        try:
-            await db_mod.db.events.update_one({'_id': ev['_id']}, {'$inc': {'attendee_count': inc_count}})
-        except Exception:
-            pass
 
     # Return team and payment info (single payment for €10 i.e., 2x fee)
     team_amount = int(ev.get('fee_cents') or 0) * 2
@@ -515,7 +593,8 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
         'partner_registration_id': str(reg_partner_id) if reg_partner_id else None,
         'team_size': 2,
         'amount_cents': team_amount,
-    'payment_create_endpoint': '/payments',
+        'payment_create_endpoint': '/payments',
+        'registration_status': 'pending_payment',
     }
 
 
@@ -628,10 +707,25 @@ async def cancel_solo_registration(registration_id: str, current_user=Depends(ge
     # If already cancelled, return current state
     if reg.get('status') in ('cancelled_by_user', 'cancelled_admin'):
         return {'status': reg.get('status')}
+    
+    old_status = reg.get('status')
     now = datetime.datetime.now(datetime.timezone.utc)
     await db_mod.db.registrations.update_one({'_id': reg['_id']}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
     await _release_capacity(reg.get('event_id'), 1)
     await _mark_refund_if_applicable(reg, ev)
+    
+    # Audit log for cancellation
+    from app.utils import create_audit_log
+    await create_audit_log(
+        entity_type='registration',
+        entity_id=registration_id,
+        action='cancelled',
+        actor=current_user.get('email'),
+        old_state={'status': old_status},
+        new_state={'status': 'cancelled_by_user'},
+        reason='User-initiated cancellation'
+    )
+    
     # email best-effort
     if reg.get('user_email_snapshot'):
         _ = await send_email(to=reg['user_email_snapshot'], subject=f'Cancellation confirmed for {ev.get("title")}', body='Your registration has been cancelled. If eligible, a refund will be processed later.', category='cancellation')
@@ -817,3 +911,89 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
         body = f"Hi,\n\nYou were added as a replacement partner for event '{ev.get('title')}'.\nIf you cannot participate, you can cancel from your dashboard.\n\nThanks,\nDinnerHopping Team"
         _ = await send_email(to=partner_user.get('email'), subject=subject, body=body, category='team_replacement')
     return {'status': 'replaced', 'team_status': 'pending'}
+
+@router.get('/registration-status')
+async def registration_status(registration_id: str | None = None, current_user=Depends(get_current_user)):
+    """Return the current user's registration(s) and linked payment status.
+
+    If `registration_id` is provided the endpoint returns the single registration
+    (authorization enforced). Otherwise returns all registrations for the user (users are not supposed to have multiple registrations).
+    """
+    regs = []
+    if registration_id:
+        # Lookup and enforce owner/admin rights
+        reg = await get_registration_by_any_id(registration_id)
+        if not reg:
+            raise HTTPException(status_code=404, detail='Registration not found')
+        # require owner or admin
+        reg = await require_registration_owner_or_admin(current_user, reg.get('_id'))
+        regs = [reg]
+    else:
+        # fetch all registrations where the user is owner (by id) or snapshot email
+        query = {'$or': [{'user_id': current_user.get('_id')}, {'user_email_snapshot': (current_user.get('email') or '').lower()}]}
+        async for r in db_mod.db.registrations.find(query):
+            regs.append(r)
+
+    out = []
+    for r in regs:
+        event_title = None
+        ev = None
+        if r.get('event_id'):
+            try:
+                ev = await get_event(r.get('event_id'))
+            except Exception:
+                ev = None
+        if ev:
+            event_title = ev.get('title')
+
+        payment_summary = None
+        pay_id = r.get('payment_id')
+        if pay_id:
+            # try to resolve payment by ObjectId or raw id
+            pay = None
+            try:
+                pay_oid = pay_id if isinstance(pay_id, ObjectId) else ObjectId(pay_id)
+            except (InvalidId, TypeError):
+                pay = await db_mod.db.payments.find_one({'_id': pay_id})
+            else:
+                pay = await db_mod.db.payments.find_one({'_id': pay_oid})
+
+            if pay:
+                amount_cents = None
+                if pay.get('amount') is not None:
+                    try:
+                        amount_cents = int(round((pay.get('amount') or 0) * 100))
+                    except Exception:
+                        amount_cents = None
+                payment_summary = {
+                    'payment_id': str(pay.get('_id')),
+                    'status': pay.get('status'),
+                    'provider': pay.get('provider'),
+                    'amount_cents': amount_cents,
+                    'payment_link': pay.get('payment_link'),
+                }
+
+        # Compute canonical amount from event if available
+        amount_due_cents = None
+        try:
+            if ev:
+                fee = int(ev.get('fee_cents') or 0)
+                ts = int(r.get('team_size') or 1)
+                amount_due_cents = fee * ts
+        except Exception:
+            amount_due_cents = None
+
+        out.append({
+            'registration_id': str(r.get('_id')),
+            'event_id': str(r.get('event_id')) if r.get('event_id') else None,
+            'event_title': event_title,
+            'status': r.get('status'),
+            'team_id': str(r.get('team_id')) if r.get('team_id') else None,
+            'team_size': int(r.get('team_size') or 1),
+            'amount_due_cents': amount_due_cents,
+            'payment': payment_summary,
+            'created_at': r.get('created_at'),
+            'paid_at': r.get('paid_at'),
+        })
+
+    return {'registrations': out}
