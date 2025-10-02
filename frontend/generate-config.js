@@ -35,7 +35,8 @@ for (const [key, value] of Object.entries(envVars)) {
     const propName = key.replace(/_BASE$/, '_BASE_URL');
     baseVarNames.push(propName);
     const windowVar = `window.${propName}`;
-    js += `${windowVar} = "${value}";\n`;
+    // Use JSON.stringify to safely serialize arbitrary .env values (quotes, slashes, etc.)
+    js += `${windowVar} = ${JSON.stringify(value)};\n`;
   } else if (key === 'DEBUG_BANNER') {
     // Accept true/false/1/0/yes/no (case-insensitive)
     const v = String(value).trim().toLowerCase();
@@ -48,3 +49,14 @@ js += 'if (typeof window !== "undefined") { window.FRONTEND_BASE_URL = window.FR
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, js, 'utf8');
 console.log('Generated public/js/config.js from .env with variables:', Object.keys(envVars).filter(k => k.endsWith('_BASE')).map(k => k.replace(/_BASE$/, '_BASE_URL')).join(', '));
+
+// Also append a small runtime snippet to `public/js/config.js` that ensures
+// any generated BACKEND_BASE_URL using http:// is upgraded to https:// when
+// the page itself is served over HTTPS. This avoids mixed-content browser
+// blocking when the environment .env still contains an http:// URL.
+const runtimeFix = `\nif (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') {\n  Object.keys(window).forEach(function(k){\n    if (k.endsWith('_BASE_URL') && typeof window[k] === 'string' && window[k].startsWith('http://')) {\n      try {\n        const u = new URL(window[k]);\n        u.protocol = 'https:';\n        window[k] = u.toString().replace(/\/$/, '');\n      } catch(e) { /* ignore malformed URLs */ }\n    }\n  });\n}\n`;
+// Append the runtimeFix only if it isn't already present in the output file
+const existing = fs.readFileSync(outputPath, 'utf8');
+if (!existing.includes("// Also append a small runtime snippet") && !existing.includes("if (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:'")) {
+  fs.appendFileSync(outputPath, runtimeFix, 'utf8');
+}
