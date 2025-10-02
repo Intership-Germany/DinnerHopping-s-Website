@@ -66,7 +66,33 @@
         let res;
         if (payload.solo) { res = await api('/registrations/solo',{ method:'POST', headers, body: JSON.stringify(payload.body) }); }
         else { res = await api(`/events/${encodeURIComponent(payload.event_id)}/register`, { method:'POST', headers, body: JSON.stringify(payload.body) }); }
-        if(!res.ok){ if(res.status===401||res.status===419){ if(typeof window.handleUnauthorized==='function') window.handleUnauthorized(); return; } throw new Error(`HTTP ${res.status}`); }
+        if(!res.ok){ 
+          if(res.status===401||res.status===419){ 
+            if(typeof window.handleUnauthorized==='function') window.handleUnauthorized(); 
+            return; 
+          }
+          // Handle 409 conflict for existing active registration
+          if (res.status === 409) {
+            try {
+              const errData = await res.json();
+              if (errData.existing_registration) {
+                const existing = errData.existing_registration;
+                alert(
+                  `${errData.message || 'You already have an active registration.'}\n\n` +
+                  `Event: ${existing.event_title || 'Unknown'}\n` +
+                  `Status: ${existing.status || 'Unknown'}\n\n` +
+                  `Please cancel that registration first, or wait until it completes.`
+                );
+                submitBtn.textContent = prevLabel; 
+                submitBtn.disabled = false;
+                return;
+              }
+            } catch (e) {
+              // Fall through to generic error
+            }
+          }
+          throw new Error(`HTTP ${res.status}`); 
+        }
         const body = await res.json();
         const paymentLink = body.payment_link || (body.payment && (body.payment.link || body.payment.url));
         try { // snapshot with preferences (client-side only; backend unchanged)

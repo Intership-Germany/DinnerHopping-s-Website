@@ -42,7 +42,18 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || 'Failed to register');
+        // Handle 409 conflict for existing active registration
+        if (res.status === 409 && data.existing_registration) {
+          const existing = data.existing_registration;
+          alert(
+            `${data.message || 'You already have an active registration.'}\n\n` +
+            `Event: ${existing.event_title || 'Unknown'}\n` +
+            `Status: ${existing.status || 'Unknown'}\n\n` +
+            `Please cancel that registration first, or wait until it completes.`
+          );
+          return;
+        }
+        alert(data.detail || data.message || 'Failed to register');
         return;
       }
       const pay = await (
@@ -87,7 +98,18 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || 'Failed to register team');
+        // Handle 409 conflict for existing active registration
+        if (res.status === 409 && data.existing_registration) {
+          const existing = data.existing_registration;
+          alert(
+            `${data.message || 'You already have an active registration.'}\n\n` +
+            `Event: ${existing.event_title || 'Unknown'}\n` +
+            `Status: ${existing.status || 'Unknown'}\n\n` +
+            `Please cancel that registration first, or wait until it completes.`
+          );
+          return;
+        }
+        alert(data.detail || data.message || 'Failed to register team');
         return;
       }
       const pay = await (
