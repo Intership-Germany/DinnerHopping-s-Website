@@ -4,13 +4,15 @@
   const $ = (sel, root)=> (root||document).querySelector(sel);
   const $$ = (sel, root)=> Array.from((root||document).querySelectorAll(sel));
   const fmtDate = (s)=> s ? new Date(s).toLocaleString() : '';
+  const toast = (msg, opts)=> (window.dh && window.dh.toast) ? window.dh.toast(msg, opts||{}) : null;
+  const toastLoading = (msg)=> (window.dh && window.dh.toastLoading) ? window.dh.toastLoading(msg) : { update(){}, close(){} };
 
   // --- Edit mode state ---
   let editingId = null;
 
   // --- Matching details state ---
   let detailsVersion = null; // number
-  let detailsGroups = [];    // [{phase, host_team_id, guest_team_ids, score?, travel_seconds?}]
+  let detailsGroups = [];    // [{phase, host_team_id, guest_team_ids, score?, travel_seconds?, host_address_public?}]
   let teamDetails = {};      // { team_id: {size, team_diet, course_preference, can_host_main, lat, lon} }
   let unsaved = false;
 
@@ -164,6 +166,12 @@
         hostZone.innerHTML = '<div class="text-xs text-[#4a5568] mb-1">Host</div>';
         const hostCard = g.host_team_id ? renderTeamCard(String(g.host_team_id)) : null;
         if (hostCard){ hostCard.dataset.phase = phase; hostCard.dataset.groupIdx = String(g._idx); hostCard.dataset.role = 'host'; hostZone.appendChild(hostCard); }
+        // host address (public) if available
+        const addr = g.host_address_public || g.host_address;
+        const addrEl = document.createElement('div');
+        addrEl.className = 'text-[11px] text-[#4a5568] mt-1';
+        addrEl.textContent = `Host address: ${addr ? addr : '—'}`;
+        hostZone.appendChild(addrEl);
         card.appendChild(hostZone);
         // guests
         const guestZone = document.createElement('div'); guestZone.className = 'guest-zone p-2 rounded border border-dashed min-h-10';
@@ -228,48 +236,87 @@
     const root = $('#match-details');
     const dragData = { teamId: null, fromPhase: null, fromGroupIdx: null, role: null };
     if (!root.dataset.dndBound){
+      // dragstart on cards
       root.addEventListener('dragstart', (e)=>{
-        const card = e.target.closest('.team-card'); if (!card) return;
+        const card = e.target.closest('.team-card'); if (!card || !root.contains(card)) return;
         dragData.teamId = card.dataset.teamId;
         dragData.fromPhase = card.dataset.phase; dragData.fromGroupIdx = Number(card.dataset.groupIdx);
         dragData.role = card.dataset.role;
+        try { e.dataTransfer.setData('text/plain', dragData.teamId || ''); } catch(_) {}
         e.dataTransfer.effectAllowed = 'move';
-      });
-      root.dataset.dndBound = '1';
-    }
-    function allowDrop(ev){ ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; }
-    $$('.host-zone, .guest-zone', root).forEach(zone=>{
-      zone.addEventListener('dragover', allowDrop);
-      zone.addEventListener('drop', async (ev)=>{
-        ev.preventDefault();
+      }, true);
+      // dragend anywhere within root
+      root.addEventListener('dragend', ()=>{
+        dragData.teamId = null; dragData.fromPhase = null; dragData.fromGroupIdx = null; dragData.role = null;
+      }, true);
+      // delegated dragover on zones
+      root.addEventListener('dragover', (ev)=>{
+        const zone = ev.target && (ev.target.closest && ev.target.closest('.host-zone, .guest-zone'));
+        if (!zone || !root.contains(zone)) return;
+        ev.preventDefault(); ev.stopPropagation();
+        try{ ev.dataTransfer.dropEffect = 'move'; } catch(_){}
+      }, true);
+      // delegated drop on zones
+      root.addEventListener('drop', async (ev)=>{
+        const zone = ev.target && (ev.target.closest && ev.target.closest('.host-zone, .guest-zone'));
+        if (!zone || !root.contains(zone)) return;
+        ev.preventDefault(); ev.stopPropagation();
         const toPhase = zone.dataset.phase; const toIdx = Number(zone.dataset.groupIdx); const toRole = zone.dataset.role;
         if (!dragData.teamId) return;
+        let changed = false;
         if (toRole === 'host'){
-          if (dragData.role !== 'guest' || dragData.fromGroupIdx !== toIdx || dragData.fromPhase !== toPhase) return;
-          const g = detailsGroups[toIdx];
-          const prevHost = g.host_team_id ? String(g.host_team_id) : null;
-          g.guest_team_ids = (g.guest_team_ids||[]).filter(t=> String(t) !== dragData.teamId);
-          g.host_team_id = dragData.teamId;
-          if (prevHost){ g.guest_team_ids.push(prevHost); }
+          const sameGroup = (dragData.fromGroupIdx === toIdx) && (dragData.fromPhase === toPhase);
+          if (dragData.role === 'guest'){
+            const toG = detailsGroups[toIdx];
+            if (sameGroup){
+              const prevHost = toG.host_team_id ? String(toG.host_team_id) : null;
+              toG.guest_team_ids = (toG.guest_team_ids||[]).filter(t=> String(t) !== dragData.teamId);
+              toG.host_team_id = dragData.teamId;
+              if (prevHost){ toG.guest_team_ids.push(prevHost); }
+              changed = true;
+            } else {
+              const fromG = detailsGroups[dragData.fromGroupIdx];
+              const prevHost = toG.host_team_id ? String(toG.host_team_id) : null;
+              fromG.guest_team_ids = (fromG.guest_team_ids||[]).filter(t=> String(t) !== dragData.teamId);
+              toG.host_team_id = dragData.teamId;
+              toG.guest_team_ids = (toG.guest_team_ids||[]).filter(t=> String(t) !== dragData.teamId);
+              if (prevHost){ if (!toG.guest_team_ids.some(t=> String(t)===prevHost)) toG.guest_team_ids.push(prevHost); }
+              changed = true;
+            }
+          } else {
+            toast("Dragging a host onto another 'Host' isn't supported. Move a guest into 'Host' to promote it.", { type: 'warning' });
+            return;
+          }
         } else if (toRole === 'guest'){
           const fromG = detailsGroups[dragData.fromGroupIdx];
           const toG = detailsGroups[toIdx];
-          // remove from old spot (guest role only; disallow dragging host across groups)
           if (dragData.role === 'guest'){
             fromG.guest_team_ids = (fromG.guest_team_ids||[]).filter(t=> String(t) !== dragData.teamId);
           } else if (dragData.role === 'host'){
+            toast("Moving a host into 'Guests' isn't supported.", { type: 'warning' });
             return;
           }
-          if (String(toG.host_team_id) === dragData.teamId) return;
-          toG.guest_team_ids = toG.guest_team_ids || [];
-          if (!toG.guest_team_ids.some(t=> String(t)===dragData.teamId)) toG.guest_team_ids.push(dragData.teamId);
+          if (String(toG.host_team_id) !== dragData.teamId){
+            toG.guest_team_ids = toG.guest_team_ids || [];
+            if (!toG.guest_team_ids.some(t=> String(t)===dragData.teamId)) toG.guest_team_ids.push(dragData.teamId);
+            changed = true;
+          }
         }
+        if (!changed) return;
         unsaved = true;
-        renderMatchDetailsBoard();
-        await validateCurrentGroups();
-        await previewCurrentGroups();
-      });
-    });
+        // Clear drag context before any DOM changes
+        dragData.teamId = null; dragData.fromPhase = null; dragData.fromGroupIdx = null; dragData.role = null;
+        // Defer UI update until after drop/dragend completes to avoid breaking subsequent drags
+        const doUpdate = async ()=>{
+          renderMatchDetailsBoard();
+          try { await validateCurrentGroups(); } catch(_) {}
+          try { await previewCurrentGroups(); } catch(_) {}
+          toast('Unsaved changes (preview updated).', { type: 'info' });
+        };
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(()=>{ doUpdate(); }); else setTimeout(()=>{ doUpdate(); }, 0);
+      }, true);
+      root.dataset.dndBound = '1';
+    }
   }
 
   async function validateCurrentGroups(){
@@ -281,10 +328,11 @@
     (data.phase_issues||[]).forEach(v=> issues.push(`[${v.phase}] team ${v.team_id}: ${v.issue}`));
     (data.group_issues||[]).forEach(v=> issues.push(`[${v.phase||'?'}] group#${v.group_idx}: ${v.issue}`));
     $('#details-issues').textContent = issues.length ? `Issues: ${issues.join(' · ')}` : 'No issues detected.';
+    if (issues.length){ toast(`Warnings: ${issues.length} issue(s) detected.`, { type: 'warning' }); }
   }
 
   function bindDetailsControls(){
-    $('#btn-reload-details').addEventListener('click', async ()=>{ await loadMatchDetails(detailsVersion); });
+    $('#btn-reload-details').addEventListener('click', async ()=>{ const t = toastLoading('Loading details...'); await loadMatchDetails(detailsVersion); t.close(); });
     $('#btn-validate-groups').addEventListener('click', validateCurrentGroups);
     $('#btn-save-groups').addEventListener('click', async (e)=>{
       const btn = e.currentTarget; setBtnLoading(btn, 'Saving...');
@@ -294,6 +342,7 @@
         const res = await r.json().catch(()=>({}));
         if (res.status === 'warning'){
           const msgs = [].concat((res.violations||[]).map(v=>`pair ${v.pair[0]}↔${v.pair[1]} ${v.count} times`), (res.phase_issues||[]).map(v=>`[${v.phase}] ${v.team_id} ${v.issue}`));
+          toast(`Warnings (${msgs.length})`, { type: 'warning' });
           if (confirm(`Warnings detected:\n${msgs.join('\n')}\nProceed anyway?`)){
             r = await apiFetch(`/matching/${evId}/set_groups`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: detailsVersion, groups: detailsGroups, force: true }) });
           } else {
@@ -302,6 +351,7 @@
         }
         if (r.ok){
           unsaved = false;
+          toast('Changes saved.', { type: 'success' });
           await loadProposals();
           await loadMatchDetails(detailsVersion);
         } else {
@@ -317,14 +367,16 @@
   async function loadMatchDetails(version){
     const evId = $('#matching-event-select').value;
     const url = version ? `/matching/${evId}/details?version=${version}` : `/matching/${evId}/details`;
+    const t = toastLoading('Loading matching details...');
     // show spinner message
     $('#match-details').innerHTML = '<div class="flex items-center gap-2 text-sm"><span class="spinner"></span> Loading details...</div>';
     const res = await apiFetch(url);
-    if (!res.ok){ $('#match-details').innerHTML = ''; $('#match-details-msg').textContent = 'No details available.'; return; }
+    if (!res.ok){ $('#match-details').innerHTML = ''; $('#match-details-msg').textContent = 'No details available.'; t.update('No details.'); t.close(); return; }
     const data = await res.json().catch(()=>null);
-    if (!data){ $('#match-details').innerHTML = ''; return; }
+    if (!data){ $('#match-details').innerHTML = ''; t.update('Load error.'); t.close(); return; }
     detailsVersion = data.version; detailsGroups = data.groups || []; teamDetails = data.team_details || {}; unsaved = false;
     renderMatchDetailsBoard();
+    t.update('Details loaded'); t.close();
   }
 
   async function loadEvents(){
@@ -359,7 +411,7 @@
       tbody.appendChild(tr);
     });
     $('#events-count').textContent = `${events.length} events`;
-    const selects = [$('#matching-event-select'), $('#issues-event-select'), $('#refunds-event-select'), $('#map-event-select')];
+    const selects = [$('#matching-event-select'), $('#refunds-event-select'), $('#map-event-select')];
     selects.forEach(sel=>{ if (!sel) return; sel.innerHTML = events.map(e=>`<option value="${e.id}">${e.title} (${e.date||''})</option>`).join(''); });
     tbody.onclick = async (e)=>{
       const btn = e.target.closest('button'); if (!btn) return;
@@ -440,14 +492,17 @@
       const evId = $('#matching-event-select').value;
       const weights = readWeights();
       const algorithms = selectedAlgorithms();
+      const t = toastLoading('Starting matching...');
       const res = await apiFetch(`/matching/${evId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ algorithms, weights }) });
       const msg = $('#matching-msg');
-      if (res.ok) msg.textContent = 'Matching started.'; else { const t = await res.text(); msg.textContent = `Failed: ${t}`; }
+      if (res.ok) { msg.textContent = 'Matching started.'; t.update('Matching started'); }
+      else { const tx = await res.text(); msg.textContent = `Failed: ${tx}`; t.update('Matching error'); }
       await loadProposals();
       await loadMatchDetails();
+      t.close();
       clearBtnLoading(btn);
     });
-    $('#btn-refresh-matches').addEventListener('click', async ()=>{ await loadProposals(); await loadMatchDetails(detailsVersion); });
+    $('#btn-refresh-matches').addEventListener('click', async ()=>{ const t = toastLoading('Refreshing proposals...'); await loadProposals(); await loadMatchDetails(detailsVersion); t.update('Proposals refreshed'); t.close(); });
     const delAllBtn = $('#btn-delete-all-matches');
     if (delAllBtn){
       delAllBtn.addEventListener('click', async (e)=>{
@@ -455,15 +510,18 @@
         if (!evId) return;
         if (!confirm('Delete ALL match proposals for this event?')) return;
         setBtnLoading(btn, 'Deleting...');
+        const t = toastLoading('Deleting proposals...');
         const r = await apiFetch(`/matching/${evId}/matches`, { method: 'DELETE' });
         if (r.ok){
           $('#matching-msg').textContent = 'All matches deleted.';
           detailsVersion = null; detailsGroups = []; teamDetails = {}; unsaved = false;
           $('#match-details').innerHTML = '';
           await loadProposals();
+          t.update('Deleted');
         } else {
-          const t = await r.text(); alert(`Failed to delete: ${t}`);
+          const tx = await r.text(); alert(`Failed to delete: ${tx}`); t.update('Delete error');
         }
+        t.close();
         clearBtnLoading(btn);
       });
     }
@@ -503,12 +561,31 @@
         clearBtnLoading(vbtn);
       } else if (f){
         const v = Number(f.getAttribute('data-finalize'));
+        const t = toastLoading('Releasing final plan...');
         const r = await apiFetch(`/matching/${evId}/finalize?version=${v}`, { method: 'POST' });
-        if (r.ok) { await loadEvents(); await loadProposals(); await loadMatchDetails(v); }
+        if (r.ok) { t.update('Plan released'); await loadEvents(); await loadProposals(); await loadMatchDetails(v); }
+        else { t.update('Release error'); }
+        t.close();
       } else if (i){
         const v = Number(i.getAttribute('data-issues'));
-        $('#issues-event-select').value = evId; $('#issues-version').value = v;
-        await loadIssues();
+        // Dynamically fetch and display issues as a collapsible panel under the proposal card and a toast summary
+        const card = i.closest('div.p-3');
+        const existing = card.querySelector('.issues-panel');
+        if (existing) { existing.remove(); return; }
+        const t = toastLoading('Analyzing issues...');
+        const res = await apiFetch(`/matching/${evId}/issues?version=${v}`);
+        const data = await res.json().catch(()=>({ groups:[], issues:[] }));
+        const count = (data.issues||[]).length;
+        if (!count){ t.update('No issues detected'); t.close(); return; }
+        t.update(`${count} group(s) with issues`);
+        t.close();
+        const panel = document.createElement('div');
+        panel.className = 'issues-panel mt-2 border border-[#fde2e1] bg-[#fff7f7] rounded-xl p-2 text-sm';
+        panel.innerHTML = (data.issues||[]).map(it=>{
+          const g = it.group || {}; const tags = (it.issues||[]).join(', ');
+          return `<div class=\"py-1\"><span class=\"font-semibold\">${g.phase||''}</span>: host ${g.host_team_id} → guests ${(g.guest_team_ids||[]).join(', ')} <span class=\"text-[#7a0916]\">[${tags}]</span></div>`;
+        }).join('');
+        card.appendChild(panel);
       } else if (del){
         const v = Number(del.getAttribute('data-delete'));
         if (!confirm(`Delete proposal v${v}?`)) return;
@@ -526,51 +603,7 @@
     }
   }
 
-  async function loadIssues(){
-    const evId = $('#issues-event-select').value;
-    const v = $('#issues-version').value;
-    const res = await apiFetch(`/matching/${evId}/issues${v?`?version=${v}`:''}`);
-    const data = await res.json().catch(()=>({ groups:[], issues:[] }));
-    const box = $('#issues-list'); box.innerHTML = '';
-    data.issues.forEach(it=>{
-      const g = it.group; const tags = (it.issues||[]).join(', ');
-      const el = document.createElement('div');
-      el.className = 'p-3 rounded-xl border border-[#fde2e1] bg-[#fff7f7]';
-      el.textContent = `${g.phase || ''}: host ${g.host_team_id} → guests ${ (g.guest_team_ids||[]).join(', ') } [${tags}]`;
-      box.appendChild(el);
-    });
-  }
-
-  async function bindIssues(){
-    $('#btn-load-issues').addEventListener('click', loadIssues);
-    $('#btn-finalize').addEventListener('click', async ()=>{
-      const evId = $('#issues-event-select').value; const v = Number($('#issues-version').value);
-      if (!v) return;
-      const r = await apiFetch(`/matching/${evId}/finalize?version=${v}`, { method: 'POST' });
-      if (r.ok) { await loadEvents(); await loadProposals(); await loadIssues(); await loadMatchDetails(v); }
-    });
-    $('#btn-move-team').addEventListener('click', async ()=>{
-      const evId = $('#issues-event-select').value; const v = Number($('#issues-version').value);
-      const phase = $('#move-phase').value.trim();
-      const fromIdx = Number($('#move-from').value); const toIdx = Number($('#move-to').value);
-      const teamId = $('#move-team').value.trim();
-      if (!evId || !v || !phase || !teamId) return;
-      let payload = { version: v, phase, from_group_idx: fromIdx, to_group_idx: toIdx, team_id: teamId };
-      let r = await apiFetch(`/matching/${evId}/move`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (r.ok){
-        const res = await r.json().catch(()=>({}));
-        if (res.status === 'warning' && Array.isArray(res.violations)){
-          const msg = res.violations.map(v=>`${v.pair[0]} ↔ ${v.pair[1]} (${v.count} times)`).join('\n');
-          if (confirm(`Warning: duplicate meetings detected:\n${msg}\nProceed anyway?`)){
-            payload.force = true;
-            await apiFetch(`/matching/${evId}/move`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-          }
-        }
-        await loadIssues();
-        await loadMatchDetails(v);
-      }
-    });
-  }
+  // Removed old Manual Adjustments & Issues UI binding; handled dynamically via proposal issues button
 
   // ---------------- Travel Map logic ----------------
   function ensureMainMap(){
@@ -588,8 +621,8 @@
     const el = container || $('#map-legend'); if (!el) return;
     el.innerHTML = '';
     const items = [
-      { color: '#059669', label: 'Entrée' },
-      { color: '#f97316', label: 'Plat' },
+      { color: '#059669', label: 'Appetizer' },
+      { color: '#f97316', label: 'Main' },
       { color: '#f59e0b', label: 'Dessert' },
       { color: '#7c3aed', label: 'After party' },
     ];
@@ -646,21 +679,34 @@
     drawLegend();
   }
 
+  function buildVersionQuery(){
+    return (typeof detailsVersion === 'number' && !isNaN(detailsVersion)) ? `version=${encodeURIComponent(detailsVersion)}` : '';
+  }
+
   async function loadTravelMapAll(){
     const map = ensureMainMap(); if (!map) return;
     const evId = $('#map-event-select').value || $('#matching-event-select').value;
     const real = $('#map-real-route').checked;
     const msg = $('#map-msg'); msg.textContent = 'Loading...';
+    const t = toastLoading('Loading map...');
     clearLayers(mainLayers);
-    const baseUrl = `/matching/${evId}/paths?version=${detailsVersion||''}`;
+    const vq = buildVersionQuery();
+    const baseUrl = `/matching/${evId}/paths${vq?`?${vq}`:''}`;
     const [pointsRes, geomRes] = await Promise.all([
-      apiFetch(baseUrl + `&fast=1`),
-      real ? apiFetch(`/matching/${evId}/paths/geometry?version=${detailsVersion||''}`) : Promise.resolve({ ok: false })
+      apiFetch(baseUrl + `${vq?'&':'?'}fast=1`),
+      real ? apiFetch(`/matching/${evId}/paths/geometry${vq?`?${vq}`:''}`) : Promise.resolve({ ok: false })
     ]);
+    if (!pointsRes.ok){
+      msg.textContent = 'No data.';
+      toast(`Map: error ${pointsRes.status}`, { type: 'warning' });
+      t.update('Load error'); t.close();
+      return;
+    }
     const dataPoints = await pointsRes.json().catch(()=>({ team_paths:{}, bounds:null }));
     const dataGeom = real && geomRes.ok ? await geomRes.json().catch(()=>null) : null;
     drawPathsOn(map, dataPoints, dataGeom, mainLayers);
-    msg.textContent = Object.keys(dataPoints.team_paths||{}).length ? 'Done.' : 'No data.';
+    const has = Object.keys(dataPoints.team_paths||{}).length; msg.textContent = has ? 'Done.' : 'No data.';
+    t.update(has ? 'Map ready' : 'No data'); t.close();
   }
 
   async function loadTravelMapFiltered(){
@@ -669,21 +715,32 @@
     const real = $('#map-real-route').checked;
     const ids = ($('#map-team-ids').value||'').split(',').map(s=>s.trim()).filter(Boolean).join(',');
     const msg = $('#map-msg'); msg.textContent = 'Loading...';
+    const t = toastLoading('Loading selected paths...');
     clearLayers(mainLayers);
-    const base = `/matching/${evId}/paths?version=${detailsVersion||''}${ids?`&ids=${encodeURIComponent(ids)}`:''}`;
+    const vq = buildVersionQuery();
+    const base = `/matching/${evId}/paths${vq?`?${vq}`:''}${ids?`${vq?'&':'?'}ids=${encodeURIComponent(ids)}`:''}`;
     const [pointsRes, geomRes] = await Promise.all([
-      apiFetch(base + `&fast=1`),
-      real ? apiFetch(`/matching/${evId}/paths/geometry?version=${detailsVersion||''}${ids?`&ids=${encodeURIComponent(ids)}`:''}`) : Promise.resolve({ ok: false })
+      apiFetch(base + `${(vq||ids)?'&':'?'}fast=1`),
+      real ? apiFetch(`/matching/${evId}/paths/geometry${vq?`?${vq}`:''}${ids?`${vq?'&':'?'}ids=${encodeURIComponent(ids)}`:''}`) : Promise.resolve({ ok: false })
     ]);
+    if (!pointsRes.ok){
+      msg.textContent = 'No data.';
+      toast(`Map: error ${pointsRes.status}`, { type: 'warning' });
+      t.update('Load error'); t.close();
+      return;
+    }
     const dataPoints = await pointsRes.json().catch(()=>({ team_paths:{}, bounds:null }));
     const dataGeom = real && geomRes.ok ? await geomRes.json().catch(()=>null) : null;
     drawPathsOn(map, dataPoints, dataGeom, mainLayers);
-    msg.textContent = Object.keys(dataPoints.team_paths||{}).length ? 'Done.' : 'No data.';
+    const has = Object.keys(dataPoints.team_paths||{}).length; msg.textContent = has ? 'Done.' : 'No data.';
+    t.update(has ? 'Map ready' : 'No data'); t.close();
   }
 
   async function openTeamMap(teamId){
     teamMapCurrentId = teamId;
     const modal = $('#team-map-modal'); modal.classList.remove('hidden'); modal.classList.add('flex');
+    // disable background scrolling
+    try { document.body.style.overflow = 'hidden'; } catch(e){}
     // init map first time
     if (!teamMap){
       const el = $('#team-map');
@@ -697,16 +754,26 @@
     const evId = $('#matching-event-select').value;
     const real = $('#team-map-real').checked;
     const msg = $('#team-map-msg'); msg.textContent = 'Loading...';
+    const t = toastLoading('Loading team path...');
     clearLayers(teamLayers);
     const ids = encodeURIComponent(teamMapCurrentId);
+    const vq = buildVersionQuery();
     const [pointsRes, geomRes] = await Promise.all([
-      apiFetch(`/matching/${evId}/paths?version=${detailsVersion||''}&fast=1&ids=${ids}`),
-      real ? apiFetch(`/matching/${evId}/paths/geometry?version=${detailsVersion||''}&ids=${ids}`) : Promise.resolve({ ok: false })
+      apiFetch(`/matching/${evId}/paths${vq?`?${vq}`:''}&fast=1&ids=${ids}`.replace('?&','?')),
+      real ? apiFetch(`/matching/${evId}/paths/geometry${vq?`?${vq}`:''}&ids=${ids}`.replace('?&','?')) : Promise.resolve({ ok: false })
     ]);
+    if (!pointsRes.ok){
+      msg.textContent = 'No data.';
+      toast(`Team path: error ${pointsRes.status}`, { type: 'warning' });
+      t.update('Load error'); t.close();
+      return;
+    }
     const dataPoints = await pointsRes.json().catch(()=>({ team_paths:{}, bounds:null }));
     const dataGeom = real && geomRes.ok ? await geomRes.json().catch(()=>null) : null;
     drawPathsOn(teamMap, dataPoints, dataGeom, teamLayers);
-    msg.textContent = (dataPoints.team_paths && dataPoints.team_paths[teamMapCurrentId]) ? 'Done.' : 'No data.';
+    const ok = (dataPoints.team_paths && dataPoints.team_paths[teamMapCurrentId]);
+    msg.textContent = ok ? 'Done.' : 'No data.';
+    t.update(ok ? 'Path ready' : 'No data'); t.close();
   }
 
   function bindMaps(){
@@ -715,7 +782,7 @@
       const ids = ($('#map-team-ids').value||'').trim();
       if (ids) await loadTravelMapFiltered(); else await loadTravelMapAll();
     });
-    $('#team-map-close').addEventListener('click', ()=>{ $('#team-map-modal').classList.add('hidden'); $('#team-map-modal').classList.remove('flex'); });
+    $('#team-map-close').addEventListener('click', ()=>{ $('#team-map-modal').classList.add('hidden'); $('#team-map-modal').classList.remove('flex'); try{ document.body.style.overflow = ''; } catch(e){} });
     $('#team-map-refresh').addEventListener('click', refreshTeamMap);
   }
 
@@ -740,11 +807,12 @@
     await loadEvents();
     await handleCreate();
     await startMatching();
-    await bindIssues();
     await bindRefunds();
     bindMaps();
-    await loadProposals();
-    await loadMatchDetails();
+    // Do not auto-load matching proposals or details on page load.
+    // Users must click "Start Matching" or "Refresh Proposals" to fetch them.
+    const placeholder = document.getElementById('match-details-msg');
+    if (placeholder) placeholder.textContent = 'Click “Refresh Proposals” or “Start Matching” to load data.';
     drawLegend();
   }
 
