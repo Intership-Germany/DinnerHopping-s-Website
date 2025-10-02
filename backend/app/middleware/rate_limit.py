@@ -9,7 +9,7 @@ class RateLimit(BaseHTTPMiddleware):
     Simple in-memory rate limiting middleware.
     
     """
-    def __init__(self, app, max_requests: int = 2_000_000, window_sec: int = 60):
+    def __init__(self, app, max_requests: int = 200, window_sec: int = 60):
         super().__init__(app)
         self.max_requests = max_requests
         self.window = window_sec
