@@ -170,7 +170,7 @@
         const addr = g.host_address_public || g.host_address;
         const addrEl = document.createElement('div');
         addrEl.className = 'text-[11px] text-[#4a5568] mt-1';
-        addrEl.textContent = `Adresse hôte: ${addr ? addr : '—'}`;
+        addrEl.textContent = `Host address: ${addr ? addr : '—'}`;
         hostZone.appendChild(addrEl);
         card.appendChild(hostZone);
         // guests
@@ -284,7 +284,7 @@
               changed = true;
             }
           } else {
-            toast('Glisser un hôte vers un autre “Host” n\'est pas supporté. Déplacez un invité vers “Host” pour le promouvoir.', { type: 'warning' });
+            toast("Dragging a host onto another 'Host' isn't supported. Move a guest into 'Host' to promote it.", { type: 'warning' });
             return;
           }
         } else if (toRole === 'guest'){
@@ -293,7 +293,7 @@
           if (dragData.role === 'guest'){
             fromG.guest_team_ids = (fromG.guest_team_ids||[]).filter(t=> String(t) !== dragData.teamId);
           } else if (dragData.role === 'host'){
-            toast('Déplacer un hôte vers “Guests” n\'est pas supporté.', { type: 'warning' });
+            toast("Moving a host into 'Guests' isn't supported.", { type: 'warning' });
             return;
           }
           if (String(toG.host_team_id) !== dragData.teamId){
@@ -311,7 +311,7 @@
           renderMatchDetailsBoard();
           try { await validateCurrentGroups(); } catch(_) {}
           try { await previewCurrentGroups(); } catch(_) {}
-          toast('Modifications non enregistrées (aperçu mis à jour).', { type: 'info' });
+          toast('Unsaved changes (preview updated).', { type: 'info' });
         };
         if (typeof requestAnimationFrame === 'function') requestAnimationFrame(()=>{ doUpdate(); }); else setTimeout(()=>{ doUpdate(); }, 0);
       }, true);
@@ -328,11 +328,11 @@
     (data.phase_issues||[]).forEach(v=> issues.push(`[${v.phase}] team ${v.team_id}: ${v.issue}`));
     (data.group_issues||[]).forEach(v=> issues.push(`[${v.phase||'?'}] group#${v.group_idx}: ${v.issue}`));
     $('#details-issues').textContent = issues.length ? `Issues: ${issues.join(' · ')}` : 'No issues detected.';
-    if (issues.length){ toast(`Avertissements: ${issues.length} problème(s) détecté(s).`, { type: 'warning' }); }
+    if (issues.length){ toast(`Warnings: ${issues.length} issue(s) detected.`, { type: 'warning' }); }
   }
 
   function bindDetailsControls(){
-    $('#btn-reload-details').addEventListener('click', async ()=>{ const t = toastLoading('Chargement des détails...'); await loadMatchDetails(detailsVersion); t.close(); });
+    $('#btn-reload-details').addEventListener('click', async ()=>{ const t = toastLoading('Loading details...'); await loadMatchDetails(detailsVersion); t.close(); });
     $('#btn-validate-groups').addEventListener('click', validateCurrentGroups);
     $('#btn-save-groups').addEventListener('click', async (e)=>{
       const btn = e.currentTarget; setBtnLoading(btn, 'Saving...');
@@ -342,7 +342,7 @@
         const res = await r.json().catch(()=>({}));
         if (res.status === 'warning'){
           const msgs = [].concat((res.violations||[]).map(v=>`pair ${v.pair[0]}↔${v.pair[1]} ${v.count} times`), (res.phase_issues||[]).map(v=>`[${v.phase}] ${v.team_id} ${v.issue}`));
-          toast(`Avertissements (${msgs.length})`, { type: 'warning' });
+          toast(`Warnings (${msgs.length})`, { type: 'warning' });
           if (confirm(`Warnings detected:\n${msgs.join('\n')}\nProceed anyway?`)){
             r = await apiFetch(`/matching/${evId}/set_groups`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: detailsVersion, groups: detailsGroups, force: true }) });
           } else {
@@ -351,7 +351,7 @@
         }
         if (r.ok){
           unsaved = false;
-          toast('Changements enregistrés.', { type: 'success' });
+          toast('Changes saved.', { type: 'success' });
           await loadProposals();
           await loadMatchDetails(detailsVersion);
         } else {
@@ -367,16 +367,16 @@
   async function loadMatchDetails(version){
     const evId = $('#matching-event-select').value;
     const url = version ? `/matching/${evId}/details?version=${version}` : `/matching/${evId}/details`;
-    const t = toastLoading('Chargement des détails du matching...');
+    const t = toastLoading('Loading matching details...');
     // show spinner message
     $('#match-details').innerHTML = '<div class="flex items-center gap-2 text-sm"><span class="spinner"></span> Loading details...</div>';
     const res = await apiFetch(url);
-    if (!res.ok){ $('#match-details').innerHTML = ''; $('#match-details-msg').textContent = 'No details available.'; t.update('Aucun détail.'); t.close(); return; }
+    if (!res.ok){ $('#match-details').innerHTML = ''; $('#match-details-msg').textContent = 'No details available.'; t.update('No details.'); t.close(); return; }
     const data = await res.json().catch(()=>null);
-    if (!data){ $('#match-details').innerHTML = ''; t.update('Erreur chargement.'); t.close(); return; }
+    if (!data){ $('#match-details').innerHTML = ''; t.update('Load error.'); t.close(); return; }
     detailsVersion = data.version; detailsGroups = data.groups || []; teamDetails = data.team_details || {}; unsaved = false;
     renderMatchDetailsBoard();
-    t.update('Détails chargés'); t.close();
+    t.update('Details loaded'); t.close();
   }
 
   async function loadEvents(){
@@ -492,17 +492,17 @@
       const evId = $('#matching-event-select').value;
       const weights = readWeights();
       const algorithms = selectedAlgorithms();
-      const t = toastLoading('Démarrage du matching...');
+      const t = toastLoading('Starting matching...');
       const res = await apiFetch(`/matching/${evId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ algorithms, weights }) });
       const msg = $('#matching-msg');
-      if (res.ok) { msg.textContent = 'Matching started.'; t.update('Matching lancé'); }
-      else { const tx = await res.text(); msg.textContent = `Failed: ${tx}`; t.update('Erreur matching'); }
+      if (res.ok) { msg.textContent = 'Matching started.'; t.update('Matching started'); }
+      else { const tx = await res.text(); msg.textContent = `Failed: ${tx}`; t.update('Matching error'); }
       await loadProposals();
       await loadMatchDetails();
       t.close();
       clearBtnLoading(btn);
     });
-    $('#btn-refresh-matches').addEventListener('click', async ()=>{ const t = toastLoading('Mise à jour des propositions...'); await loadProposals(); await loadMatchDetails(detailsVersion); t.update('Propositions à jour'); t.close(); });
+    $('#btn-refresh-matches').addEventListener('click', async ()=>{ const t = toastLoading('Refreshing proposals...'); await loadProposals(); await loadMatchDetails(detailsVersion); t.update('Proposals refreshed'); t.close(); });
     const delAllBtn = $('#btn-delete-all-matches');
     if (delAllBtn){
       delAllBtn.addEventListener('click', async (e)=>{
@@ -510,16 +510,16 @@
         if (!evId) return;
         if (!confirm('Delete ALL match proposals for this event?')) return;
         setBtnLoading(btn, 'Deleting...');
-        const t = toastLoading('Suppression des propositions...');
+        const t = toastLoading('Deleting proposals...');
         const r = await apiFetch(`/matching/${evId}/matches`, { method: 'DELETE' });
         if (r.ok){
           $('#matching-msg').textContent = 'All matches deleted.';
           detailsVersion = null; detailsGroups = []; teamDetails = {}; unsaved = false;
           $('#match-details').innerHTML = '';
           await loadProposals();
-          t.update('Supprimé');
+          t.update('Deleted');
         } else {
-          const tx = await r.text(); alert(`Failed to delete: ${tx}`); t.update('Erreur suppression');
+          const tx = await r.text(); alert(`Failed to delete: ${tx}`); t.update('Delete error');
         }
         t.close();
         clearBtnLoading(btn);
@@ -561,10 +561,10 @@
         clearBtnLoading(vbtn);
       } else if (f){
         const v = Number(f.getAttribute('data-finalize'));
-        const t = toastLoading('Publication du plan final...');
+        const t = toastLoading('Releasing final plan...');
         const r = await apiFetch(`/matching/${evId}/finalize?version=${v}`, { method: 'POST' });
-        if (r.ok) { t.update('Plan publié'); await loadEvents(); await loadProposals(); await loadMatchDetails(v); }
-        else { t.update('Erreur publication'); }
+        if (r.ok) { t.update('Plan released'); await loadEvents(); await loadProposals(); await loadMatchDetails(v); }
+        else { t.update('Release error'); }
         t.close();
       } else if (i){
         const v = Number(i.getAttribute('data-issues'));
@@ -572,12 +572,12 @@
         const card = i.closest('div.p-3');
         const existing = card.querySelector('.issues-panel');
         if (existing) { existing.remove(); return; }
-        const t = toastLoading('Analyse des problèmes...');
+        const t = toastLoading('Analyzing issues...');
         const res = await apiFetch(`/matching/${evId}/issues?version=${v}`);
         const data = await res.json().catch(()=>({ groups:[], issues:[] }));
         const count = (data.issues||[]).length;
-        if (!count){ t.update('Aucun problème détecté'); t.close(); return; }
-        t.update(`${count} groupe(s) avec problèmes`);
+        if (!count){ t.update('No issues detected'); t.close(); return; }
+        t.update(`${count} group(s) with issues`);
         t.close();
         const panel = document.createElement('div');
         panel.className = 'issues-panel mt-2 border border-[#fde2e1] bg-[#fff7f7] rounded-xl p-2 text-sm';
@@ -621,8 +621,8 @@
     const el = container || $('#map-legend'); if (!el) return;
     el.innerHTML = '';
     const items = [
-      { color: '#059669', label: 'Entrée' },
-      { color: '#f97316', label: 'Plat' },
+      { color: '#059669', label: 'Appetizer' },
+      { color: '#f97316', label: 'Main' },
       { color: '#f59e0b', label: 'Dessert' },
       { color: '#7c3aed', label: 'After party' },
     ];
@@ -688,7 +688,7 @@
     const evId = $('#map-event-select').value || $('#matching-event-select').value;
     const real = $('#map-real-route').checked;
     const msg = $('#map-msg'); msg.textContent = 'Loading...';
-    const t = toastLoading('Chargement de la carte...');
+    const t = toastLoading('Loading map...');
     clearLayers(mainLayers);
     const vq = buildVersionQuery();
     const baseUrl = `/matching/${evId}/paths${vq?`?${vq}`:''}`;
@@ -698,15 +698,15 @@
     ]);
     if (!pointsRes.ok){
       msg.textContent = 'No data.';
-      toast(`Carte: erreur ${pointsRes.status}`, { type: 'warning' });
-      t.update('Erreur chargement'); t.close();
+      toast(`Map: error ${pointsRes.status}`, { type: 'warning' });
+      t.update('Load error'); t.close();
       return;
     }
     const dataPoints = await pointsRes.json().catch(()=>({ team_paths:{}, bounds:null }));
     const dataGeom = real && geomRes.ok ? await geomRes.json().catch(()=>null) : null;
     drawPathsOn(map, dataPoints, dataGeom, mainLayers);
     const has = Object.keys(dataPoints.team_paths||{}).length; msg.textContent = has ? 'Done.' : 'No data.';
-    t.update(has ? 'Carte prête' : 'Aucune donnée'); t.close();
+    t.update(has ? 'Map ready' : 'No data'); t.close();
   }
 
   async function loadTravelMapFiltered(){
@@ -715,7 +715,7 @@
     const real = $('#map-real-route').checked;
     const ids = ($('#map-team-ids').value||'').split(',').map(s=>s.trim()).filter(Boolean).join(',');
     const msg = $('#map-msg'); msg.textContent = 'Loading...';
-    const t = toastLoading('Chargement des trajets sélectionnés...');
+    const t = toastLoading('Loading selected paths...');
     clearLayers(mainLayers);
     const vq = buildVersionQuery();
     const base = `/matching/${evId}/paths${vq?`?${vq}`:''}${ids?`${vq?'&':'?'}ids=${encodeURIComponent(ids)}`:''}`;
@@ -725,15 +725,15 @@
     ]);
     if (!pointsRes.ok){
       msg.textContent = 'No data.';
-      toast(`Carte: erreur ${pointsRes.status}`, { type: 'warning' });
-      t.update('Erreur chargement'); t.close();
+      toast(`Map: error ${pointsRes.status}`, { type: 'warning' });
+      t.update('Load error'); t.close();
       return;
     }
     const dataPoints = await pointsRes.json().catch(()=>({ team_paths:{}, bounds:null }));
     const dataGeom = real && geomRes.ok ? await geomRes.json().catch(()=>null) : null;
     drawPathsOn(map, dataPoints, dataGeom, mainLayers);
     const has = Object.keys(dataPoints.team_paths||{}).length; msg.textContent = has ? 'Done.' : 'No data.';
-    t.update(has ? 'Carte prête' : 'Aucune donnée'); t.close();
+    t.update(has ? 'Map ready' : 'No data'); t.close();
   }
 
   async function openTeamMap(teamId){
@@ -754,7 +754,7 @@
     const evId = $('#matching-event-select').value;
     const real = $('#team-map-real').checked;
     const msg = $('#team-map-msg'); msg.textContent = 'Loading...';
-    const t = toastLoading('Chargement du trajet de l\'équipe...');
+    const t = toastLoading('Loading team path...');
     clearLayers(teamLayers);
     const ids = encodeURIComponent(teamMapCurrentId);
     const vq = buildVersionQuery();
@@ -764,8 +764,8 @@
     ]);
     if (!pointsRes.ok){
       msg.textContent = 'No data.';
-      toast(`Trajet équipe: erreur ${pointsRes.status}`, { type: 'warning' });
-      t.update('Erreur chargement'); t.close();
+      toast(`Team path: error ${pointsRes.status}`, { type: 'warning' });
+      t.update('Load error'); t.close();
       return;
     }
     const dataPoints = await pointsRes.json().catch(()=>({ team_paths:{}, bounds:null }));
@@ -773,7 +773,7 @@
     drawPathsOn(teamMap, dataPoints, dataGeom, teamLayers);
     const ok = (dataPoints.team_paths && dataPoints.team_paths[teamMapCurrentId]);
     msg.textContent = ok ? 'Done.' : 'No data.';
-    t.update(ok ? 'Trajet prêt' : 'Aucune donnée'); t.close();
+    t.update(ok ? 'Path ready' : 'No data'); t.close();
   }
 
   function bindMaps(){

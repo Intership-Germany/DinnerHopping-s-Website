@@ -152,9 +152,8 @@ class LocationIn(BaseModel):
 class EventCreate(BaseModel):
     """Admin event creation/update payload (simplified pricing).
 
-    Tarification: un seul champ `fee_cents` (prix pour un participant). Le total
-    à payer pour une équipe de taille N = fee_cents * N. Anciennes variantes
-    fee_solo_cents / fee_team_cents supprimées.
+    Pricing: a single field `fee_cents` (price per participant). The total to pay
+    for a team of size N = fee_cents * N. Legacy variants fee_solo_cents / fee_team_cents removed.
     """
     title: str
     description: Optional[str] = None

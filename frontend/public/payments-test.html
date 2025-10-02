@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="utf-8" />
-    <title>DinnerHopping - Test Paiements</title>
+    <title>DinnerHopping - Payments Test</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="./js/config.js"></script>
     <style>
@@ -25,8 +25,8 @@
     </style>
 </head>
 <body>
-    <h1>Test Intégral Paiements</h1>
-    <p style="max-width:760px">Outil de test manuel couvrant : login, lecture profil, création évent (admin), registration, création d'ordre PayPal (SDK).<br/>Assurez-vous que les variables d'env PayPal sont configurées côté backend. Pour le flow <strong>Buttons</strong>, le SDK est chargé dynamiquement après login.</p>
+    <h1>Payments End-to-End Test</h1>
+    <p style="max-width:760px">Manual test tool covering: login, profile read, event creation (admin), registration, and PayPal order creation (SDK).<br/>Make sure PayPal env variables are configured on the backend. For the <strong>Buttons</strong> flow, the SDK loads dynamically after login.</p>
 
     <fieldset>
         <legend>1. Login</legend>
@@ -36,14 +36,14 @@
                 <input id="email" value="info@acrevon.fr" />
             </div>
             <div>
-                <label>Mot de passe</label>
+                <label>Password</label>
                 <input id="password" type="password" value="Azertyuiop12!" />
             </div>
         </div>
         <button id="btn-login">Login</button>
         <div class="inline" style="margin-top:.5rem;">
             <span>Token: <span id="token-badge" class="badge">(none)</span></span>
-            <button id="btn-profile" class="secondary" disabled>Profil</button>
+            <button id="btn-profile" class="secondary" disabled>Profile</button>
         </div>
     </fieldset>
 
@@ -51,7 +51,7 @@
         <legend>2. Event (admin)</legend>
         <div class="row">
             <div>
-                <label>Titre</label>
+                <label>Title</label>
                 <input id="event-title" value="Event Test" />
             </div>
             <div>
@@ -59,15 +59,15 @@
                 <input id="event-date" value="2032-01-01" />
             </div>
             <div>
-                <label>Capacité</label>
+                <label>Capacity</label>
                 <input id="event-cap" type="number" value="10" />
             </div>
             <div>
-                <label>Frais (cents)</label>
+                <label>Fee (cents)</label>
                 <input id="event-fee" type="number" value="1500" />
             </div>
         </div>
-        <button id="btn-create-event" disabled>Créer Event</button>
+        <button id="btn-create-event" disabled>Create Event</button>
         <div style="margin-top:.5rem">Event ID: <span id="event-id" class="badge">(none)</span></div>
     </fieldset>
 
@@ -75,19 +75,19 @@
         <legend>3. Registration</legend>
         <div class="row">
             <div>
-                <label>Event ID (si existant)</label>
-                <input id="event-id-input" placeholder="Utilise ci-dessus ou colle" />
+                <label>Event ID (existing)</label>
+                <input id="event-id-input" placeholder="Use above or paste" />
             </div>
         </div>
-        <button id="btn-register" disabled>Créer Registration Solo</button>
+        <button id="btn-register" disabled>Create Solo Registration</button>
         <div style="margin-top:.5rem">Registration ID: <span id="reg-id" class="badge">(none)</span></div>
     </fieldset>
 
     <fieldset>
         <legend>4. PayPal - Buttons (Orders API)</legend>
-        <p style="margin-top:0">Utilise le SDK JS. Saisir éventuellement un autre registration_id. Une seule commande par registration.</p>
+        <p style="margin-top:0">Uses the PayPal JS SDK. Optionally enter a different registration_id. Only one order per registration.</p>
         <label>Registration ID (override)</label>
-        <input id="reg-id-buttons" placeholder="Laisse vide pour utiliser ci-dessus" />
+        <input id="reg-id-buttons" placeholder="Leave empty to use above" />
         <div id="paypal-buttons" style="margin-top:1rem"></div>
     </fieldset>
 
@@ -112,7 +112,7 @@
         try {
             const r = await fetch(`${backend}/login`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:email, password})});
             const j = await r.json().catch(()=>({}));
-            if(!r.ok){ log('Login échec', j, 'err'); return; }
+            if(!r.ok){ log('Login failed', j, 'err'); return; }
             token = j.access_token; byId('token-badge').textContent = token?token.slice(0,18)+'…':'(none)';
             byId('btn-profile').disabled=false; byId('btn-create-event').disabled=false; byId('btn-register').disabled=false;
             log('Login ok', { token_head: token.slice(0,20) });
@@ -124,9 +124,9 @@
         try {
             const r = await fetch(`${backend}/me`, { headers: authHeaders() });
             const j = await r.json().catch(()=>({}));
-            if(!r.ok){ log('Profil échec', j, 'err'); return; }
-            log('Profil', j);
-        } catch(e){ log('Profil exception', {error:String(e)}, 'err'); }
+            if(!r.ok){ log('Profile failed', j, 'err'); return; }
+            log('Profile', j);
+        } catch(e){ log('Profile exception', {error:String(e)}, 'err'); }
     }
 
     async function createEvent(){
@@ -134,19 +134,19 @@
         try {
             const r = await fetch(`${backend}/events`, { method:'POST', headers: authHeaders(), body: JSON.stringify(body)});
             const j = await r.json().catch(()=>({}));
-            if(!r.ok){ log('Create event échec', j, 'err'); return; }
+            if(!r.ok){ log('Create event failed', j, 'err'); return; }
             byId('event-id').textContent = j.id || '(?)';
             byId('event-id-input').value = j.id || '';
-            log('Event créé', j);
+            log('Event created', j);
         } catch(e){ log('Create event exception', {error:String(e)}, 'err'); }
     }
 
     async function registerSolo(){
-        const evId = byId('event-id-input').value.trim(); if(!evId){ log('Registration: event_id manquant'); return; }
+        const evId = byId('event-id-input').value.trim(); if(!evId){ log('Registration: missing event_id'); return; }
         try {
             const r = await fetch(`${backend}/registrations/solo`, { method:'POST', headers: authHeaders(), body: JSON.stringify({event_id: evId})});
             const j = await r.json().catch(()=>({}));
-            if(!r.ok){ log('Registration échec', j, 'err'); return; }
+            if(!r.ok){ log('Registration failed', j, 'err'); return; }
             byId('reg-id').textContent = j.registration_id || '(?)';
             log('Registration ok', j);
         } catch(e){ log('Registration exception', {error:String(e)}, 'err'); }
@@ -156,9 +156,9 @@
     async function loadPaypalSdk(){
         if(paypalLoaded) return;
         // fetch config
-        let cfg; try { const r = await fetch(`${backend}/payments/paypal/config`, {headers: authHeaders()}); if(!r.ok) throw new Error('config'); cfg = await r.json(); } catch(e){ log('PayPal config échec', {error:String(e)}, 'err'); return; }
+        let cfg; try { const r = await fetch(`${backend}/payments/paypal/config`, {headers: authHeaders()}); if(!r.ok) throw new Error('config'); cfg = await r.json(); } catch(e){ log('PayPal config failed', {error:String(e)}, 'err'); return; }
         await new Promise((res, rej)=>{ const s=document.createElement('script'); const params=new URLSearchParams({'client-id':cfg.clientId, currency: cfg.currency}); s.src=`https://www.paypal.com/sdk/js?${params.toString()}`; s.onload=res; s.onerror=()=>rej(new Error('sdk load')); document.head.appendChild(s); });
-        paypalLoaded=true; log('PayPal SDK chargé');
+        paypalLoaded=true; log('PayPal SDK loaded');
         renderButtons();
     }
 
@@ -168,19 +168,19 @@
             createOrder: async () => {
                 const override = byId('reg-id-buttons').value.trim();
                 const regId = override || (byId('reg-id').textContent || '').replace('…','').trim();
-                if(!regId || regId==="(none)") { alert('Registration ID requis'); throw new Error('missing reg'); }
+                if(!regId || regId==="(none)") { alert('Registration ID required'); throw new Error('missing reg'); }
                 const body = { registration_id: regId, amount_cents: 0, provider: 'paypal', currency: 'EUR' };
                 const r = await fetch(`${backend}/payments/paypal/orders`, { method:'POST', headers: authHeaders(), body: JSON.stringify(body) });
                 const j = await r.json().catch(()=>({}));
-                if(!r.ok){ log('createOrder (Buttons) échec', j, 'err'); throw new Error('create order fail'); }
-                log('Order PayPal créé (Buttons)', j);
+                if(!r.ok){ log('createOrder (Buttons) failed', j, 'err'); throw new Error('create order fail'); }
+                log('PayPal Order created (Buttons)', j);
                 return j.id;
             },
             onApprove: async data => {
                 const r = await fetch(`${backend}/payments/paypal/orders/${encodeURIComponent(data.orderID)}/capture`, { method:'POST', headers: authHeaders() });
                 const j = await r.json().catch(()=>({}));
-                if(!r.ok){ log('capture (Buttons) échec', j, 'err'); return; }
-                log('Capture PayPal (Buttons)', j);
+                if(!r.ok){ log('capture (Buttons) failed', j, 'err'); return; }
+                log('PayPal capture (Buttons)', j);
             },
             onError: err => { log('PayPal Buttons error', {error:String(err)}, 'err'); }
         }).render('#paypal-buttons');
