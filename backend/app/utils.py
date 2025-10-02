@@ -847,3 +847,77 @@ async def create_audit_log(
     except PyMongoError:
         logger.exception('Failed to create audit log for %s %s', entity_type, entity_id)
         return False
+
+
+async def send_registration_notification(
+    registration_id: str | ObjectId,
+    notification_type: str,
+) -> bool:
+    """Send notification emails for registration lifecycle events.
+    
+    Args:
+        registration_id: ID of the registration
+        notification_type: Type of notification ('created', 'payment_failed', 'cancelled')
+    
+    Returns:
+        True if email was sent successfully, False otherwise
+    """
+    try:
+        reg_oid = registration_id if isinstance(registration_id, ObjectId) else ObjectId(registration_id)
+    except (InvalidId, TypeError):
+        return False
+    
+    reg = await db_mod.db.registrations.find_one({'_id': reg_oid})
+    if not reg:
+        return False
+    
+    email = reg.get('user_email_snapshot')
+    if not email:
+        return False
+    
+    # Get event details
+    event = None
+    if reg.get('event_id'):
+        event = await db_mod.db.events.find_one({'_id': reg.get('event_id')})
+    
+    event_title = event.get('title') if event else 'DinnerHopping Event'
+    
+    # Build notification based on type
+    if notification_type == 'created':
+        subject = f'Registration Created: {event_title}'
+        body = (
+            f"Hi,\n\n"
+            f"Your registration for '{event_title}' has been created.\n\n"
+            f"Status: Pending Payment\n"
+            f"Next Step: Complete your payment to confirm your registration.\n\n"
+            f"If you did not initiate this registration, please contact us immediately.\n\n"
+            f"Best regards,\n"
+            f"DinnerHopping Team"
+        )
+    elif notification_type == 'payment_failed':
+        subject = f'Payment Failed: {event_title}'
+        body = (
+            f"Hi,\n\n"
+            f"We were unable to process your payment for '{event_title}'.\n\n"
+            f"Please try again or contact us if you need assistance.\n\n"
+            f"Best regards,\n"
+            f"DinnerHopping Team"
+        )
+    elif notification_type == 'cancelled':
+        subject = f'Registration Cancelled: {event_title}'
+        body = (
+            f"Hi,\n\n"
+            f"Your registration for '{event_title}' has been cancelled.\n\n"
+            f"If eligible, a refund will be processed automatically.\n\n"
+            f"Best regards,\n"
+            f"DinnerHopping Team"
+        )
+    else:
+        return False
+    
+    return await send_email(
+        to=email,
+        subject=subject,
+        body=body,
+        category=f'registration_{notification_type}'
+    )

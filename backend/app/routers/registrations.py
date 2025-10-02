@@ -310,7 +310,7 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
             reg_id = res.inserted_id
             
             # Audit log for creation
-            from app.utils import create_audit_log
+            from app.utils import create_audit_log, send_registration_notification
             await create_audit_log(
                 entity_type='registration',
                 entity_id=reg_id,
@@ -319,6 +319,12 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
                 new_state={'status': 'pending_payment', 'team_size': 1},
                 reason='Solo registration created'
             )
+            
+            # Send notification (best-effort, don't fail if it doesn't work)
+            try:
+                await send_registration_notification(reg_id, 'created')
+            except Exception:
+                pass  # Log but don't fail registration if notification fails
     except Exception:
         if needs_reserve:
             await _release_capacity(ev.get('_id'), 1)
