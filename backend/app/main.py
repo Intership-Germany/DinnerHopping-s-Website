@@ -11,6 +11,11 @@ from .logging_config import configure_logging
 from .middleware.rate_limit import RateLimit
 from .middleware.security import SecurityHeadersMiddleware, CSRFMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
+# Import ProxyHeadersMiddleware if available; do not fail import if it's missing
+try:
+    from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
+except Exception:
+    ProxyHeadersMiddleware = None
 from .db import close as close_mongo, connect as connect_to_mongo
 from .routers import admin, events, invitations, payments, users, matching, chats, registrations
 from .settings import get_settings
@@ -86,6 +91,14 @@ app = FastAPI(title=settings.app_name,
                             openapi_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/openapi.json',
                             lifespan=_lifespan,
                         )
+
+# Honor X-Forwarded-* headers when running behind a reverse proxy (Apache/nginx)
+# This ensures request.url.scheme and related properties reflect the original
+# client-visible scheme (https) so redirects and url building don't switch to http.
+if ProxyHeadersMiddleware is not None:
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+else:
+    logging.getLogger('app').warning('ProxyHeadersMiddleware not available; forwarded headers may not be honored')
 
 ######## Structured Logging & Request ID Middleware ########
 class RequestIDMiddleware(BaseHTTPMiddleware):
