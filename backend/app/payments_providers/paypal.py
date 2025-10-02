@@ -1,7 +1,13 @@
 import os
 import base64
 import logging
+import datetime
 from typing import Dict, Any, Optional
+
+from pymongo import ReturnDocument
+from pymongo.errors import PyMongoError
+
+from app import db as db_mod
 
 logger = logging.getLogger('payments.paypal')
 
@@ -71,7 +77,7 @@ async def get_access_token() -> str:
         raise
 
 
-async def create_order(amount_cents: int, currency: str, payment_id) -> Dict[str, Any]:
+async def create_order(amount_cents: int, currency: str, payment_id, idempotency_key: str | None = None) -> Dict[str, Any]:
     httpx = _import_httpx()
     token = await get_access_token()
     base_url = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
@@ -96,11 +102,15 @@ async def create_order(amount_cents: int, currency: str, payment_id) -> Dict[str
             'user_action': 'PAY_NOW',
         },
     }
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    if idempotency_key:
+        # PayPal supports idempotency via PayPal-Request-Id header
+        headers['PayPal-Request-Id'] = str(idempotency_key)
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(
                 f"{_paypal_base()}/v2/checkout/orders",
-                headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+                headers=headers,
                 json=payload,
             )
         if resp.status_code >= 300:
@@ -121,6 +131,128 @@ async def create_order(amount_cents: int, currency: str, payment_id) -> Dict[str
     order_id = data.get('id')
     logger.info('paypal.create_order.ok payment_id=%s order_id=%s approval_link=%s', payment_id, order_id, (approval_link or payer_action_link))
     return {'id': order_id, 'approval_link': approval_link or payer_action_link, 'payer_action_link': payer_action_link, 'raw': data}
+
+
+def get_frontend_config() -> Dict[str, str]:
+    client_id = os.getenv('PAYPAL_CLIENT_ID')
+    if not client_id:
+        raise RuntimeError('PayPal not configured')
+    currency = (os.getenv('PAYMENT_CURRENCY') or 'EUR').upper()
+    env = (os.getenv('PAYPAL_MODE') or os.getenv('PAYPAL_ENV') or 'sandbox').lower()
+    return {"clientId": client_id, "currency": currency, "env": env}
+
+
+async def get_or_create_order_for_registration(
+    registration_oid,
+    *,
+    amount_cents: int,
+    currency: str,
+    idempotency_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    existing = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
+    if existing and existing.get('provider_payment_id'):
+        logger.debug(
+            'payment.create.paypal_order.idempotent registration_id=%s payment_id=%s order_id=%s',
+            registration_oid,
+            existing.get('_id'),
+            existing.get('provider_payment_id'),
+        )
+        return {"payment": existing, "order_id": existing.get('provider_payment_id')}
+
+    initial_doc = {
+        "registration_id": registration_oid,
+        "amount": amount_cents / 100.0,
+        "currency": (currency or 'EUR').upper(),
+        "status": "pending",
+        "provider": "paypal",
+        "idempotency_key": idempotency_key,
+        "meta": {},
+    "created_at": datetime.datetime.now(datetime.timezone.utc),
+    }
+    doc = await db_mod.db.payments.find_one_and_update(
+        {"registration_id": registration_oid},
+        {"$setOnInsert": initial_doc},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    payment_id = doc.get('_id')
+    order = await create_order(amount_cents, currency or 'EUR', payment_id, idempotency_key=idempotency_key)
+    approval = order.get('approval_link')
+    order_id = order.get('id')
+    await db_mod.db.payments.update_one(
+        {"_id": payment_id},
+        {"$set": {"provider_payment_id": order_id, "payment_link": approval, "meta": {"create_order": order}}},
+    )
+    try:
+        await db_mod.db.registrations.update_one({"_id": registration_oid}, {"$set": {"payment_id": payment_id}})
+    except PyMongoError:
+        pass
+    doc['provider_payment_id'] = order_id
+    doc['payment_link'] = approval
+    doc['meta'] = {"create_order": order}
+    logger.info(
+        'payment.create.paypal_order.ok registration_id=%s payment_id=%s order_id=%s',
+        registration_oid,
+        payment_id,
+        order_id,
+    )
+    return {"payment": doc, "order_id": order_id}
+
+
+async def ensure_paypal_payment(
+    registration_oid,
+    *,
+    amount_cents: int,
+    currency: str,
+    idempotency_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    existing = await db_mod.db.payments.find_one({"registration_id": registration_oid})
+    if existing:
+        logger.debug(
+            'payment.create.paypal.existing registration_id=%s payment_id=%s',
+            registration_oid,
+            existing.get('_id'),
+        )
+        return existing
+
+    initial_doc = {
+        "registration_id": registration_oid,
+        "amount": amount_cents / 100.0,
+        "currency": (currency or 'EUR').upper(),
+        "status": "pending",
+        "provider": "paypal",
+        "idempotency_key": idempotency_key,
+        "meta": {},
+    "created_at": datetime.datetime.now(datetime.timezone.utc),
+    }
+    doc = await db_mod.db.payments.find_one_and_update(
+        {"registration_id": registration_oid},
+        {"$setOnInsert": initial_doc},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    payment_id = doc.get('_id')
+    order = await create_order(amount_cents, currency or 'EUR', payment_id, idempotency_key=idempotency_key)
+    approval = order.get('approval_link')
+    order_id = order.get('id')
+    await db_mod.db.payments.update_one(
+        {"_id": payment_id},
+        {"$set": {"provider_payment_id": order_id, "payment_link": approval, "meta": {"create_order": order}}},
+    )
+    try:
+        await db_mod.db.registrations.update_one({"_id": registration_oid}, {"$set": {"payment_id": payment_id}})
+    except PyMongoError:
+        pass
+    doc['provider_payment_id'] = order_id
+    doc['payment_link'] = approval
+    doc['meta'] = {"create_order": order}
+    logger.info(
+        'payment.create.paypal.ok registration_id=%s payment_id=%s order_id=%s',
+        registration_oid,
+        payment_id,
+        order_id,
+    )
+    return doc
 
 
 async def capture_order(order_id: str) -> Dict[str, Any]:

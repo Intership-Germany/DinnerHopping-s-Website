@@ -26,8 +26,8 @@ class KeyValueFormatter(logging.Formatter):
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:  # type: ignore[override]
         # Always format in UTC with explicit +00:00 offset.
         from datetime import datetime, timezone
-
-        dt = datetime.utcfromtimestamp(record.created).replace(tzinfo=timezone.utc)
+        # use timezone-aware fromtimestamp
+        dt = datetime.fromtimestamp(record.created, timezone.utc)
         # include milliseconds
         ms = int(record.msecs)
         return dt.strftime("%Y-%m-%dT%H:%M:%S") + f".{ms:03d}+00:00"
@@ -72,9 +72,9 @@ def _build_file_handler(base_dir: str, logger_name: str, json_mode: bool, rotate
     log_dir = os.path.join(base_dir, safe_name)
     _ensure_dir(log_dir)
     # write files per-date to make log rotation by date easy to inspect
-    from datetime import datetime
+    from datetime import datetime, timezone
 
-    today = datetime.utcnow().strftime('%Y-%m-%d')
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     log_path = os.path.join(log_dir, f"{today}.log")
     if rotate_when == 'size':
         # parse size

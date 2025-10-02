@@ -48,3 +48,10 @@ js += 'if (typeof window !== "undefined") { window.FRONTEND_BASE_URL = window.FR
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, js, 'utf8');
 console.log('Generated public/js/config.js from .env with variables:', Object.keys(envVars).filter(k => k.endsWith('_BASE')).map(k => k.replace(/_BASE$/, '_BASE_URL')).join(', '));
+
+// Also append a small runtime snippet to `public/js/config.js` that ensures
+// any generated BACKEND_BASE_URL using http:// is upgraded to https:// when
+// the page itself is served over HTTPS. This avoids mixed-content browser
+// blocking when the environment .env still contains an http:// URL.
+const runtimeFix = `\nif (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') {\n  Object.keys(window).forEach(function(k){\n    if (k.endsWith('_BASE_URL') && typeof window[k] === 'string' && window[k].startsWith('http://')) {\n      try {\n        const u = new URL(window[k]);\n        u.protocol = 'https:';\n        window[k] = u.toString().replace(/\/$/, '');\n      } catch(e) { /* ignore malformed URLs */ }\n    }\n  });\n}\n`;
+fs.appendFileSync(outputPath, runtimeFix, 'utf8');

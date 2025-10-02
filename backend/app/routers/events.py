@@ -314,7 +314,7 @@ async def list_events(date: Optional[str] = None, status: Optional[str] = None, 
 @router.post('/', response_model=EventOut)
 async def create_event(payload: EventCreate, current_user=Depends(require_admin)):
     # admin-only: only admins can create events
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     doc = payload.model_dump()
     # build after_party_location subdocument if provided (accept legacy 'location')
     loc_in = doc.pop('after_party_location', None)
@@ -559,7 +559,7 @@ async def change_event_status(event_id: str, new_status: str, _=Depends(require_
     e = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
     if not e:
         raise HTTPException(status_code=404, detail='Event not found')
-    await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'status': new_status, 'updated_at': datetime.datetime.utcnow()}})
+    await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'status': new_status, 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
     return {'status': new_status}
 
 @router.delete('/{event_id}')
@@ -660,7 +660,7 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
         # no capacity limit, just increment
         await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$inc': {'attendee_count': team_size}})
 
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     # allowed statuses pipeline: pending|invited|confirmed|paid|cancelled|refunded
     initial_status = "pending"
     reg = {
@@ -722,7 +722,7 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
             "status": "pending",
             "provider": 'N/A',
             "meta": {"team_size": team_size},
-            "created_at": __import__('datetime').datetime.utcnow()
+            "created_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
         }
         p = await db_mod.db.payments.insert_one(pay)
         payment_link = f"/payments/{str(p.inserted_id)}/pay"
@@ -747,7 +747,7 @@ async def recount_attendees(event_id: str, _=Depends(require_admin)):
     count = 0
     async for r in db_mod.db.registrations.find({'event_id': oid, 'status': {'$in': list(active_status)}}):
         count += 1
-    await db_mod.db.events.update_one({'_id': oid}, {'$set': {'attendee_count': count, 'updated_at': datetime.datetime.utcnow()}})
+    await db_mod.db.events.update_one({'_id': oid}, {'$set': {'attendee_count': count, 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
     return {'attendee_count': count}
 
 async def get_my_plan(current_user):

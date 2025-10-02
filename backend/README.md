@@ -1,4 +1,3 @@
-
 # DinnerHopping Backend
 
 FastAPI + (MongoDB or in‑memory fake DB) application providing:
@@ -127,11 +126,13 @@ Stripe Checkout relies on server-created sessions and a lightweight frontend red
 2. **Frontend initialization** — call `GET /payments/stripe/config` to retrieve `{ publishableKey, currency, mode }`. Initialize Stripe.js with the publishable key and use the returned Checkout Session URL to redirect users.
 3. **Create payments** — send `POST /payments/create` with `provider="stripe"`. The backend stores the payment document, creates a Checkout Session, and responds with a redirect URL. The existing frontend modal already redirects when it receives `payment_link`.
 4. **Handle completions** — configure a Stripe webhook (e.g. `checkout.session.completed`) pointing to `/payments/webhooks/stripe`. Provide `STRIPE_WEBHOOK_SECRET` so signatures are validated. The webhook handler marks the payment and registration as succeeded.
+	- In sandbox, the current secret used in development is `whsec_` (set this in `STRIPE_WEBHOOK_SECRET`). Rotate it before going live.
 
 Notes:
 - The backend auto-selects the default provider based on configured credentials; if PayPal is absent but Stripe keys are present, Stripe will be offered automatically to users.
 - `mode` in the config payload is inferred from the key prefixes (`pk_test` / `sk_test`).
 - For local testing use https tunnel tooling (ngrok, Cloudflare tunnel) so Stripe can reach your webhook endpoint.
+- The admin fallback `POST /payments/{payment_id}/capture` checks the Checkout Session status via the Stripe API before confirming a payment, guaranteeing that “payment completed” only occurs when Stripe reports the session as paid.
 
 ### Wero Manual SEPA Flow
 
@@ -147,6 +148,57 @@ The helper `app/payments_providers/wero.py` now contains inline comments describ
 
 ### Email & Notifications
 Primitive templates are in `app/notifications.py` and low-level delivery in `app/utils.py` (`send_email`). In absence of SMTP configuration, mail bodies are printed. Add new categories by reusing `send_email(category="your_feature")`.
+
+## Editable Email Templates (New)
+
+Email notifications now support dynamic, database-backed templates editable via the admin UI.
+
+### Storage Model
+Collection: `email_templates`
+Fields:
+- key (string, unique, e.g. `payment_confirmation`)
+- subject (string with {{placeholders}})
+- html_body (HTML or plaintext with {{placeholders}})
+- description (admin help text)
+- variables (array[str])
+- updated_at (datetime)
+
+Placeholders use the form `{{variable_name}}` and are replaced with simple string values. Nested lookup using dot notation is supported (e.g. `{{user.first_name}}`). Missing variables become an empty string. The current mail sender downgrades HTML to plain text by stripping tags until full multipart support is implemented.
+
+### Admin Management Page
+A lightweight management interface lives at `frontend/public/admin-email-templates.html` (serve this statically behind admin auth or embed in existing admin dashboard). It lists templates, allows creation, editing and deletion.
+
+API Endpoints (admin role required):
+- GET `/admin/email-templates` – list
+- GET `/admin/email-templates/{key}` – fetch single
+- POST `/admin/email-templates` – create
+- PUT `/admin/email-templates/{key}` – update (key immutable)
+- DELETE `/admin/email-templates/{key}` – delete
+
+### Fallback Behavior
+If a template key is missing, the system falls back to built-in plaintext lines defined in `app/notifications.py`. This ensures no outage if the DB is empty. A seeding script `scripts/seed_email_templates.py` can pre-populate defaults:
+```bash
+cd backend
+python -m scripts.seed_email_templates
+```
+
+### Verification Landing Page
+Verification emails now link to a frontend landing page: `verify-email.html` (instead of the raw JSON endpoint). The backend still exposes `GET /users/verify-email?token=...` for programmatic flows. Environment variables:
+- `FRONTEND_BASE_URL` (optional) – when set, verification links use this origin.
+
+### Adding a New Template
+1. Create it via the admin page or POST endpoint with a unique `key`.
+2. In code, when sending, pass `template_key='your_key'` and supply variables.
+3. Provide a reasonable fallback subject/body in case the template does not exist.
+
+Example (conceptual):
+```python
+await _send(user_email, 'Default Subject', ['Plain fallback'], 'category', template_key='your_key', variables={'user_email': user_email})
+```
+
+### Security Considerations
+- No script sanitization is enforced; only admins can edit templates. Avoid embedding untrusted user input directly into templates; variable values are escaped during placeholder substitution before HTML stripping.
+- Future improvement: store both HTML and plaintext versions and send multipart emails.
 
 ## High-Level API Map
 

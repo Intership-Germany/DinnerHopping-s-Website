@@ -168,13 +168,16 @@
             createOrder: async () => {
                 const override = byId('reg-id-buttons').value.trim();
                 const regId = override || (byId('reg-id').textContent || '').replace('…','').trim();
-                if(!regId || regId==="(none)") { alert('Registration ID required'); throw new Error('missing reg'); }
-                const body = { registration_id: regId, amount_cents: 0, provider: 'paypal', currency: 'EUR' };
-                const r = await fetch(`${backend}/payments/paypal/orders`, { method:'POST', headers: authHeaders(), body: JSON.stringify(body) });
+                if(!regId || regId==="(none)") { alert('Registration ID requis'); throw new Error('missing reg'); }
+                const body = { registration_id: regId, amount_cents: 0, provider: 'paypal', currency: 'EUR', flow: 'order' };
+                const r = await fetch(`${backend}/payments`, { method:'POST', headers: authHeaders(), body: JSON.stringify(body) });
                 const j = await r.json().catch(()=>({}));
-                if(!r.ok){ log('createOrder (Buttons) failed', j, 'err'); throw new Error('create order fail'); }
-                log('PayPal Order created (Buttons)', j);
-                return j.id;
+                if(!r.ok){ log('createOrder (Buttons) échec', j, 'err'); throw new Error('create order fail'); }
+                log('Order PayPal créé (Buttons)', j);
+                const next = j && j.next_action ? j.next_action : {};
+                const orderId = next.type === 'paypal_order' ? next.order_id : (j.order_id || j.id);
+                if(!orderId) throw new Error('missing order id');
+                return orderId;
             },
             onApprove: async data => {
                 const r = await fetch(`${backend}/payments/paypal/orders/${encodeURIComponent(data.orderID)}/capture`, { method:'POST', headers: authHeaders() });

@@ -8,11 +8,17 @@ Migration note (2025-09):
 Existing records may still contain 'name' or 'is_verified'; they are ignored.
 """
 import os
+import re
+import json
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal, List
 from contextlib import suppress
 from ..auth import hash_password, create_access_token, authenticate_user, get_current_user, get_user_by_email, validate_password
 from ..utils import generate_and_send_verification, encrypt_address, anonymize_public_address, hash_token, generate_token_pair, send_email
+from ..utils import get_registration_by_any_id, require_registration_owner_or_admin, get_event
+from bson.objectid import ObjectId
+from bson.errors import InvalidId
+from ..enums import Gender
 from .. import db as db_mod
 
 ######### Constants #########
@@ -28,6 +34,30 @@ VALID_ALLERGIES = [
     "fish",
     "sesame"
 ]
+
+
+def _normalize_phone_number(phone: str | None) -> str | None:
+    if phone is None:
+        return None
+    if isinstance(phone, (int, float)):
+        phone = str(phone)
+    if not isinstance(phone, str):
+        raise ValueError('Phone number must be a string')
+    stripped = phone.strip()
+    if not stripped:
+        return None
+    cleaned = re.sub(r"[^0-9+]", "", stripped)
+    if cleaned.startswith('+'):
+        core = cleaned[1:]
+        prefix = '+'
+    else:
+        core = cleaned
+        prefix = ''
+    if not core.isdigit():
+        raise ValueError('Phone number must contain digits only')
+    if len(core) < 6:
+        raise ValueError('Phone number must contain at least 6 digits')
+    return prefix + core
 
 ######### Router / Endpoints #########
 
@@ -45,12 +75,21 @@ class UserCreate(BaseModel):
     street_no: str
     postal_code: str
     city: str
-    gender: Literal['female','male','diverse','prefer_not_to_say']
+    gender: Gender
+    phone_number: str | None = None
     # Optional extras
     lat: float | None = None
     lon: float | None = None
     allergies: list[str] | None = []
     
+    @field_validator('phone_number')
+    @classmethod
+    def validate_phone(cls, v):
+        try:
+            return _normalize_phone_number(v)
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     @field_validator('allergies')
     @classmethod
     def validate_allergies(cls, v):
@@ -67,6 +106,11 @@ class UserCreate(BaseModel):
                 validated_allergies.append(allergy.strip())
         return validated_allergies
 
+    @field_validator('gender', mode='before')
+    @classmethod
+    def normalize_gender(cls, value):
+        return Gender.normalize(value)
+
 class UserOut(BaseModel):
     """Public/own profile user representation without duplicated full name field.
 
@@ -80,6 +124,7 @@ class UserOut(BaseModel):
     email: EmailStr
     # Structured address components stored under `address_struct`.
     address: dict | None = None
+    phone_number: Optional[str] = None
     allergies: list[str] | None = []
     roles: list[str] | None = []
     # Optional profile fields
@@ -94,13 +139,20 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
-@router.post('/register', status_code=status.HTTP_201_CREATED, responses={400: {"description": "Bad Request - e.g. Email already registered or password validation failed"}})
+@router.post(
+    '/register',
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"description": "Bad Request - e.g. password validation failed"},
+        409: {"description": "Conflict - email already registered"},
+    },
+)
 async def register(u: UserCreate):
     # normalize email to lowercase (keep EmailStr type intact; use a local string for storage)
     email_lower = str(u.email).lower()
     existing = await db_mod.db.users.find_one({"email": email_lower})
     if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=409, detail="Email already registered")
     # validate password under policy
     if u.password != u.password_confirm:
         raise HTTPException(status_code=400, detail="Passwords do not match")
@@ -110,7 +162,8 @@ async def register(u: UserCreate):
         'email': email_lower,
         'first_name': u.first_name.strip(),
         'last_name': u.last_name.strip(),
-        'gender': (u.gender or 'prefer_not_to_say').lower(),
+    'gender': Gender.normalize(u.gender).value,
+        'phone_number': u.phone_number,
         'address_struct': {
             'street': u.street,
             'street_no': u.street_no,
@@ -142,7 +195,7 @@ async def register(u: UserCreate):
     addr_line = f"{u.street} {u.street_no}, {u.postal_code} {u.city}"
     user_doc['address_encrypted'] = encrypt_address(addr_line)
     user_doc['address_public'] = anonymize_public_address(addr_line)
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     user_doc['created_at'] = now
     user_doc['updated_at'] = now
     user_doc['deleted_at'] = None  # soft delete marker
@@ -165,8 +218,89 @@ class LoginIn(BaseModel):
     username: EmailStr
     password: str
 
+
+def _extract_credentials_from_source(source, current_username: str | None, current_password: str | None):
+    if not isinstance(source, dict):
+        return current_username, current_password
+
+    candidate_username = source.get('username') or source.get('email')
+    if isinstance(candidate_username, str) and candidate_username.strip() and not current_username:
+        current_username = candidate_username.strip()
+
+    candidate_password = source.get('password')
+    if isinstance(candidate_password, str) and candidate_password and not current_password:
+        current_password = candidate_password
+
+    # Inspect nested payloads commonly used by clients
+    nested_keys = ('payload', 'data', 'credentials')
+    for key in nested_keys:
+        nested = source.get(key)
+        if isinstance(nested, dict):
+            current_username, current_password = _extract_credentials_from_source(nested, current_username, current_password)
+        elif isinstance(nested, str):
+            try:
+                nested_dict = json.loads(nested)
+            except (TypeError, ValueError):
+                continue
+            current_username, current_password = _extract_credentials_from_source(nested_dict, current_username, current_password)
+
+    return current_username, current_password
+
+
+async def _resolve_login_credentials(
+    request: Request,
+    username_field: str | None,
+    password_field: str | None,
+    payload_form: str | None,
+    payload_inline: str | None,
+) -> tuple[str, str]:
+    sources: list[dict] = []
+
+    for raw in (payload_form, payload_inline):
+        if raw is None:
+            continue
+        try:
+            parsed = json.loads(raw) if raw else {}
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail='payload must be valid JSON') from exc
+        else:
+            if isinstance(parsed, dict):
+                sources.append(parsed)
+
+    with suppress(Exception):
+        data = await request.json()
+        if isinstance(data, dict):
+            sources.append(data)
+
+    username_value = username_field.strip() if isinstance(username_field, str) and username_field.strip() else None
+    password_value = password_field.strip() if isinstance(password_field, str) and password_field.strip() else None
+
+    for source in sources:
+        username_value, password_value = _extract_credentials_from_source(source, username_value, password_value)
+        if username_value and password_value:
+            break
+
+    if not (username_value and password_value):
+        with suppress(Exception):
+            form_data = await request.form()
+            if form_data:
+                form_dict = {key: form_data.get(key) for key in form_data.keys()}
+                sources.append(form_dict)
+                username_value, password_value = _extract_credentials_from_source(form_dict, username_value, password_value)
+
+    if not (username_value and password_value):
+        raise HTTPException(status_code=422, detail='username and password required')
+
+    return username_value.lower(), password_value
+
 @router.post('/login', response_model=TokenOut, responses={401: {"description": "Unauthorized - invalid credentials or email not verified"}, 422: {"description": "Validation error"}})
-async def login(request: Request, username: EmailStr | None = Form(None), password: str | None = Form(None), payload_form: str | None = Form(None)):
+async def login(
+    request: Request,
+    username: EmailStr | None = Form(None),
+    password: str | None = Form(None),
+    payload_form: str | None = Form(None),
+    payload: str | None = Form(None),
+):
     """Login accepting either JSON body {username,password} or form data.
 
     This maintains compatibility with OAuth2PasswordRequestForm clients and
@@ -174,37 +308,7 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
     """
     # Accept credentials from multiple client types: form-data (OAuth2 clients),
     # optional `payload_form` (a JSON string or empty string), or a raw JSON body.
-    import json
-    payload = None
-    # 1) payload_form (form field) — some clients send payload="" or payload="{...}"
-    if payload_form is not None:
-        try:
-            payload = json.loads(payload_form) if payload_form else {}
-        except (ValueError, TypeError):
-            payload = {}
-
-    # 2) if no payload yet, attempt to read JSON body (best-effort; will raise if body is form-encoded)
-    if payload is None:
-        with suppress(Exception):
-            data = await request.json()
-            if isinstance(data, dict):
-                payload = data
-
-    # If we were given a payload (dict), extract username/password from it
-    if isinstance(payload, dict):
-        username = username or payload.get('username') or payload.get('email')
-        password = password or payload.get('password')
-
-    # 3) finally fallback to explicit form fields
-    if not username or not password:
-        with suppress(Exception):
-            form = await request.form()
-            username = username or form.get('username')
-            password = password or form.get('password')
-
-    if not username or not password:
-        raise HTTPException(status_code=422, detail='username and password required')
-    username = username.lower()
+    username, password = await _resolve_login_credentials(request, username, password, payload_form, payload)
     # require verified email
     user_obj = await get_user_by_email(username)
     if not user_obj:
@@ -219,7 +323,7 @@ async def login(request: Request, username: EmailStr | None = Form(None), passwo
     except Exception as exc:
         raise HTTPException(status_code=500, detail='Failed to create access token') from exc
     # first login timestamp and profile prompt
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     if not user.get('first_login_at'):
         with suppress(Exception):
             await db_mod.db.users.update_one({'email': user['email']}, {'$set': {'first_login_at': now}})
@@ -302,7 +406,7 @@ async def refresh(request: Request, response: Response):
     if not rec:
         raise HTTPException(status_code=401, detail='Invalid refresh token')
     # check expiry
-    if rec.get('expires_at') and rec.get('expires_at') < __import__('datetime').datetime.utcnow():
+    if rec.get('expires_at') and rec.get('expires_at') < __import__('datetime').datetime.now(__import__('datetime').timezone.utc):
         # revoke
         await db_mod.db.refresh_tokens.delete_one({'_id': rec['_id']})
         raise HTTPException(status_code=401, detail='Refresh token expired')
@@ -315,9 +419,22 @@ async def refresh(request: Request, response: Response):
     except (TypeError, ValueError):
         refresh_bytes = 32
     new_plain, new_hash = generate_token_pair(refresh_bytes)
-    now = __import__('datetime').datetime.utcnow()
-    with suppress(Exception):
-        await db_mod.db.refresh_tokens.update_one({'_id': rec['_id']}, {'$set': {'token_hash': new_hash, 'created_at': now, 'expires_at': now + __import__('datetime').timedelta(days=int(os.getenv('REFRESH_TOKEN_DAYS', '30')))}})
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+    # Implement single-use rotation: insert new refresh record and delete the old one
+    new_doc = {
+        'user_email': rec['user_email'],
+        'token_hash': new_hash,
+        'created_at': now,
+        'expires_at': now + __import__('datetime').timedelta(days=int(os.getenv('REFRESH_TOKEN_DAYS', '30'))),
+    }
+    try:
+        await db_mod.db.refresh_tokens.insert_one(new_doc)
+        # best-effort delete of previous token record to avoid reuse
+        await db_mod.db.refresh_tokens.delete_one({'_id': rec['_id']})
+    except Exception:
+        # Fallback: attempt to update the old record if insert/delete fails
+        with suppress(Exception):
+            await db_mod.db.refresh_tokens.update_one({'_id': rec['_id']}, {'$set': {'token_hash': new_hash, 'created_at': now, 'expires_at': now + __import__('datetime').timedelta(days=int(os.getenv('REFRESH_TOKEN_DAYS', '30')))}})
 
     secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
     use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
@@ -333,7 +450,7 @@ async def refresh(request: Request, response: Response):
 class ProfileUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    gender: Optional[Literal['female','male','diverse','prefer_not_to_say']] = None
+    gender: Gender | None = None
     email: EmailStr | None = None
     # Structured address components only
     street: Optional[str] = None
@@ -343,7 +460,16 @@ class ProfileUpdate(BaseModel):
     lat: float | None = None
     lon: float | None = None
     allergies: list[str] | None = None
+    phone_number: Optional[str] = None
     
+    @field_validator('phone_number')
+    @classmethod
+    def validate_phone(cls, v):
+        try:
+            return _normalize_phone_number(v)
+        except ValueError as exc:
+            raise ValueError(str(exc))
+
     @field_validator('allergies')
     @classmethod
     def validate_allergies(cls, v):
@@ -360,6 +486,13 @@ class ProfileUpdate(BaseModel):
                 # Allow custom allergies that aren't in the predefined list
                 validated_allergies.append(allergy.strip())
         return validated_allergies
+
+    @field_validator('gender', mode='before')
+    @classmethod
+    def normalize_gender(cls, value):
+        if value is None:
+            return None
+        return Gender.normalize(value)
     # Optional profile fields (user-editable)
     kitchen_available: Optional[bool] = None
     main_course_possible: Optional[bool] = None
@@ -388,6 +521,7 @@ async def get_profile(current_user=Depends(get_current_user)):
         email=u.get('email'),
         # Return the structured address components stored in `address_struct`.
         address=u.get('address_struct'),
+        phone_number=u.get('phone_number'),
         allergies=u.get('allergies', []),
         roles=u.get('roles', []),
         kitchen_available=u.get('kitchen_available'),
@@ -400,11 +534,19 @@ async def get_profile(current_user=Depends(get_current_user)):
 
 @router.put('/profile', response_model=UserOut)
 async def update_profile(payload: ProfileUpdate, current_user=Depends(get_current_user)):
-    update_data = {k: v for k, v in payload.dict().items() if v is not None}
+    raw_payload = payload.dict()
+    update_data = {k: v for k, v in raw_payload.items() if v is not None}
+    fields_set = getattr(payload, '__fields_set__', None) or getattr(payload, 'model_fields_set', None) or set()
+    if 'phone_number' in fields_set and raw_payload.get('phone_number') is None:
+        update_data['phone_number'] = None
+    
+    # Security: Reject password updates via profile endpoint
     if 'password' in update_data:
-        # migrating update: accept 'password' input, store as password_hash
-        update_data['password_hash'] = hash_password(update_data['password'])
-        update_data.pop('password', None)
+        raise HTTPException(
+            status_code=400, 
+            detail='Password updates must use the dedicated /users/password endpoint for security'
+        )
+    
     # handle email change: require uniqueness and mark unverified
     if 'email' in update_data:
         new_email = update_data.get('email')
@@ -423,8 +565,8 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
             raise HTTPException(status_code=400, detail='Invalid email')
     # no longer maintaining combined 'name' field; clients compose front-end
     # normalize gender
-    if 'gender' in update_data and isinstance(update_data.get('gender'), str):
-        update_data['gender'] = update_data['gender'].lower()
+    if 'gender' in update_data:
+        update_data['gender'] = Gender.normalize(update_data.get('gender')).value
     # handle structured address updates
     if any(k in update_data for k in ('street','street_no','postal_code','city')):
         existing = current_user.get('address_struct') or {}
@@ -457,7 +599,7 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
             update_data['optional_profile_completed'] = True
             update_data['profile_prompt_pending'] = False
             update_data.pop('skip_optional_profile', None)
-    update_data['updated_at'] = __import__('datetime').datetime.utcnow()
+    update_data['updated_at'] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": update_data})
     u = await db_mod.db.users.find_one({"email": current_user['email']})
     # If email changed, lookup by new email
@@ -469,6 +611,7 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
         last_name=u.get('last_name'),
         email=u.get('email'),
         address=u.get('address_struct'),
+        phone_number=u.get('phone_number'),
         allergies=u.get('allergies', []),
         roles=u.get('roles', []),
         kitchen_available=u.get('kitchen_available'),
@@ -490,7 +633,7 @@ async def verify_email(token: str | None = None):
         raise HTTPException(status_code=404, detail='Verification token not found')
     # check expiry
     expires_at = rec.get('expires_at')
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     # rec.expires_at may be timezone-aware; compare safely
     try:
         if expires_at and isinstance(expires_at, __import__('datetime').datetime) and expires_at < now:
@@ -502,7 +645,7 @@ async def verify_email(token: str | None = None):
         pass
 
     # mark user as verified
-    await db_mod.db.users.update_one({"email": rec['email']}, {"$set": {"email_verified": True, "updated_at": __import__('datetime').datetime.utcnow()}})
+    await db_mod.db.users.update_one({"email": rec['email']}, {"$set": {"email_verified": True, "updated_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc)}})
     # delete the token for one-time use
     await db_mod.db.email_verifications.delete_one({"_id": rec['_id']})
     return {"status": "verified"}
@@ -544,7 +687,7 @@ async def change_password(payload: ChangePasswordIn, current_user=Depends(get_cu
     # validate new password
     validate_password(payload.new_password)
     # set new password hash
-    await db_mod.db.users.update_one({'email': current_user['email']}, {'$set': {'password_hash': hash_password(payload.new_password), 'updated_at': __import__('datetime').datetime.utcnow()}})
+    await db_mod.db.users.update_one({'email': current_user['email']}, {'$set': {'password_hash': hash_password(payload.new_password), 'updated_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc)}})
     return {"status": "password_changed"}
 
 
@@ -572,7 +715,7 @@ async def forgot_password(payload: ForgotPasswordIn):
         except (TypeError, ValueError):
             reset_bytes = None
         token, token_hash = generate_token_pair(reset_bytes)
-        now = __import__('datetime').datetime.utcnow()
+        now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
         try:
             ttl_hours = int(os.getenv('PASSWORD_RESET_EXPIRES_HOURS', '4'))
         except (TypeError, ValueError):
@@ -628,7 +771,7 @@ async def reset_password(request: Request):
         raise HTTPException(status_code=404, detail='Reset token not found')
     # check expiry
     expires_at = rec.get('expires_at')
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     try:
         if expires_at and isinstance(expires_at, __import__('datetime').datetime) and expires_at < now:
             await db_mod.db.password_resets.update_one({'_id': rec['_id']}, {'$set': {'status': 'expired', 'expired_at': now}})
@@ -638,7 +781,7 @@ async def reset_password(request: Request):
     # validate password policy
     validate_password(new_password)
     # update user's password
-    await db_mod.db.users.update_one({'email': rec['email']}, {'$set': {'password_hash': hash_password(new_password), 'updated_at': __import__('datetime').datetime.utcnow()}})
+    await db_mod.db.users.update_one({'email': rec['email']}, {'$set': {'password_hash': hash_password(new_password), 'updated_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc)}})
     # delete/reset token
     with suppress(Exception):
         await db_mod.db.password_resets.delete_one({'_id': rec['_id']})
@@ -660,7 +803,7 @@ async def reset_password_form(token: str | None = None):
         raise HTTPException(status_code=404, detail='Reset token not found')
     # check expiry
     expires_at = rec.get('expires_at')
-    now = __import__('datetime').datetime.utcnow()
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     try:
         if expires_at and isinstance(expires_at, __import__('datetime').datetime) and expires_at < now:
             await db_mod.db.password_resets.update_one({'_id': rec['_id']}, {'$set': {'status': 'expired', 'expired_at': now}})
@@ -709,7 +852,7 @@ async def update_optional_profile(payload: OptionalProfileUpdate, current_user=D
     u = await db_mod.db.users.find_one({"email": current_user['email']})
     if not u:
         raise HTTPException(status_code=404, detail='User not found')
-    set_fields: dict = {"updated_at": __import__('datetime').datetime.utcnow()}
+    set_fields: dict = {"updated_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc)}
     if payload.skip:
         set_fields['profile_prompt_pending'] = False
         await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": set_fields})

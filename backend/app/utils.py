@@ -353,7 +353,8 @@ async def generate_and_send_verification(recipient: str) -> tuple[str, bool]:
         logger.warning("Could not persist verification token for %s: %s", recipient, e)
 
     base = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
-    verification_url = f"{base}/verify-email?token={token}"
+    frontend_base = os.getenv("FRONTEND_BASE_URL", base)
+    verification_url = f"{frontend_base}/verify-email.html?token={token}"
     subject = "Please verify your DinnerHopping account"
     body = (
         f"Hi,\n\nPlease verify your email by clicking the link below:\n{verification_url}\n\n"
@@ -419,6 +420,41 @@ async def get_event(event_id) -> Optional[dict]:
     return await db_mod.db.events.find_one({'_id': oid})
 
 
+async def get_registration_by_any_id(registration_id) -> Optional[dict]:
+    """Return a registration document by id accepting either ObjectId-like strings or raw string IDs.
+
+    This helper first tries to interpret the input as a BSON ObjectId and query by
+    {'_id': ObjectId(...)}, and if that fails or returns nothing it falls back to
+    querying the collection with the raw value ({'_id': registration_id}).
+    """
+    if not registration_id:
+        return None
+    # try ObjectId conversion first
+    try:
+        oid = registration_id if isinstance(registration_id, ObjectId) else ObjectId(registration_id)
+    except (InvalidId, TypeError, ValueError):
+        oid = None
+
+    if oid is not None:
+        try:
+            reg = await db_mod.db.registrations.find_one({'_id': oid})
+            if reg:
+                return reg
+        except PyMongoError:
+            # ignore DB errors here and try raw lookup below
+            pass
+
+    # fallback: try raw string _id (some fixtures or older records may store string ids)
+    try:
+        reg = await db_mod.db.registrations.find_one({'_id': registration_id})
+        if reg:
+            return reg
+    except PyMongoError:
+        return None
+
+    return None
+
+
 async def require_event_published(event_id) -> dict:
     """Raise HTTPException if event not found or not in an accessible lifecycle state.
 
@@ -481,6 +517,40 @@ def _is_admin(user: dict) -> bool:
     return 'admin' in roles
 
 
+async def get_registration_by_any_id(registration_id) -> dict | None:
+    if registration_id is None:
+        return None
+    candidate_values: list = []
+    if isinstance(registration_id, ObjectId):
+        candidate_values.append(registration_id)
+        candidate_values.append(str(registration_id))
+    elif isinstance(registration_id, str):
+        rid = registration_id.strip()
+        if not rid:
+            return None
+        try:
+            candidate_values.append(ObjectId(rid))
+        except (InvalidId, TypeError):
+            pass
+        candidate_values.append(rid)
+    else:
+        try:
+            candidate_values.append(ObjectId(registration_id))
+        except (InvalidId, TypeError):
+            pass
+        candidate_values.append(registration_id)
+
+    seen: set = set()
+    for value in candidate_values:
+        if value in seen:
+            continue
+        seen.add(value)
+        reg = await db_mod.db.registrations.find_one({'_id': value})
+        if reg:
+            return reg
+    return None
+
+
 async def require_registration_owner_or_admin(user: dict, registration_id) -> dict:
     """Return registration document if current user is its owner or admin; else raise 403.
 
@@ -489,16 +559,13 @@ async def require_registration_owner_or_admin(user: dict, registration_id) -> di
     """
     if registration_id is None:
         raise _HTTPException(status_code=400, detail='registration_id required')
-    try:
-        oid = registration_id if isinstance(registration_id, ObjectId) else ObjectId(registration_id)
-    except Exception as exc:
-        raise _HTTPException(status_code=400, detail='invalid registration_id') from exc
-    reg = await db_mod.db.registrations.find_one({'_id': oid})
+    if isinstance(registration_id, str) and not registration_id.strip():
+        raise _HTTPException(status_code=400, detail='registration_id required')
+    reg = await get_registration_by_any_id(registration_id)
     if not reg:
         raise _HTTPException(status_code=404, detail='Registration not found')
     if _is_admin(user):
         return reg
-    # Check ownership by id or email snapshot
     if reg.get('user_id') == user.get('_id'):
         return reg
     if (reg.get('user_email_snapshot') or '').lower() == (user.get('email') or '').lower():
@@ -508,7 +575,7 @@ async def require_registration_owner_or_admin(user: dict, registration_id) -> di
 
 def _now_utc() -> datetime.datetime:
     # Keep using naive UTC datetime to match existing storage pattern
-    return datetime.datetime.utcnow()
+    return datetime.datetime.now(datetime.timezone.utc)
 
 
 def require_event_registration_open(ev: dict) -> None:
@@ -531,10 +598,13 @@ def require_event_registration_open(ev: dict) -> None:
                 return
         
         if deadline_dt:
-            # Compare as naive UTC for compatibility with existing code
+            # Ensure both are timezone-aware UTC for a safe comparison
             now_utc = _now_utc()
-            deadline_naive = deadline_dt.replace(tzinfo=None) if deadline_dt.tzinfo else deadline_dt
-            if now_utc > deadline_naive:
+            if isinstance(now_utc, datetime.datetime) and now_utc.tzinfo is None:
+                now_utc = now_utc.replace(tzinfo=datetime.timezone.utc)
+            if isinstance(deadline_dt, datetime.datetime) and deadline_dt.tzinfo is None:
+                deadline_dt = deadline_dt.replace(tzinfo=datetime.timezone.utc)
+            if now_utc > deadline_dt:
                 raise _HTTPException(status_code=400, detail='Registration deadline passed')
 
 
@@ -558,10 +628,13 @@ def require_event_payment_open(ev: dict) -> None:
                 return
         
         if deadline_dt:
-            # Compare as naive UTC for compatibility with existing code
+            # Ensure both are timezone-aware UTC for a safe comparison
             now_utc = _now_utc()
-            deadline_naive = deadline_dt.replace(tzinfo=None) if deadline_dt.tzinfo else deadline_dt
-            if now_utc > deadline_naive:
+            if isinstance(now_utc, datetime.datetime) and now_utc.tzinfo is None:
+                now_utc = now_utc.replace(tzinfo=datetime.timezone.utc)
+            if isinstance(deadline_dt, datetime.datetime) and deadline_dt.tzinfo is None:
+                deadline_dt = deadline_dt.replace(tzinfo=datetime.timezone.utc)
+            if now_utc > deadline_dt:
                 raise _HTTPException(status_code=400, detail='Payment deadline passed')
 
 
@@ -644,6 +717,7 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
     - If a team is involved, also update the team document status to 'paid'.
     - Send confirmation emails (once) to all involved participant email snapshots.
     - Mark the Payment document (if provided) with confirmation_email_sent_at to avoid duplicate mails.
+    - Create audit logs for status transitions.
 
     This function is safe to call multiple times (e.g. concurrent webhook + return URL)
     because it checks the payment document for an existing confirmation_email_sent_at timestamp.
@@ -655,7 +729,8 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
     reg = await db_mod.db.registrations.find_one({'_id': oid})
     if not reg:
         return False
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    old_status = reg.get('status')
 
     # If supplied, load payment doc to check idempotency flag
     pay_doc = None
@@ -671,10 +746,19 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
     if team_id:
         # Mark all registrations in the team paid
         try:
-            await db_mod.db.registrations.update_many(
+            result = await db_mod.db.registrations.update_many(
                 {'team_id': team_id, 'status': {'$ne': 'paid'}},
                 {'$set': {'status': 'paid', 'paid_at': now, 'updated_at': now}}
             )
+            # Audit log for team registrations
+            if result.modified_count > 0:
+                await create_audit_log(
+                    entity_type='registration',
+                    entity_id=str(team_id),
+                    action='payment_success',
+                    new_state={'status': 'paid'},
+                    reason=f'Payment succeeded for team (updated {result.modified_count} registrations)'
+                )
         except PyMongoError:
             pass
         # Mark team document
@@ -684,10 +768,20 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
             pass
     else:
         try:
-            await db_mod.db.registrations.update_one(
+            result = await db_mod.db.registrations.update_one(
                 {'_id': reg['_id'], 'status': {'$ne': 'paid'}},
                 {'$set': {'status': 'paid', 'paid_at': now, 'updated_at': now}}
             )
+            # Audit log for solo registration
+            if result.modified_count > 0:
+                await create_audit_log(
+                    entity_type='registration',
+                    entity_id=registration_id,
+                    action='payment_success',
+                    old_state={'status': old_status},
+                    new_state={'status': 'paid'},
+                    reason='Payment succeeded'
+                )
         except PyMongoError:
             pass
 
@@ -703,3 +797,127 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
         except PyMongoError:
             pass
     return True
+
+
+async def create_audit_log(
+    entity_type: str,
+    entity_id: str | ObjectId,
+    action: str,
+    actor: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    old_state: Optional[dict] = None,
+    new_state: Optional[dict] = None,
+    reason: Optional[str] = None,
+) -> bool:
+    """Create an audit log entry for tracking state changes.
+    
+    Args:
+        entity_type: Type of entity (e.g., 'registration', 'payment')
+        entity_id: ID of the entity being modified
+        action: Action performed (e.g., 'status_change', 'created', 'cancelled')
+        actor: Email or ID of user performing the action
+        ip_address: IP address of the request
+        old_state: Previous state (typically a dict with relevant fields)
+        new_state: New state after the change
+        reason: Optional reason for the change
+    
+    Returns:
+        True if log was created successfully, False otherwise
+    """
+    try:
+        log_entry = {
+            'entity_type': entity_type,
+            'entity_id': str(entity_id),
+            'action': action,
+            'timestamp': datetime.datetime.now(datetime.timezone.utc),
+        }
+        if actor:
+            log_entry['actor'] = actor
+        if ip_address:
+            log_entry['ip_address'] = ip_address
+        if old_state is not None:
+            log_entry['old_state'] = old_state
+        if new_state is not None:
+            log_entry['new_state'] = new_state
+        if reason:
+            log_entry['reason'] = reason
+        
+        await db_mod.db.audit_logs.insert_one(log_entry)
+        return True
+    except PyMongoError:
+        logger.exception('Failed to create audit log for %s %s', entity_type, entity_id)
+        return False
+
+
+async def send_registration_notification(
+    registration_id: str | ObjectId,
+    notification_type: str,
+) -> bool:
+    """Send notification emails for registration lifecycle events.
+    
+    Args:
+        registration_id: ID of the registration
+        notification_type: Type of notification ('created', 'payment_failed', 'cancelled')
+    
+    Returns:
+        True if email was sent successfully, False otherwise
+    """
+    try:
+        reg_oid = registration_id if isinstance(registration_id, ObjectId) else ObjectId(registration_id)
+    except (InvalidId, TypeError):
+        return False
+    
+    reg = await db_mod.db.registrations.find_one({'_id': reg_oid})
+    if not reg:
+        return False
+    
+    email = reg.get('user_email_snapshot')
+    if not email:
+        return False
+    
+    # Get event details
+    event = None
+    if reg.get('event_id'):
+        event = await db_mod.db.events.find_one({'_id': reg.get('event_id')})
+    
+    event_title = event.get('title') if event else 'DinnerHopping Event'
+    
+    # Build notification based on type
+    if notification_type == 'created':
+        subject = f'Registration Created: {event_title}'
+        body = (
+            f"Hi,\n\n"
+            f"Your registration for '{event_title}' has been created.\n\n"
+            f"Status: Pending Payment\n"
+            f"Next Step: Complete your payment to confirm your registration.\n\n"
+            f"If you did not initiate this registration, please contact us immediately.\n\n"
+            f"Best regards,\n"
+            f"DinnerHopping Team"
+        )
+    elif notification_type == 'payment_failed':
+        subject = f'Payment Failed: {event_title}'
+        body = (
+            f"Hi,\n\n"
+            f"We were unable to process your payment for '{event_title}'.\n\n"
+            f"Please try again or contact us if you need assistance.\n\n"
+            f"Best regards,\n"
+            f"DinnerHopping Team"
+        )
+    elif notification_type == 'cancelled':
+        subject = f'Registration Cancelled: {event_title}'
+        body = (
+            f"Hi,\n\n"
+            f"Your registration for '{event_title}' has been cancelled.\n\n"
+            f"If eligible, a refund will be processed automatically.\n\n"
+            f"Best regards,\n"
+            f"DinnerHopping Team"
+        )
+    else:
+        return False
+    
+    return await send_email(
+        to=email,
+        subject=subject,
+        body=body,
+        category=f'registration_{notification_type}'
+    )

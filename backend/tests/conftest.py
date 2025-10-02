@@ -16,6 +16,8 @@ os.environ.setdefault("JWT_SECRET", "test-secret")
 os.environ.setdefault("ALLOWED_ORIGINS", "*")
 os.environ.setdefault("ENFORCE_HTTPS", "false")
 os.environ.setdefault("USE_FAKE_DB_FOR_TESTS", "1")
+# Disable CSRF enforcement during tests by default to avoid breaking unrelated flows
+os.environ.setdefault("CSRF_ENFORCE", "false")
 
 # Import app AFTER env vars
 from app.main import app  # noqa: E402
@@ -46,7 +48,9 @@ async def _create_admin_user(email="admin@example.com", password="Adminpass1"):
     existing = await db_mod.db.users.find_one({"email": email})
     if existing:
         return existing
-    now = __import__('datetime').datetime.utcnow()
+    # use timezone-aware UTC timestamps in tests to match application migration
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
     doc = {
         "email": email,
         "password_hash": hash_password(password),
@@ -84,6 +88,7 @@ async def verified_user(client):
         "password_confirm": "Userpass1",
         "first_name": "Test",
         "last_name": "User",
+    "phone_number": "+4915112345678",
         "street": "Main",
         "street_no": "1",
         "postal_code": "12345",

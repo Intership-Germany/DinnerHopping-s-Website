@@ -43,7 +43,7 @@ async def start_matching(event_id: str, payload: dict | None = None, current_adm
     ev = await require_event_published(event_id)
     # enforce registration deadline passed if set
     ddl = ev.get('registration_deadline')
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     if ddl and isinstance(ddl, datetime.datetime) and now < ddl:
         raise HTTPException(status_code=400, detail='Registration deadline has not passed yet')
     payload = payload or {}
@@ -61,7 +61,7 @@ async def start_matching(event_id: str, payload: dict | None = None, current_adm
             proposals.append({'algorithm': res.get('algorithm'), 'version': saved.get('version'), 'metrics': saved.get('metrics')})
     # update event matching_status when not dry-run
     if not dry_run:
-        await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'matching_status': 'proposed', 'updated_at': datetime.datetime.utcnow()}})
+        await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'matching_status': 'proposed', 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
     return {'status': 'ok', 'dry_run': dry_run, 'proposals': proposals}
 
 
@@ -148,7 +148,7 @@ async def move_team(event_id: str, payload: dict, _=Depends(require_admin)):
         violations = [ { 'pair': list(pk), 'count': c } for pk, c in pair_counts.items() if c > 1 ]
         if violations and not force:
             return { 'status': 'warning', 'violations': violations }
-        await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'updated_at': datetime.datetime.utcnow()}})
+        await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
         return {'status': 'moved', 'violations': violations if violations else []}
     return {'status': 'noop', 'reason': 'team_not_guest_or_already_present'}
 
@@ -306,7 +306,7 @@ async def recompute_metrics(event_id: str, version: int, _=Depends(require_admin
             'host_address_public': addr_pub if addr_pub is not None else g.get('host_address_public'),
         })
     metrics = _compute_metrics(new_groups, {})
-    await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'metrics': metrics, 'updated_at': datetime.datetime.utcnow()}})
+    await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'metrics': metrics, 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
     return {'version': m.get('version'), 'metrics': metrics}
 
 

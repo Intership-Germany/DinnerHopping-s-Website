@@ -1,152 +1,136 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dinnerhopping - My Event Dashboard</title>
-    <script src="js/core/auth-guard.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <script src="js/config.js"></script>
-    <script src="js/auth.js"></script>
-    <script src="js/core/client.js"></script>
-    <script src="js/utils/network-errors.js"></script>
-    <script src="js/debug-banner.js"></script>
-    <script src="js/core/includes.js" defer></script>
-    <!-- Leaflet CSS & JS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="js/pages/event.js" defer></script>
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-            background: linear-gradient(120deg, #f0f4f7 60%, #ffe5d0 100%);
-        }
-    </style>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Dinner Hopping – Event</title>
+	<link rel="icon" type="image/png" href="/favicon.png" />
+	<!-- Tailwind (CDN) -->
+	<script src="https://cdn.tailwindcss.com"></script>
+	<script>
+		// Minimal flash-of-unstyled prevention for dark backgrounds etc.
+		document.documentElement.classList.add('bg-gray-50');
+	</script>
 </head>
+<body class="min-h-screen flex flex-col">
+	<!-- Header include -->
+	<div data-include="partials/header.html"></div>
 
-<body class="text-[#172a3a]">
-    <div class="min-h-screen flex flex-col relative overflow-x-hidden">
-        <!-- Header -->
-        <div data-include="partials/header.html"></div>
-        <main class="flex-grow max-w-3xl mx-auto w-full px-4 py-10">
-            <h1 class="text-3xl font-bold mb-8 text-center">Your Dinnerhopping Night</h1>
-            <div class="space-y-8">
-                <!-- Starter Section -->
-                <section class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#008080]">
-                    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
-                        <div>
-                            <h2 class="text-xl font-bold text-[#008080] mb-1">Starter (You are Invited)</h2>
-                            <p class="text-sm text-gray-600">Time: <span class="font-semibold">18:00</span></p>
-                        </div>
-                        <button
-                            class="mt-4 md:mt-0 px-5 py-2 bg-[#008080] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-[#008080]/40">Open
-                            Starter Group Chat</button>
-                    </div>
-                    <div class="mb-2">
-                        <p class="text-sm">You are invited to dinner at <span class="font-semibold">David Meier</span>'s
-                            place.</p>
-                        <p class="text-sm">Your co-guests: <span class="font-semibold">Hans Zimmer</span> & <span
-                                class="font-semibold">Ida Schulz</span>.</p>
-                    </div>
-                    <div class="flex flex-col md:flex-row md:items-center gap-4">
-                        <div class="w-full max-w-xs h-40 rounded-xl overflow-hidden border border-[#008080]/30">
-                            <div id="map-entree" class="w-full h-40 rounded-xl"></div>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-xs text-gray-500 mb-1">Location: <span class="font-semibold">Weender
-                                    Landstraße (approximate)</span></p>
-                            <div
-                                class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-2 rounded mb-1 text-xs flex items-center">
-                                <svg class="w-4 h-4 mr-1 text-yellow-500" fill="none" stroke="currentColor"
-                                    viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M13 16h-1v-4h-1m1-4h.01" />
-                                </svg>
-                                The exact address will be revealed 2 hours before the start.
-                            </div>
-                        </div>
-                    </div>
-                </section>
-                <!-- Main Course Section -->
-                <section class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#f46f47]">
-                    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
-                        <div>
-                            <h2 class="text-xl font-bold text-[#f46f47] mb-1">Main Course (You are the Host)</h2>
-                            <p class="text-sm text-gray-600">Time: <span class="font-semibold">20:00</span></p>
-                        </div>
-                        <button
-                            class="mt-4 md:mt-0 px-5 py-2 bg-[#f46f47] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-[#f46f47]/40">Open
-                            Main Course Group Chat</button>
-                    </div>
-                    <div class="mb-2">
-                        <p class="text-sm">You are hosting dinner for:</p>
-                        <ul class="list-disc list-inside text-sm ml-2">
-                            <li><span class="font-semibold">Ben Weber & Clara Fischer</span> (Omnivores)</li>
-                            <li><span class="font-semibold">Jonas Wolf</span> (Omnivore)</li>
-                            <li><span class="font-semibold">Max Neumann</span> (Omnivore)</li>
-                        </ul>
-                    </div>
-                    <div
-                        class="bg-[#ffe5d0] border-l-4 border-[#f46f47] text-[#f46f47] p-3 rounded mb-2 text-xs flex items-center">
-                        <svg class="w-4 h-4 mr-1 text-[#f46f47]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M13 16h-1v-4h-1m1-4h.01" />
-                        </svg>
-                        Attention! Your guests know your meal will be <span class="font-bold ml-1">vegetarian and
-                            lactose-free</span>.
-                    </div>
-                </section>
-                <!-- Dessert Section -->
-                <section class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#ffc241]">
-                    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
-                        <div>
-                            <h2 class="text-xl font-bold text-[#ffc241] mb-1">Dessert (You are Invited)</h2>
-                            <p class="text-sm text-gray-600">Time: <span class="font-semibold">22:00</span></p>
-                        </div>
-                        <button
-                            class="mt-4 md:mt-0 px-5 py-2 bg-[#ffc241] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-[#ffc241]/40">Open
-                            Dessert Group Chat</button>
-                    </div>
-                    <div class="mb-2">
-                        <p class="text-sm">You are invited for dessert at <span class="font-semibold">Ben Weber & Clara
-                                Fischer</span>'s place.</p>
-                        <p class="text-sm">Your co-guests: <span class="font-semibold">David Meier</span> and <span
-                                class="font-semibold">Quintus Voss & Rosa Berg</span>.</p>
-                    </div>
-                    <div class="flex flex-col md:flex-row md:items-center gap-4">
-                        <div class="w-full max-w-xs h-40 rounded-xl overflow-hidden border border-[#ffc241]/30">
-                            <div id="map-dessert" class="w-full h-40 rounded-xl"></div>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-xs text-gray-500 mb-1">Location: <span class="font-semibold">Goßlerstraße
-                                    (approximate)</span></p>
-                        </div>
-                    </div>
-                </section>
-                <!-- Closing Party Section -->
-                <section class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#172a3a]">
-                    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
-                        <div>
-                            <h2 class="text-xl font-bold text-[#172a3a] mb-1">Closing Party</h2>
-                            <p class="text-sm text-gray-600">Time: <span class="font-semibold">from 23:30</span></p>
-                        </div>
-                    </div>
-                    <div class="mb-2">
-                        <p class="text-sm">Where: <span class="font-semibold">Apex Kultur e.V., Burgstraße 46</span></p>
-                        <p class="text-xs text-gray-500">The exact address is shown here directly.</p>
-                    </div>
-                </section>
-            </div>
-        </main>
-        <!-- Footer -->
-        <div data-include="partials/footer.html"></div>
-</div>
-    
-    </div>
+	<main class="flex-1 max-w-5xl w-full mx-auto px-4 py-6" id="eventPageRoot">
+		<div id="missingIdBanner" class="hidden mb-4 p-4 rounded bg-red-100 border border-red-300 text-red-800 text-sm"></div>
+
+		<div class="flex items-start justify-between gap-4 flex-wrap mb-6">
+			<div>
+				<h1 id="eventTitle" class="text-2xl font-semibold text-gray-800">Event</h1>
+				<p id="eventMeta" class="text-sm text-gray-500 mt-1"></p>
+				<div id="eventBadges" class="flex flex-wrap gap-2 mt-2"></div>
+				<div id="capacityBarWrap" class="mt-3 hidden">
+					<div class="w-72 max-w-full h-2 bg-gray-100 rounded overflow-hidden" role="progressbar" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" id="capacityBar"><div class="h-full bg-[#008080]" style="width:0%"></div></div>
+					<div id="capacityLabel" class="mt-1 text-xs text-gray-600"></div>
+				</div>
+			</div>
+			<div class="flex gap-2 items-center" id="actionButtons" hidden>
+				<button id="refreshPlanBtn" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" title="Reload your itinerary">Refresh Plan</button>
+				<button id="openChatsBtn" class="px-3 py-1.5 text-sm rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50" title="Open group chats">Group Chats</button>
+				<button id="cancelRegistrationBtn" class="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" title="Cancel your registration">Cancel Registration</button>
+				<button id="payNowBtn" class="px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 hidden" title="Pay event fee">Pay Now</button>
+				<button id="chooseProviderBtn" class="px-3 py-1.5 text-sm rounded bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 hidden" title="Select a different payment provider">Choose Provider</button>
+			</div>
+		</div>
+
+		<!-- Loading Spinner -->
+		<div id="loadingSpinner" class="flex items-center gap-3 text-gray-600 py-8">
+			<svg class="animate-spin h-6 w-6 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+				<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+				<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+			</svg>
+			<span class="text-sm">Loading event & itinerary…</span>
+		</div>
+
+		<!-- Status / Info Messages -->
+		<div id="statusMessages" class="space-y-3"></div>
+
+		<!-- Registration / Payment status placeholder -->
+		<!-- Solo Registration Form (shown only if not yet registered) -->
+		<section id="soloRegistrationSection" class="hidden border border-teal-200 rounded-lg p-4 bg-white shadow-sm mb-6">
+			<h2 class="font-medium text-gray-700 mb-3 text-sm tracking-wide">Register (Solo)</h2>
+			<form id="soloRegistrationForm" class="space-y-4">
+				<p class="text-xs text-gray-600 leading-relaxed">Your profile values are pre‑filled. You can adjust them just for this event. After submitting you will be redirected to payment if a fee applies.</p>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<label class="flex flex-col gap-1 text-sm">
+						<span class="font-medium text-gray-700">Dietary Preference</span>
+						<select name="diet" id="srDiet" class="border rounded px-2 py-1 text-sm focus:ring-teal-500 focus:border-teal-500">
+							<option value="omnivore">Omnivore</option>
+							<option value="vegetarian">Vegetarian</option>
+							<option value="vegan">Vegan</option>
+						</select>
+					</label>
+					<div class="flex flex-col gap-2">
+						<label class="inline-flex items-center gap-2 text-sm">
+							<input type="checkbox" id="srKitchenAvailable" class="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+							<span>Kitchen Available</span>
+						</label>
+						<label class="inline-flex items-center gap-2 text-sm">
+							<input type="checkbox" id="srMainPossible" class="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+							<span>Main Course Possible</span>
+						</label>
+					</div>
+				</div>
+				<fieldset class="border border-gray-200 rounded-md p-3">
+					<legend class="text-xs font-medium uppercase tracking-wide text-gray-600">Course Preference (optional)</legend>
+					<div class="mt-2 flex flex-wrap gap-4 text-sm" id="srCourseChoices">
+						<label class="inline-flex items-center gap-1">
+							<input type="radio" name="course" value="" class="text-teal-600 focus:ring-teal-500" checked />
+							<span class="text-xs text-gray-500">No preference</span>
+						</label>
+						<label class="inline-flex items-center gap-1">
+							<input type="radio" name="course" value="appetizer" class="text-teal-600 focus:ring-teal-500" />
+							<span>Appetizer</span>
+						</label>
+						<label class="inline-flex items-center gap-1" id="srMainWrapper">
+							<input type="radio" name="course" value="main" class="text-teal-600 focus:ring-teal-500" />
+							<span>Main Course</span>
+						</label>
+						<label class="inline-flex items-center gap-1">
+							<input type="radio" name="course" value="dessert" class="text-teal-600 focus:ring-teal-500" />
+							<span>Dessert</span>
+						</label>
+					</div>
+					<p class="mt-2 text-[11px] text-gray-500" id="srMainHint">Select "Main Course" only if you can host a main course in your kitchen.</p>
+				</fieldset>
+				<div class="flex items-center gap-3">
+					<button type="submit" id="srSubmit" class="px-4 py-2 rounded bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50">Register</button>
+					<button type="button" id="srCancel" class="px-4 py-2 rounded border text-sm font-medium bg-white text-gray-700 hover:bg-gray-50 hidden">Cancel</button>
+					<span id="srStatus" class="text-xs text-gray-500"></span>
+				</div>
+			</form>
+		</section>
+		<section id="registrationStatusSection" class="hidden border border-gray-200 rounded-lg p-4 bg-white shadow-sm mb-6">
+			<h2 class="font-medium text-gray-700 mb-2 text-sm tracking-wide">Registration</h2>
+			<div id="registrationStatusBody" class="text-sm text-gray-600"></div>
+		</section>
+
+		<!-- Plan / Itinerary -->
+		<section id="planSection" class="hidden border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
+			<h2 class="font-medium text-gray-700 mb-4 text-sm tracking-wide">Your Dinner Hopping Itinerary</h2>
+			<div id="planContainer" class="space-y-4"></div>
+		</section>
+
+		<!-- After Party (if any) -->
+		<section id="afterPartySection" class="hidden mt-8 border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
+			<h2 class="font-medium text-gray-700 mb-2 text-sm tracking-wide">After Party</h2>
+			<div id="afterPartyBody" class="text-sm text-gray-600"></div>
+		</section>
+	</main>
+
+	<!-- Footer include -->
+	<div data-include="partials/footer.html"></div>
+
+	<!-- Global config & helpers (order matters) -->
+	<script src="/js/config.js"></script>
+	<script src="/js/client.js"></script>
+	<script src="/js/includes.js"></script>
+	<!-- Page script -->
+	<script src="/js/pages/event.js" type="module"></script>
 </body>
-
 </html>

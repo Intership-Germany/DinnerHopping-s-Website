@@ -42,19 +42,29 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || 'Failed to register');
+        // Handle 409 conflict for existing active registration
+        if (res.status === 409 && data.existing_registration) {
+          const existing = data.existing_registration;
+          alert(
+            `${data.message || 'You already have an active registration.'}\n\n` +
+            `Event: ${existing.event_title || 'Unknown'}\n` +
+            `Status: ${existing.status || 'Unknown'}\n\n` +
+            `Please cancel that registration first, or wait until it completes.`
+          );
+          return;
+        }
+        alert(data.detail || data.message || 'Failed to register');
         return;
       }
-      const pay = await (
-        await api('/payments/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            registration_id: data.registration_id,
-            amount_cents: data.amount_cents,
-          }),
-        })
-      ).json();
+      // Determine provider(s)
+      let providers = ['paypal','stripe','wero']; let defaultProvider='paypal';
+      try {
+        const pr = await api('/payments/providers', { method: 'GET', headers:{'Accept':'application/json'} });
+        if (pr.ok){ const provs = await pr.json(); if (provs?.providers) providers = provs.providers; else if (Array.isArray(provs)) providers = provs; if (typeof provs?.default==='string') defaultProvider = provs.default; }
+      } catch {}
+      const chosen = providers.length===1 ? providers[0] : defaultProvider;
+      const payRes = await api('/payments/create', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ registration_id: data.registration_id, amount_cents: data.amount_cents, provider: chosen }) });
+      const pay = await payRes.json();
       if (pay.payment_link) window.location.href = pay.payment_link;
       else alert('Payment created. Please follow provider instructions.');
     } catch (e) {
@@ -74,19 +84,28 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || 'Failed to register team');
+        // Handle 409 conflict for existing active registration
+        if (res.status === 409 && data.existing_registration) {
+          const existing = data.existing_registration;
+          alert(
+            `${data.message || 'You already have an active registration.'}\n\n` +
+            `Event: ${existing.event_title || 'Unknown'}\n` +
+            `Status: ${existing.status || 'Unknown'}\n\n` +
+            `Please cancel that registration first, or wait until it completes.`
+          );
+          return;
+        }
+        alert(data.detail || data.message || 'Failed to register team');
         return;
       }
-      const pay = await (
-        await api('/payments/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            registration_id: data.registration_id,
-            amount_cents: data.amount_cents,
-          }),
-        })
-      ).json();
+      let providers = ['paypal','stripe','wero']; let defaultProvider='paypal';
+      try {
+        const pr = await api('/payments/providers', { method: 'GET', headers:{'Accept':'application/json'} });
+        if (pr.ok){ const provs = await pr.json(); if (provs?.providers) providers = provs.providers; else if (Array.isArray(provs)) providers = provs; if (typeof provs?.default==='string') defaultProvider = provs.default; }
+      } catch {}
+      const chosen = providers.length===1 ? providers[0] : defaultProvider;
+      const payRes = await api('/payments/create', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ registration_id: data.registration_id, amount_cents: data.amount_cents, provider: chosen }) });
+      const pay = await payRes.json();
       if (pay.payment_link) window.location.href = pay.payment_link;
       else alert('Team created. Payment pending.');
     } catch (e) {
