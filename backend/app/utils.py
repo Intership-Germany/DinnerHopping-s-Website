@@ -717,6 +717,7 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
     - If a team is involved, also update the team document status to 'paid'.
     - Send confirmation emails (once) to all involved participant email snapshots.
     - Mark the Payment document (if provided) with confirmation_email_sent_at to avoid duplicate mails.
+    - Create audit logs for status transitions.
 
     This function is safe to call multiple times (e.g. concurrent webhook + return URL)
     because it checks the payment document for an existing confirmation_email_sent_at timestamp.
@@ -729,6 +730,7 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
     if not reg:
         return False
     now = datetime.datetime.now(datetime.timezone.utc)
+    old_status = reg.get('status')
 
     # If supplied, load payment doc to check idempotency flag
     pay_doc = None
@@ -744,10 +746,19 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
     if team_id:
         # Mark all registrations in the team paid
         try:
-            await db_mod.db.registrations.update_many(
+            result = await db_mod.db.registrations.update_many(
                 {'team_id': team_id, 'status': {'$ne': 'paid'}},
                 {'$set': {'status': 'paid', 'paid_at': now, 'updated_at': now}}
             )
+            # Audit log for team registrations
+            if result.modified_count > 0:
+                await create_audit_log(
+                    entity_type='registration',
+                    entity_id=str(team_id),
+                    action='payment_success',
+                    new_state={'status': 'paid'},
+                    reason=f'Payment succeeded for team (updated {result.modified_count} registrations)'
+                )
         except PyMongoError:
             pass
         # Mark team document
@@ -757,10 +768,20 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
             pass
     else:
         try:
-            await db_mod.db.registrations.update_one(
+            result = await db_mod.db.registrations.update_one(
                 {'_id': reg['_id'], 'status': {'$ne': 'paid'}},
                 {'$set': {'status': 'paid', 'paid_at': now, 'updated_at': now}}
             )
+            # Audit log for solo registration
+            if result.modified_count > 0:
+                await create_audit_log(
+                    entity_type='registration',
+                    entity_id=registration_id,
+                    action='payment_success',
+                    old_state={'status': old_status},
+                    new_state={'status': 'paid'},
+                    reason='Payment succeeded'
+                )
         except PyMongoError:
             pass
 
@@ -776,3 +797,53 @@ async def finalize_registration_payment(registration_id, payment_id=None) -> boo
         except PyMongoError:
             pass
     return True
+
+
+async def create_audit_log(
+    entity_type: str,
+    entity_id: str | ObjectId,
+    action: str,
+    actor: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    old_state: Optional[dict] = None,
+    new_state: Optional[dict] = None,
+    reason: Optional[str] = None,
+) -> bool:
+    """Create an audit log entry for tracking state changes.
+    
+    Args:
+        entity_type: Type of entity (e.g., 'registration', 'payment')
+        entity_id: ID of the entity being modified
+        action: Action performed (e.g., 'status_change', 'created', 'cancelled')
+        actor: Email or ID of user performing the action
+        ip_address: IP address of the request
+        old_state: Previous state (typically a dict with relevant fields)
+        new_state: New state after the change
+        reason: Optional reason for the change
+    
+    Returns:
+        True if log was created successfully, False otherwise
+    """
+    try:
+        log_entry = {
+            'entity_type': entity_type,
+            'entity_id': str(entity_id),
+            'action': action,
+            'timestamp': datetime.datetime.now(datetime.timezone.utc),
+        }
+        if actor:
+            log_entry['actor'] = actor
+        if ip_address:
+            log_entry['ip_address'] = ip_address
+        if old_state is not None:
+            log_entry['old_state'] = old_state
+        if new_state is not None:
+            log_entry['new_state'] = new_state
+        if reason:
+            log_entry['reason'] = reason
+        
+        await db_mod.db.audit_logs.insert_one(log_entry)
+        return True
+    except PyMongoError:
+        logger.exception('Failed to create audit log for %s %s', entity_type, entity_id)
+        return False
