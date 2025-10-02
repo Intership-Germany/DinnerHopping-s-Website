@@ -3,6 +3,16 @@ FastAPI application for the DinnerHopping backend.
 """
 import os
 import json
+# Load environment variables from local .env before other imports that read os.getenv
+try:
+    from pathlib import Path
+    from dotenv import load_dotenv  # type: ignore
+    _ENV_PATH = Path(__file__).resolve().parent / '.env'
+    if _ENV_PATH.exists():
+        load_dotenv(dotenv_path=_ENV_PATH, override=False)
+except Exception:
+    # best-effort; continue if python-dotenv not installed at runtime
+    pass
 from fastapi import FastAPI, APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware

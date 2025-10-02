@@ -207,12 +207,43 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
             disp = (f"{fn} {ln}" if (fn or ln) else em).strip()
             members.append({'email': em, 'first_name': fn or None, 'last_name': ln or None, 'display_name': disp})
         team_map.setdefault(tid, {})['members'] = members
+    # Enrich groups with host public address if missing (best-effort)
+    groups_in = m.get('groups') or []
+    # Build helper to determine preferred host email based on team_doc/cooking_location
+    team_by_id: Dict[str, dict] = { str(t['team_id']): t for t in teams }
+    from ..services.matching import _user_address_string as _host_addr  # lazy import to avoid cycle issues
+    groups_out: List[dict] = []
+    for g in groups_in:
+        gg = dict(g)
+        if 'host_address_public' not in gg or gg.get('host_address_public') is None:
+            try:
+                tid = str(gg.get('host_team_id')) if gg.get('host_team_id') is not None else None
+                t = team_by_id.get(tid or '') if tid else None
+                host_email = None
+                if t:
+                    team_doc = t.get('team_doc') or {}
+                    members = team_doc.get('members') or []
+                    cooking_loc = (t.get('cooking_location') or 'creator')
+                    if members:
+                        if cooking_loc == 'creator':
+                            host_email = (members[0] or {}).get('email')
+                        elif len(members) > 1:
+                            host_email = (members[1] or {}).get('email')
+                    if not host_email and members:
+                        host_email = (members[0] or {}).get('email')
+                addr = await _host_addr(host_email) if host_email else None
+                if addr:
+                    gg['host_address'] = addr[0]
+                    gg['host_address_public'] = addr[1]
+            except Exception:
+                pass
+        groups_out.append(gg)
     # Compose output
     out = {
         'version': m.get('version'),
         'metrics': m.get('metrics') or {},
         'algorithm': m.get('algorithm') or 'unknown',
-        'groups': m.get('groups') or [],
+        'groups': groups_out,
         'team_details': team_map,
     }
     return out
@@ -233,6 +264,8 @@ async def recompute_metrics(event_id: str, version: int, _=Depends(require_admin
     tmap: Dict[str, dict] = { str(t['team_id']): t for t in teams }
     groups = m.get('groups') or []
     new_groups: List[dict] = []
+    # helper for host address
+    from ..services.matching import _user_address_string as _host_addr
     for g in groups:
         phase = g.get('phase')
         host_id = str(g.get('host_team_id'))
@@ -241,140 +274,101 @@ async def recompute_metrics(event_id: str, version: int, _=Depends(require_admin
         guests = [tmap.get(tid, {}) for tid in guest_ids]
         base_score, warns = _score_group_phase(host, guests, phase, {})
         travel = await _travel_time_for_phase(host, guests)
+        # compute host public address best-effort
+        host_email = None
+        try:
+            team_doc = host.get('team_doc') or {}
+            members = team_doc.get('members') or []
+            cooking_loc = (host.get('cooking_location') or 'creator')
+            if members:
+                if cooking_loc == 'creator':
+                    host_email = (members[0] or {}).get('email')
+                elif len(members) > 1:
+                    host_email = (members[1] or {}).get('email')
+            if not host_email and members:
+                host_email = (members[0] or {}).get('email')
+        except Exception:
+            host_email = None
+        addr_full = addr_pub = None
+        if host_email:
+            try:
+                addr = await _host_addr(host_email)
+                if addr:
+                    addr_full, addr_pub = addr
+            except Exception:
+                pass
         new_groups.append({
             **g,
             'score': base_score - 1.0 * (travel or 0.0),  # default W_DIST=1
             'travel_seconds': travel,
             'warnings': warns,
+            'host_address': addr_full if addr_full is not None else g.get('host_address'),
+            'host_address_public': addr_pub if addr_pub is not None else g.get('host_address_public'),
         })
     metrics = _compute_metrics(new_groups, {})
     await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'metrics': metrics, 'updated_at': datetime.datetime.utcnow()}})
     return {'version': m.get('version'), 'metrics': metrics}
 
 
-@router.post('/{event_id}/validate')
-async def validate_groups(event_id: str, payload: dict, _=Depends(require_admin)):
-    """Validate a provided groups array: detect duplicate pair meetings and phase membership conflicts.
+@router.post('/{event_id}/preview')
+async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin)):
+    """Compute metrics and annotate provided groups without persisting.
 
-    Payload: { groups: [ { phase, host_team_id, guest_team_ids: [] }, ... ] }
-    Returns: { violations: [ { pair:[a,b], count:int } ], phase_issues: [ { phase, team_id, issue } ], group_issues: [ { phase, group_idx, issue } ] }
+    Payload: { groups: [ { phase, host_team_id, guest_team_ids }... ] }
+    Returns: { groups: [ with score, travel_seconds, warnings ], metrics: {..} }
     """
-    groups = payload.get('groups') or []
-    # Duplicate pair detection
-    pair_counts = _collect_pairs(groups)
-    violations = [ { 'pair': list(pk), 'count': c } for pk, c in pair_counts.items() if c > 1 ]
-    # Phase membership conflicts and basic group issues
-    phase_team_seen: Dict[str, Dict[str,int]] = {}
-    group_issues: List[dict] = []
-    for idx, g in enumerate(groups):
+    await require_event_published(event_id)
+    groups_in = payload.get('groups') or []
+    # Load event and build team map (lat/lon, capabilities)
+    ev = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
+    if not ev:
+        raise HTTPException(status_code=404, detail='Event not found')
+    teams = await _build_teams(ev['_id'])
+    tmap: Dict[str, dict] = { str(t['team_id']): t for t in teams }
+    # helper for host address
+    from ..services.matching import _user_address_string as _host_addr
+    new_groups: List[dict] = []
+    for g in groups_in:
         phase = g.get('phase')
-        if not phase:
-            group_issues.append({'phase': None, 'group_idx': idx, 'issue': 'missing_phase'})
-            continue
-        phase_team_seen.setdefault(phase, {})
-        host = str(g.get('host_team_id')) if g.get('host_team_id') is not None else None
-        guests = [str(t) for t in (g.get('guest_team_ids') or [])]
-        # Basic issues
-        if host and host in guests:
-            group_issues.append({'phase': phase, 'group_idx': idx, 'issue': 'host_in_guests'})
-        if len(set(guests)) != len(guests):
-            group_issues.append({'phase': phase, 'group_idx': idx, 'issue': 'duplicate_guest_in_group'})
-        # Track membership per phase
-        all_members = [host] if host else []
-        all_members += guests
-        for tid in all_members:
-            if not tid:
-                continue
-            phase_team_seen[phase][tid] = phase_team_seen[phase].get(tid, 0) + 1
-    phase_issues: List[dict] = []
-    for phase, seen in phase_team_seen.items():
-        for tid, cnt in seen.items():
-            if cnt > 1:
-                phase_issues.append({'phase': phase, 'team_id': tid, 'issue': 'team_appears_multiple_times'})
-    return { 'violations': violations, 'phase_issues': phase_issues, 'group_issues': group_issues }
-
-
-@router.post('/{event_id}/set_groups')
-async def set_groups(event_id: str, payload: dict, _=Depends(require_admin)):
-    """Replace the groups array for a given match version.
-
-    Payload: { version:int, groups:[...], force?:bool }
-    If duplicate pair meetings are detected and force is not true, returns { status:'warning', violations:[...] }.
-    On success, persists groups, recomputes metrics and returns { status:'ok', metrics }.
-    """
-    version = int(payload.get('version'))
-    groups = payload.get('groups') or []
-    force = bool(payload.get('force', False))
-    m = await db_mod.db.matches.find_one({'event_id': event_id, 'version': version})
-    if not m:
-        raise HTTPException(status_code=404, detail='Match version not found')
-    # Validate
-    check = await validate_groups(event_id, {'groups': groups})
-    violations = check.get('violations') or []
-    phase_issues = check.get('phase_issues') or []
-    if (violations or phase_issues) and not force:
-        return { 'status': 'warning', 'violations': violations, 'phase_issues': phase_issues }
-    # Persist and recompute
-    await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': groups, 'updated_at': datetime.datetime.utcnow()}})
-    # Recompute metrics
-    rec = await recompute_metrics(event_id, version)  # type: ignore
-    return { 'status': 'ok', **rec }
-
-
-@router.delete('/{event_id}/matches')
-async def delete_matches(event_id: str, version: Optional[int] = None, _=Depends(require_admin)):
-    """Delete match proposals for an event. If version is provided, delete only that version; otherwise delete all.
-    Returns { deleted_count, scope: 'single'|'all' }.
-    """
-    if version is not None:
-        res = await db_mod.db.matches.delete_many({'event_id': event_id, 'version': int(version)})
-        return {'deleted_count': getattr(res, 'deleted_count', 0), 'scope': 'single', 'version': int(version)}
-    res = await db_mod.db.matches.delete_many({'event_id': event_id})
-    # Optionally reset event matching_status if all deleted
-    await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'matching_status': 'not_started', 'updated_at': datetime.datetime.utcnow()}})
-    return {'deleted_count': getattr(res, 'deleted_count', 0), 'scope': 'all'}
-
-
-@router.get('/{event_id}/paths')
-async def get_paths(event_id: str, version: Optional[int] = None, ids: Optional[str] = None, fast: Optional[int] = 1, _=Depends(require_admin)):
-    await require_event_published(event_id)
-    idset: Optional[Set[str]] = None
-    if ids:
-        idset = set([s.strip() for s in ids.split(',') if s.strip()])
-    fast_mode = (fast is None) or (int(fast) != 0)
-    data = await compute_team_paths(event_id, version, idset, fast=fast_mode)
-    return data
-
-
-@router.get('/{event_id}/paths/geometry')
-async def get_paths_geometry(event_id: str, version: Optional[int] = None, ids: Optional[str] = None, engine: Optional[str] = None, _=Depends(require_admin)):
-    """Return OSRM geometry polylines for legs between phases for the requested teams when possible.
-
-    Falls back to straight lines if the routing engine is not available or fails.
-    """
-    await require_event_published(event_id)
-    idset: Optional[Set[str]] = None
-    if ids:
-        idset = set([s.strip() for s in ids.split(',') if s.strip()])
-    # compute points first (fast mode doesn't affect geometry extraction)
-    data = await compute_team_paths(event_id, version, idset, fast=True)
-    team_geoms: Dict[str, Dict[str, Any]] = {}
-    for tid, rec in (data.get('team_paths') or {}).items():
-        pts = rec.get('points') or []
-        segments = []
-        for i in range(len(pts)-1):
-            a = pts[i]; b = pts[i+1]
-            if a.get('lat') is None or a.get('lon') is None or b.get('lat') is None or b.get('lon') is None:
-                continue
-            coords = [(float(a['lat']), float(a['lon'])), (float(b['lat']), float(b['lon']))]
-            geom = await route_polyline(coords)
-            if geom:
-                segments.append(geom)
-            else:
-                # fallback straight line
-                segments.append([[a['lat'], a['lon']], [b['lat'], b['lon']]])
-        team_geoms[tid] = {'segments': segments}
-    return {'team_geometries': team_geoms, 'bounds': data.get('bounds')}
+        host_id = str(g.get('host_team_id')) if g.get('host_team_id') is not None else None
+        guest_ids = [str(x) for x in (g.get('guest_team_ids') or [])]
+        host = tmap.get(host_id, {}) if host_id else {}
+        guests = [tmap.get(tid, {}) for tid in guest_ids]
+        base_score, warns = _score_group_phase(host, guests, phase, {})
+        travel = await _travel_time_for_phase(host, guests)
+        # compute host public address best-effort
+        host_email = None
+        try:
+            team_doc = host.get('team_doc') or {}
+            members = team_doc.get('members') or []
+            cooking_loc = (host.get('cooking_location') or 'creator')
+            if members:
+                if cooking_loc == 'creator':
+                    host_email = (members[0] or {}).get('email')
+                elif len(members) > 1:
+                    host_email = (members[1] or {}).get('email')
+            if not host_email and members:
+                host_email = (members[0] or {}).get('email')
+        except Exception:
+            host_email = None
+        addr_full = addr_pub = None
+        if host_email:
+            try:
+                addr = await _host_addr(host_email)
+                if addr:
+                    addr_full, addr_pub = addr
+            except Exception:
+                pass
+        new_groups.append({
+            **g,
+            'score': base_score - 1.0 * (travel or 0.0),  # W_DIST defaults to 1 in recompute
+            'travel_seconds': travel,
+            'warnings': warns,
+            'host_address': addr_full if addr_full is not None else g.get('host_address'),
+            'host_address_public': addr_pub if addr_pub is not None else g.get('host_address_public'),
+        })
+    metrics = _compute_metrics(new_groups, {})
+    return { 'groups': new_groups, 'metrics': metrics }
 
 
 # ---------- Constraints management (admin) ----------
@@ -492,21 +486,145 @@ async def list_units(event_id: str, _=Depends(require_admin)):
     return {'solos': solos, 'duos': duos}
 
 
-@router.post('/{event_id}/preview')
-async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin)):
-    """Compute metrics and annotate provided groups without persisting.
+@router.get('/{event_id}/paths')
+async def get_paths(event_id: str, version: Optional[int] = None, ids: Optional[str] = None, fast: Optional[int] = 1, _=Depends(require_admin)):
+    # removed strict require_event_published to allow admin to view draft events as well
+    idset: Optional[Set[str]] = None
+    if ids:
+        idset = set([s.strip() for s in ids.split(',') if s.strip()])
+    fast_mode = (fast is None) or (int(fast) != 0)
+    data = await compute_team_paths(event_id, version, idset, fast=fast_mode)
+    return data
 
-    Payload: { groups: [ { phase, host_team_id, guest_team_ids }... ] }
-    Returns: { groups: [ with score, travel_seconds, warnings ], metrics: {..} }
+
+@router.get('/{event_id}/paths/geometry')
+async def get_paths_geometry(event_id: str, version: Optional[int] = None, ids: Optional[str] = None, engine: Optional[str] = None, _=Depends(require_admin)):
+    """Return OSRM geometry polylines for legs between phases for the requested teams when possible.
+
+    Falls back to straight lines if the routing engine is not available or fails.
+    """
+    # removed strict require_event_published to allow admin to view draft events as well
+    idset: Optional[Set[str]] = None
+    if ids:
+        idset = set([s.strip() for s in ids.split(',') if s.strip()])
+    # compute points first (fast mode doesn't affect geometry extraction)
+    data = await compute_team_paths(event_id, version, idset, fast=True)
+    team_geoms: Dict[str, Dict[str, Any]] = {}
+    for tid, rec in (data.get('team_paths') or {}).items():
+        pts = rec.get('points') or []
+        segments = []
+        for i in range(len(pts)-1):
+            a = pts[i]; b = pts[i+1]
+            if a.get('lat') is None or a.get('lon') is None or b.get('lat') is None or b.get('lon') is None:
+                continue
+            coords = [(float(a['lat']), float(a['lon'])), (float(b['lat']), float(b['lon']))]
+            geom = await route_polyline(coords)
+            if geom:
+                segments.append(geom)
+            else:
+                # fallback straight line
+                segments.append([[a['lat'], a['lon']], [b['lat'], b['lon']]])
+        team_geoms[tid] = {'segments': segments}
+    return {'team_geometries': team_geoms, 'bounds': data.get('bounds')}
+
+
+@router.delete('/{event_id}/matches')
+async def delete_matches(event_id: str, version: Optional[int] = None, _=Depends(require_admin)):
+    """Delete match proposals for an event.
+
+    - If `version` is provided, delete only that version.
+    - Otherwise, delete all proposals for the event.
+    Updates the event.matching_status to 'not_started' if all are deleted.
     """
     await require_event_published(event_id)
+    if version is not None:
+        m = await db_mod.db.matches.find_one({'event_id': event_id, 'version': int(version)})
+        if not m:
+            raise HTTPException(status_code=404, detail='Match version not found')
+        res = await db_mod.db.matches.delete_one({'_id': m['_id']})
+        return {'deleted_count': res.deleted_count, 'version': int(version)}
+    # delete all
+    res = await db_mod.db.matches.delete_many({'event_id': event_id})
+    # set event.matching_status back to not_started
+    now = datetime.datetime.utcnow()
+    await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'matching_status': 'not_started', 'updated_at': now}})
+    return {'deleted_count': res.deleted_count}
+
+
+@router.post('/{event_id}/validate')
+async def validate_groups(event_id: str, payload: dict, _=Depends(require_admin)):
+    """Validate a set of groups for duplicate pairs and basic structural issues.
+
+    Payload: { groups: [ { phase, host_team_id, guest_team_ids }... ] }
+    Returns: { violations: [...], phase_issues: [...], group_issues: [...] }
+    """
+    await require_event_published(event_id)
+    groups = payload.get('groups') or []
+    # duplicate pair counts
+    pair_counts = _collect_pairs(groups)
+    violations = [ {'pair': list(pk), 'count': c} for pk, c in pair_counts.items() if c > 1 ]
+    # phase-level: team appears more than once in same phase
+    phase_seen: Dict[str, Set[str]] = {}
+    phase_issues: List[dict] = []
+    for g in groups:
+        phase = str(g.get('phase'))
+        phase_seen.setdefault(phase, set())
+        ids = []
+        if g.get('host_team_id') is not None:
+            ids.append(str(g['host_team_id']))
+        ids.extend([str(x) for x in (g.get('guest_team_ids') or [])])
+        for tid in ids:
+            key = f"{phase}:{tid}"
+            if tid in phase_seen[phase]:
+                phase_issues.append({'phase': phase, 'team_id': tid, 'issue': 'duplicate_in_phase'})
+            phase_seen[phase].add(tid)
+    # group-level structural issues
+    group_issues: List[dict] = []
+    by_phase: Dict[str, List[dict]] = {}
+    for g in groups:
+        p = str(g.get('phase'))
+        by_phase.setdefault(p, []).append(g)
+    for p, lst in by_phase.items():
+        for idx, g in enumerate(lst):
+            host = g.get('host_team_id')
+            guests = g.get('guest_team_ids') or []
+            if host is None:
+                group_issues.append({'phase': p, 'group_idx': idx, 'issue': 'missing_host'})
+            if len(guests) != 2:
+                group_issues.append({'phase': p, 'group_idx': idx, 'issue': f'invalid_guest_count:{len(guests)}'})
+            # prevent host duplicated as guest
+            if host is not None and any(str(x) == str(host) for x in guests):
+                group_issues.append({'phase': p, 'group_idx': idx, 'issue': 'host_in_guests'})
+    return {'violations': violations, 'phase_issues': phase_issues, 'group_issues': group_issues}
+
+
+@router.post('/{event_id}/set_groups')
+async def set_groups(event_id: str, payload: dict, _=Depends(require_admin)):
+    """Persist edited groups for a given match version.
+
+    Payload: { version:int, groups:[...], force?:bool }
+    - Validates duplicates and structural issues; if any and not force, returns status=warning with details.
+    - On success, updates groups, recomputes travel/score/warnings and aggregate metrics, and returns status=saved.
+    """
+    await require_event_published(event_id)
+    version = int(payload.get('version'))
     groups_in = payload.get('groups') or []
-    # Load event and build team map (lat/lon, capabilities)
+    force = bool(payload.get('force', False))
+    m = await db_mod.db.matches.find_one({'event_id': event_id, 'version': version})
+    if not m:
+        raise HTTPException(status_code=404, detail='Match version not found')
+    # validate
+    v = await validate_groups(event_id, {'groups': groups_in})
+    if (v['violations'] or v['phase_issues'] or v['group_issues']) and not force:
+        return { 'status': 'warning', **v }
+    # Recompute per-group metrics using current team attributes
     ev = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
     if not ev:
         raise HTTPException(status_code=404, detail='Event not found')
     teams = await _build_teams(ev['_id'])
     tmap: Dict[str, dict] = { str(t['team_id']): t for t in teams }
+    # helper for host public address
+    from ..services.matching import _user_address_string as _host_addr
     new_groups: List[dict] = []
     for g in groups_in:
         phase = g.get('phase')
@@ -516,12 +634,39 @@ async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin))
         guests = [tmap.get(tid, {}) for tid in guest_ids]
         base_score, warns = _score_group_phase(host, guests, phase, {})
         travel = await _travel_time_for_phase(host, guests)
+        # host address
+        host_email = None
+        try:
+            team_doc = host.get('team_doc') or {}
+            members = team_doc.get('members') or []
+            cooking_loc = (host.get('cooking_location') or 'creator')
+            if members:
+                if cooking_loc == 'creator':
+                    host_email = (members[0] or {}).get('email')
+                elif len(members) > 1:
+                    host_email = (members[1] or {}).get('email')
+            if not host_email and members:
+                host_email = (members[0] or {}).get('email')
+        except Exception:
+            host_email = None
+        addr_full = addr_pub = None
+        if host_email:
+            try:
+                addr = await _host_addr(host_email)
+                if addr:
+                    addr_full, addr_pub = addr
+            except Exception:
+                pass
         new_groups.append({
-            **g,
-            'score': base_score - 1.0 * (travel or 0.0),  # W_DIST defaults to 1 in recompute
+            'phase': phase,
+            'host_team_id': host_id,
+            'guest_team_ids': guest_ids,
+            'score': base_score - 1.0 * (travel or 0.0),
             'travel_seconds': travel,
             'warnings': warns,
+            'host_address': addr_full,
+            'host_address_public': addr_pub,
         })
     metrics = _compute_metrics(new_groups, {})
-    return { 'groups': new_groups, 'metrics': metrics }
-
+    await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'metrics': metrics, 'updated_at': datetime.datetime.utcnow()}})
+    return { 'status': 'saved', 'version': version, 'metrics': metrics }

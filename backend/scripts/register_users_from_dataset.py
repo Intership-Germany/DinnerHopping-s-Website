@@ -37,7 +37,7 @@ DATASET_PATH = Path(__file__).resolve().parents[1] / "app" / "data" / "dataset_f
 # Attempt to detect backend logs root/DATE.log (default location used by logging_config.py when LOG_TO_FILES=true)
 LOGS_DIR = Path(os.getenv("LOG_DIR", Path(__file__).resolve().parents[1] / "logs"))
 ROOT_LOG_FILE = os.getenv("LOGS_ROOT_FILE")  # if provided, use exact file
-RATE_LIMIT_SECONDS = float(os.getenv("RATE_LIMIT_SECONDS", "1.0"))
+RATE_LIMIT_SECONDS = float(os.getenv("RATE_LIMIT_SECONDS", "0.3"))
 
 # Simple global rate limiter (ensures >= RATE_LIMIT_SECONDS between ANY API calls)
 _last_call_ts: float = 0.0

@@ -1026,14 +1026,41 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
     if not m:
         return {'team_paths': {}, 'bounds': None, 'after_party': None}
     groups = m.get('groups') or []
-    # Build mapping team_id -> lat/lon from teams
+    # Apply ids-based filtering early to avoid unnecessary work
+    id_filter: Optional[Set[str]] = set(ids) if ids else None
+    if id_filter:
+        def _involves_requested(g: dict) -> bool:
+            host = str(g.get('host_team_id')) if g.get('host_team_id') is not None else None
+            guests = [str(x) for x in (g.get('guest_team_ids') or [])]
+            if host and host in id_filter:
+                return True
+            for t in guests:
+                if t in id_filter:
+                    return True
+            return False
+        groups = [g for g in groups if _involves_requested(g)]
+        if not groups:
+            return {'team_paths': {}, 'bounds': None, 'after_party': None}
+    # Build mapping team_id -> lat/lon from teams (restrict to relevant ids when provided)
     ev = await _get_event(event_id)
     if not ev:
         return {'team_paths': {}, 'bounds': None, 'after_party': None}
     teams = await _build_teams(ev['_id'])
+    needed_ids: Optional[Set[str]] = None
+    if id_filter:
+        needed_ids = set()
+        for g in groups:
+            h = g.get('host_team_id')
+            if h is not None:
+                needed_ids.add(str(h))
+            for t in (g.get('guest_team_ids') or []):
+                needed_ids.add(str(t))
     coord_map: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
     for t in teams:
-        coord_map[str(t['team_id'])] = (t.get('lat'), t.get('lon'))
+        tid = str(t['team_id'])
+        if needed_ids and tid not in needed_ids:
+            continue
+        coord_map[tid] = (t.get('lat'), t.get('lon'))
     # Helper to resolve split/pair and missing ids
     async def _resolve_coords(tid: str) -> Tuple[Optional[float], Optional[float]]:
         if tid in coord_map:
@@ -1044,7 +1071,6 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
             if u and isinstance(u.get('lat'), (int,float)) and isinstance(u.get('lon'), (int,float)):
                 return (float(u['lat']), float(u['lon']))
         if tid.startswith('pair:'):
-            # approximate by averaging members' coords if available
             part = tid.split(':',1)[1]
             ems = [e for e in part.split('+') if e]
             pts = []
@@ -1059,7 +1085,6 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
         return (None, None)
     # Build per-phase host map
     phases = ['appetizer','main','dessert']
-    # For each team, determine their host location for each phase
     path_points: Dict[str, List[Tuple[str, Optional[float], Optional[float]]]] = {}
     for phase in phases:
         for g in groups:
@@ -1069,9 +1094,8 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
             guests = [str(x) for x in (g.get('guest_team_ids') or [])]
             if not host:
                 continue
-            # host's own point
             for tid in [host] + guests:
-                if ids and tid not in ids:
+                if id_filter and tid not in id_filter:
                     continue
                 lat, lon = await _resolve_coords(host)
                 path_points.setdefault(tid, []).append((phase, lat, lon))
