@@ -56,30 +56,16 @@
         alert(data.detail || data.message || 'Failed to register');
         return;
       }
-      const pay = await (
-        await api('/payments', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            registration_id: data.registration_id,
-            amount_cents: data.amount_cents,
-          }),
-        })
-      ).json();
-      const link = (() => {
-        if (!pay) return null;
-        const next = pay.next_action || {};
-        if (next.type === 'redirect' && next.url) return next.url;
-        if (next.type === 'instructions' && next.instructions) {
-          const inst = next.instructions;
-          return inst.approval_link || inst.link || null;
-        }
-        if (pay.payment_link) return pay.payment_link;
-        const inst = pay.instructions;
-        if (inst) return inst.approval_link || inst.link || null;
-        return null;
-      })();
-      if (link) window.location.href = link.startsWith('http') ? link : window.BACKEND_BASE_URL + link;
+      // Determine provider(s)
+      let providers = ['paypal','stripe','wero']; let defaultProvider='paypal';
+      try {
+        const pr = await api('/payments/providers', { method: 'GET', headers:{'Accept':'application/json'} });
+        if (pr.ok){ const provs = await pr.json(); if (provs?.providers) providers = provs.providers; else if (Array.isArray(provs)) providers = provs; if (typeof provs?.default==='string') defaultProvider = provs.default; }
+      } catch {}
+      const chosen = providers.length===1 ? providers[0] : defaultProvider;
+      const payRes = await api('/payments/create', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ registration_id: data.registration_id, amount_cents: data.amount_cents, provider: chosen }) });
+      const pay = await payRes.json();
+      if (pay.payment_link) window.location.href = pay.payment_link;
       else alert('Payment created. Please follow provider instructions.');
     } catch (e) {
       alert('Registration failed.');
@@ -112,30 +98,15 @@
         alert(data.detail || data.message || 'Failed to register team');
         return;
       }
-      const pay = await (
-        await api('/payments', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            registration_id: data.registration_id,
-            amount_cents: data.amount_cents,
-          }),
-        })
-      ).json();
-      const link = (() => {
-        if (!pay) return null;
-        const next = pay.next_action || {};
-        if (next.type === 'redirect' && next.url) return next.url;
-        if (next.type === 'instructions' && next.instructions) {
-          const inst = next.instructions;
-          return inst.approval_link || inst.link || null;
-        }
-        if (pay.payment_link) return pay.payment_link;
-        const inst = pay.instructions;
-        if (inst) return inst.approval_link || inst.link || null;
-        return null;
-      })();
-      if (link) window.location.href = link.startsWith('http') ? link : window.BACKEND_BASE_URL + link;
+      let providers = ['paypal','stripe','wero']; let defaultProvider='paypal';
+      try {
+        const pr = await api('/payments/providers', { method: 'GET', headers:{'Accept':'application/json'} });
+        if (pr.ok){ const provs = await pr.json(); if (provs?.providers) providers = provs.providers; else if (Array.isArray(provs)) providers = provs; if (typeof provs?.default==='string') defaultProvider = provs.default; }
+      } catch {}
+      const chosen = providers.length===1 ? providers[0] : defaultProvider;
+      const payRes = await api('/payments/create', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ registration_id: data.registration_id, amount_cents: data.amount_cents, provider: chosen }) });
+      const pay = await payRes.json();
+      if (pay.payment_link) window.location.href = pay.payment_link;
       else alert('Team created. Payment pending.');
     } catch (e) {
       alert('Team registration failed.');
