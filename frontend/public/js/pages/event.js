@@ -1,392 +1,531 @@
-// Event page script moved under pages (unchanged logic except namespace usage)
-(function () {
-  const qs = new URLSearchParams(window.location.search);
-  const eventId = qs.get('id');
-  const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  function normalizeMeal(meal) {
-    if (!meal) return null;
-    const m = String(meal).toLowerCase();
-    if (m.includes('entr') || m.includes('appet')) return 'starter';
-    if (m.includes('plat') || m.includes('main')) return 'main';
-    if (m.includes('dess')) return 'dessert';
-    return m;
-  }
-  function setText(el, text) {
-    if (el) el.textContent = text;
-  }
-  function findTimeSpan(section) {
-    const ps = $$('p', section);
-    for (const p of ps) {
-      if (/\btime\s*:/i.test(p.textContent)) return $('span', p) || p;
-    }
-    return null;
-  }
-  function formatNameOrEmail(s) {
-    if (!s) return '';
-    return String(s).trim();
-  }
-  function listToSentence(arr) {
-    const xs = (arr || []).map(formatNameOrEmail);
-    if (xs.length <= 1) return xs.join('');
-    return xs.slice(0, -1).join(', ') + ' & ' + xs[xs.length - 1];
-  }
-  function initLeafletCircle(divId, center, radiusM) {
-    try {
-      if (!center || typeof L === 'undefined') return;
-      const { lat, lon } = center;
-      if (typeof lat !== 'number' || typeof lon !== 'number') return;
-      const map = L.map(divId, { zoomControl: false, attributionControl: false });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-      const c = L.latLng(lat, lon);
-      L.circle(c, {
-        radius: Math.max(200, Number(radiusM) || 500),
-        color: '#172a3a',
-        fillColor: '#008080',
-        fillOpacity: 0.2,
-        weight: 1,
-      }).addTo(map);
-      map.setView(c, 14);
-      setTimeout(() => map.invalidateSize(), 0);
-    } catch (e) {
-      console.warn('Map init failed', e);
-    }
-  }
-  function sectionNodes() {
-    const entreeMap = $('#map-entree');
-    const dessertMap = $('#map-dessert');
-    const all = $$('main section');
-    const starterSec = entreeMap ? entreeMap.closest('section') : all[0];
-    const dessertSec = dessertMap ? dessertMap.closest('section') : all[2];
-    const mainSec = all[1];
-    const closingSec = all[3];
-    return { starterSec, mainSec, dessertSec, closingSec };
-  }
-  function populateCourseSection(sectionEl, opts) {
-    if (!sectionEl) return;
-    const { courseLabel, isHost, time, hostEmail, guests, mapDivId, hostLocation } = opts;
-    const h2 = $('h2', sectionEl);
-    if (h2) {
-      const statusTxt = isHost ? 'You are the Host' : 'You are Invited';
-      setText(h2, `${courseLabel} (${statusTxt})`);
-    }
-    const timeSpan = findTimeSpan(sectionEl);
-    if (timeSpan) setText(timeSpan, time || '—');
-    const infoWrap = $('.mb-2', sectionEl);
-    if (infoWrap) {
-      const guestSentence = listToSentence(guests || []);
-      if (isHost) {
-        infoWrap.innerHTML = `<p class="text-sm">You are hosting ${courseLabel.toLowerCase()} for:</p><p class="text-sm"><span class="font-semibold">${guestSentence || 'TBD'}</span>.</p>`;
-      } else {
-        infoWrap.innerHTML = `<p class="text-sm">You are invited to ${courseLabel.toLowerCase()} at <span class="font-semibold">${formatNameOrEmail(hostEmail) || 'TBD'}</span>'s place.</p><p class="text-sm">Your co-guests: <span class="font-semibold">${guestSentence || 'TBD'}</span>.</p>`;
-      }
-    }
-    if (mapDivId && hostLocation && hostLocation.center) {
-      const locP = $('div.flex-1 p.text-xs', sectionEl);
-      if (locP) setText(locP, 'Location: Approximate area (see map)');
-      initLeafletCircle(mapDivId, hostLocation.center, hostLocation.approx_radius_m);
-    }
-    const btn = $('button', sectionEl);
-    if (btn) {
-      const sectionKey = courseLabel.toLowerCase().includes('main')
-        ? 'main'
-        : courseLabel.toLowerCase().includes('dessert')
-          ? 'dessert'
-          : 'starter';
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        const url = new URL('chat.html', window.location.origin);
-        url.searchParams.set('event_id', eventId || '');
-        url.searchParams.set('section', sectionKey);
-        window.location.href = url.toString();
-      });
-    }
-  }
-  async function loadData() {
-    if (!eventId) {
-      console.error('Missing event id');
-      return;
-    }
-    try {
-      await (window.dh?.initCsrf
-        ? window.dh.initCsrf()
-        : window.initCsrf
-          ? window.initCsrf()
-          : Promise.resolve());
-    } catch {}
-    const bearer =
-      window.auth && typeof window.auth.getCookie === 'function'
-        ? window.auth.getCookie('dh_token')
-        : null;
-    const commonOpts = bearer
-      ? { credentials: 'omit', headers: { Authorization: `Bearer ${bearer}` } }
-      : {};
-    let ev = null;
-    let plan = null;
-    try {
-      const fetcher = window.dh?.apiFetch || window.apiFetch;
-      const evRes = await fetcher(`/events/${encodeURIComponent(eventId)}?anonymise=true`, commonOpts);
-      if (!evRes.ok) throw new Error(`Event load failed (${evRes.status})`);
-      ev = await evRes.json();
-      plan = await fetchPlan(commonOpts).catch(() => null);
-    } catch (networkErr) {
-      console.error('Failed to load event/plan:', networkErr);
-      const notice = document.createElement('div');
-      notice.className =
-        'mx-auto mt-6 max-w-3xl bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm';
-      notice.textContent = 'Unable to load event data. Please ensure you are logged in.';
-      const main = document.querySelector('main');
-      if (main) main.prepend(notice);
-      return;
-    }
-    // Apply plan data (if any) to sections
-    applyPlan(plan);
+// event.js - Personalized Event Dashboard
+// Responsibilities:
+// - Parse ?id=EVENT_ID
+// - Initialize CSRF/auth (supports legacy dh_token Bearer mode)
+// - Fetch event details and user registration/payment state (if available)
+// - Fetch user's plan/itinerary (sections: starter/appetizer, main, dessert, party)
+// - Render actionable buttons: refresh plan (re-fetch), open group chats (navigates to chat), cancel registration (placeholder)
+// - Show loading spinner until both event & plan attempts complete
+// - Graceful fallbacks when data absent (no plan yet, not registered, etc.)
 
-    const { closingSec } = sectionNodes();
-    if (closingSec && ev) {
-      const whereP = $('div.mb-2 p.text-sm span.font-semibold', closingSec);
-      const helperP = $('div.mb-2 p.text-xs', closingSec);
-      let closingText = null;
-      if (ev.after_party_location) {
-        const apl = ev.after_party_location;
-        if (apl.address_public) {
-          closingText = apl.address_public;
-          if (helperP) setText(helperP, 'The place is publicly shown here.');
-        } else if (apl.center) {
-          closingText = 'After-party area (approximate)';
-          if (helperP)
-            setText(helperP, 'Approximate area only; exact address will be shared later.');
-        }
-      }
-      if (whereP && closingText) setText(whereP, closingText);
-    }
-    if (ev && ev.title) document.title = `Dinnerhopping - ${ev.title}`;
-    if (!plan || (plan && plan.message)) {
-      const info = document.createElement('div');
-      info.className = 'mx-auto mt-4 max-w-3xl bg-blue-50 border border-blue-200 text-blue-700 rounded-lg p-3 text-xs';
-      info.textContent = 'Matching not started yet – your detailed route will appear here later.';
-      const main = document.querySelector('main');
-      if (main) main.prepend(info);
-    }
+/* global window, document */
 
-    // Registration status banner & refresh plan button
-    showRegistrationStatus(ev);
-    injectRefreshPlanButton(commonOpts);
+(async () => {
+	const qs = new URLSearchParams(window.location.search);
+	const eventId = qs.get('id');
+	const titleEl = document.getElementById('eventTitle');
+	const eventMetaEl = document.getElementById('eventMeta');
+	const spinnerEl = document.getElementById('loadingSpinner');
+	const planSection = document.getElementById('planSection');
+	const planContainer = document.getElementById('planContainer');
+	const statusMessages = document.getElementById('statusMessages');
+	const afterPartySection = document.getElementById('afterPartySection');
+	const afterPartyBody = document.getElementById('afterPartyBody');
+	const regSection = document.getElementById('registrationStatusSection');
+	const regBody = document.getElementById('registrationStatusBody');
+	const missingIdBanner = document.getElementById('missingIdBanner');
+	const actionButtons = document.getElementById('actionButtons');
+	const payNowBtn = document.getElementById('payNowBtn');
+	const chooseProviderBtn = document.getElementById('chooseProviderBtn');
+	const capacityWrap = document.getElementById('capacityBarWrap');
+	const capacityBar = document.getElementById('capacityBar');
+	const capacityLabel = document.getElementById('capacityLabel');
+	const badgesEl = document.getElementById('eventBadges');
+	const refreshPlanBtn = document.getElementById('refreshPlanBtn');
+	const openChatsBtn = document.getElementById('openChatsBtn');
+	const cancelRegBtn = document.getElementById('cancelRegistrationBtn');
+	// Solo registration form elements
+	const soloRegSection = document.getElementById('soloRegistrationSection');
+	const soloRegForm = document.getElementById('soloRegistrationForm');
+	const srDiet = document.getElementById('srDiet');
+	const srKitchen = document.getElementById('srKitchenAvailable');
+	const srMain = document.getElementById('srMainPossible');
+	const srMainWrapper = document.getElementById('srMainWrapper');
+	const srCourseChoices = document.getElementById('srCourseChoices');
+	const srStatus = document.getElementById('srStatus');
+	const srSubmit = document.getElementById('srSubmit');
+	const srMainHint = document.getElementById('srMainHint');
 
-    // --- Solo cancellation logic ---
-    try {
-      const deadlineIso = ev && (ev.registration_deadline || ev.payment_deadline || ev.date);
-      const deadline = deadlineIso ? new Date(deadlineIso) : null;
-      const now = new Date();
-      const canCancel = deadline && !isNaN(deadline) && now < deadline;
-      // Load local registration snapshot
-      const snapshotKey = `dh:lastReg:${eventId}`;
-      let regInfo = null;
-      try { const raw = localStorage.getItem(snapshotKey); regInfo = raw ? JSON.parse(raw) : null; } catch {}
-      if (regInfo && regInfo.registration_id && regInfo.status !== 'cancelled_by_user' && canCancel) {
-        const refundFlag = !!(ev && ev.refund_on_cancellation);
-        const feeCents = ev && typeof ev.fee_cents === 'number' ? ev.fee_cents : 0;
-        injectCancelUI(regInfo, snapshotKey, deadline, { refundFlag, feeCents });
-      }
-    } catch (e) { console.warn('Cancel logic init failed', e); }
-  }
+	// Shared fetch abstraction (prefer new namespaced dh.* if present)
+	const apiFetch = (window.dh && window.dh.apiFetch) || window.apiFetch || fetch;
+	const initCsrf = (window.dh && window.dh.initCsrf) || window.initCsrf || (async () => {});
 
-  // Centralized plan fetcher
-  async function fetchPlan(commonOpts) {
-    const fetcher = window.dh?.apiFetch || window.apiFetch;
-    const res = await fetcher('/api/my-plan', commonOpts || {});
-    if (!res.ok) throw new Error(`plan ${res.status}`);
-    return res.json();
-  }
+	// Helper: add status message
+	function pushMessage(html, variant = 'info') {
+		const div = document.createElement('div');
+		const colors = {
+			info: 'bg-blue-50 border-blue-200 text-blue-700',
+			warn: 'bg-amber-50 border-amber-200 text-amber-800',
+			error: 'bg-red-50 border-red-200 text-red-700',
+			success: 'bg-green-50 border-green-200 text-green-700'
+		};
+		div.className = `text-sm border rounded p-3 ${colors[variant] || colors.info}`;
+		div.innerHTML = html;
+		statusMessages.appendChild(div);
+	}
 
-  function applyPlan(plan) {
-    const { starterSec, mainSec, dessertSec } = sectionNodes();
-    const me = plan && plan.user_email;
-    const byMeal = {};
-    if (plan && Array.isArray(plan.sections)) {
-      for (const sec of plan.sections) {
-        const key = normalizeMeal(sec.meal);
-        if (!key) continue;
-        byMeal[key] = {
-          meal: sec.meal,
-          time: sec.time,
-          hostEmail: sec.host_email,
-          hostLocation: sec.host_location,
-          guests: sec.guests || [],
-        };
-      }
-    }
-    if (starterSec) {
-      const sec = byMeal['starter'];
-      const isHost = !!(sec && me && sec.hostEmail && me.toLowerCase() === String(sec.hostEmail).toLowerCase());
-      populateCourseSection(starterSec, {
-        courseLabel: 'Starter',
-        isHost,
-        time: sec && sec.time,
-        hostEmail: sec && sec.hostEmail,
-        guests: sec && sec.guests,
-        mapDivId: 'map-entree',
-        hostLocation: sec && sec.hostLocation,
-      });
-    }
-    if (mainSec) {
-      const sec = byMeal['main'];
-      const isHost = !!(sec && me && sec.hostEmail && me.toLowerCase() === String(sec.hostEmail).toLowerCase());
-      populateCourseSection(mainSec, {
-        courseLabel: 'Main Course',
-        isHost,
-        time: sec && sec.time,
-        hostEmail: sec && sec.hostEmail,
-        guests: sec && sec.guests,
-        mapDivId: null,
-        hostLocation: null,
-      });
-    }
-    if (dessertSec) {
-      const sec = byMeal['dessert'];
-      const isHost = !!(sec && me && sec.hostEmail && me.toLowerCase() === String(sec.hostEmail).toLowerCase());
-      populateCourseSection(dessertSec, {
-        courseLabel: 'Dessert',
-        isHost,
-        time: sec && sec.time,
-        hostEmail: sec && sec.hostEmail,
-        guests: sec && sec.guests,
-        mapDivId: 'map-dessert',
-        hostLocation: sec && sec.hostLocation,
-      });
-    }
-  }
+	// If no event id -> show banner + redirect
+	if (!eventId) {
+		missingIdBanner.textContent = 'Missing event id (?id=EVENT_ID). Redirecting…';
+		missingIdBanner.classList.remove('hidden');
+		setTimeout(() => {
+			window.location.href = '/home.html';
+		}, 1800);
+		return; // abort further logic
+	}
 
-  function showRegistrationStatus(ev) {
-    if (!ev || !eventId) return;
-    const main = document.querySelector('main');
-    if (!main) return;
-    const existing = document.getElementById('reg-status-banner');
-    if (existing) existing.remove();
-    let snapshot = null;
-    try { const raw = localStorage.getItem(`dh:lastReg:${eventId}`); snapshot = raw ? JSON.parse(raw) : null; } catch {}
-    if (!snapshot) return; // nothing to show
-    const feeCents = typeof ev.fee_cents === 'number' ? ev.fee_cents : 0;
-    const paid = snapshot.payment_status && ['succeeded','paid'].includes(snapshot.payment_status);
-    let label = 'registered';
-    let color = 'bg-gray-100 text-gray-700 border-gray-300';
-    if (snapshot.status && /cancelled/i.test(snapshot.status)) { label = 'cancelled'; color = 'bg-red-100 text-red-700 border-red-300'; }
-    else if (paid) { label = 'paid'; color = 'bg-green-100 text-green-700 border-green-300'; }
-    else if (feeCents > 0) { label = 'pending payment'; color = 'bg-yellow-100 text-yellow-700 border-yellow-300'; }
-    const div = document.createElement('div');
-    div.id = 'reg-status-banner';
-    div.className = 'mb-4 flex items-center gap-3 rounded-lg px-4 py-2 border text-sm ' + color;
-    div.innerHTML = `<span class="font-semibold">Status:</span><span class="uppercase tracking-wide font-bold">${label}</span>` + (paid && snapshot.paid_at ? `<span class="text-xs opacity-70">(paid)</span>` : '');
-    main.prepend(div);
-  }
+	// Legacy token detection (dh_token cookie)
+	function hasLegacyTokenCookie() {
+		try { return document.cookie.split(';').some(c => c.trim().startsWith('dh_token=')); } catch { return false; }
+	}
 
-  function injectRefreshPlanButton(commonOpts) {
-    const main = document.querySelector('main');
-    if (!main) return;
-    if (document.getElementById('plan-refresh-btn')) return;
-    const btn = document.createElement('button');
-    btn.id = 'plan-refresh-btn';
-    btn.type = 'button';
-    btn.className = 'mb-4 ml-auto block px-4 py-1.5 rounded-md bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold shadow focus:outline-none focus:ring-2 focus:ring-teal-400';
-    btn.textContent = 'Refresh plan';
-    btn.addEventListener('click', async () => {
-      btn.disabled = true; const prev = btn.textContent; btn.textContent = 'Refreshing…';
-      try {
-        const p = await fetchPlan(commonOpts).catch(() => null);
-        applyPlan(p);
-      } finally { btn.disabled = false; btn.textContent = prev; }
-    });
-    main.prepend(btn);
-  }
+	const legacyBearer = hasLegacyTokenCookie();
 
-  function injectCancelUI(regInfo, snapshotKey, deadline, refundMeta) {
-    const main = document.querySelector('main');
-    if (!main) return;
-    // Avoid duplicate
-    if (document.getElementById('solo-cancel-box')) return;
-    const box = document.createElement('div');
-    box.id = 'solo-cancel-box';
-    box.className = 'mb-6 p-4 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm flex flex-col gap-2';
-    const deadlineStr = deadline ? deadline.toLocaleString() : 'deadline';
-    let refundLine = '';
-    if (refundMeta && refundMeta.feeCents > 0) {
-      if (refundMeta.refundFlag) {
-        refundLine = '<div class="text-red-600/90"><span class="font-semibold">Refund:</span> A refund will be initiated automatically after cancellation (processing may take a few days).</div>';
-      } else {
-        refundLine = '<div class="text-red-600/90"><span class="font-semibold">Refund:</span> Please be aware that there will be <span class="font-semibold uppercase">no refund</span> for this event.</div>';
-      }
-    }
-    box.innerHTML = `<div><strong>Need to cancel?</strong> You can cancel your solo registration until <span class="font-semibold">${deadlineStr}</span>. This cannot be undone.</div>${refundLine}`;
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'self-start px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold shadow focus:outline-none focus:ring-4 focus:ring-red-300';
-    btn.textContent = 'Cancel my participation';
-    // Inline error message (hidden by default)
-    const errorMsg = document.createElement('div');
-    errorMsg.className = 'hidden px-3 py-2 rounded-lg bg-red-600/10 border border-red-300 text-red-700 text-xs';
-    errorMsg.setAttribute('role', 'alert');
-    const showError = (msg) => {
-      errorMsg.textContent = msg || 'Cancellation failed.';
-      errorMsg.classList.remove('hidden');
-      // brief shake animation for visibility
-      errorMsg.animate([
-        { transform: 'translateX(0)' },
-        { transform: 'translateX(-4px)' },
-        { transform: 'translateX(4px)' },
-        { transform: 'translateX(0)' }
-      ], { duration: 260 });
-    };
-    // Two-step inline confirmation UI (no native confirm dialog)
-    const confirmWrap = document.createElement('div');
-    confirmWrap.className = 'hidden mt-2 p-3 rounded-lg border border-red-300 bg-white/70 text-xs flex flex-col gap-2';
-    confirmWrap.innerHTML = '<div class="text-red-700 font-semibold">Confirm cancellation?</div><div class="text-red-600">This cannot be undone and your spot might go to someone else.</div>';
-    const actions = document.createElement('div');
-    actions.className = 'flex gap-2';
-    const confirmYes = document.createElement('button');
-    confirmYes.type = 'button';
-    confirmYes.className = 'px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow focus:outline-none focus:ring-2 focus:ring-red-300';
-    confirmYes.textContent = 'Yes, cancel';
-    const confirmNo = document.createElement('button');
-    confirmNo.type = 'button';
-    confirmNo.className = 'px-3 py-1.5 rounded-md bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-gray-300';
-    confirmNo.textContent = 'Keep my spot';
-    actions.appendChild(confirmYes); actions.appendChild(confirmNo); confirmWrap.appendChild(actions);
+	// Initialize CSRF if not using legacy bearer
+	try {
+		if (!legacyBearer) {
+			await initCsrf();
+		}
+	} catch (e) {
+		pushMessage('Failed to initialize CSRF protection. Some actions may fail.', 'warn');
+	}
 
-    const startCancellation = async () => {
-      confirmYes.disabled = true; confirmNo.disabled = true; btn.disabled = true; confirmYes.textContent = 'Cancelling…';
-      try {
-        const path = `/registrations/${encodeURIComponent(regInfo.registration_id)}`;
-        const fetcher = window.dh?.apiFetch || window.apiFetch;
-        const res = await fetcher(path, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json().catch(() => ({}));
-        try { regInfo.status = data.status || 'cancelled_by_user'; localStorage.setItem(snapshotKey, JSON.stringify(regInfo)); } catch {}
-        box.innerHTML = '<div class="font-semibold">Registration cancelled.</div><div>If eligible, a refund will be processed automatically.</div>';
-      } catch (err) {
-        showError(err && err.message ? err.message : 'Cancellation failed. Please try again.');
-        confirmYes.disabled = false; confirmNo.disabled = false; btn.disabled = false; confirmYes.textContent = 'Yes, cancel';
-      }
-    };
+	// Concurrency: load event + plan in parallel. We'll also attempt registration lookup.
+	let eventData = null;
+	let planData = null;
+	let registrationData = null; // placeholder (depends on available endpoint)
+	let profileData = null; // to prefill registration form
 
-    btn.addEventListener('click', () => {
-      // show inline confirmation
-      btn.classList.add('hidden');
-      confirmWrap.classList.remove('hidden');
-      // accessibility focus
-      confirmYes.focus();
-    });
-    confirmNo.addEventListener('click', () => {
-      confirmWrap.classList.add('hidden');
-      btn.classList.remove('hidden');
-      btn.focus();
-    });
-    confirmYes.addEventListener('click', startCancellation);
-    box.appendChild(btn);
-    box.appendChild(confirmWrap);
-    box.appendChild(errorMsg);
-    main.prepend(box);
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', loadData);
-  } else loadData();
+	function authHeaders(base = {}) {
+		// If legacy token present, attach Bearer header using cookie value
+		if (!legacyBearer) return base; // cookie mode handled by credentials include inside apiFetch abstraction
+		const token = (document.cookie.split(';').find(c => c.trim().startsWith('dh_token=')) || '').split('=')[1] || '';
+		return { ...base, Authorization: `Bearer ${decodeURIComponent(token)}` };
+	}
+
+	async function fetchJson(path, opts = {}) {
+		const finalOpts = { ...opts };
+		finalOpts.headers = authHeaders(finalOpts.headers || {});
+		// If using the shared apiFetch wrapper, it already sets credentials when cookie-based
+		const resp = await apiFetch(path, finalOpts);
+		if (!resp.ok) {
+			const text = await resp.text().catch(() => resp.statusText);
+			throw new Error(`Request failed (${resp.status}): ${text}`);
+		}
+		const ct = resp.headers.get('content-type') || '';
+		if (ct.includes('application/json')) return resp.json();
+		return resp.text();
+	}
+
+	async function loadEvent() {
+		try {
+			const data = await fetchJson(`/events/${encodeURIComponent(eventId)}`);
+			eventData = data;
+			// Title & meta
+			if (data.title) {
+				document.title = `${data.title} – Dinner Hopping`;
+				titleEl.textContent = data.title;
+			}
+			const metaBits = [];
+			if (data.date) metaBits.push(`<span>${data.date}</span>`);
+			if (data.city) metaBits.push(`<span>${data.city}</span>`);
+			if (data.status) metaBits.push(`<span class='capitalize'>${data.status}</span>`);
+			eventMetaEl.innerHTML = metaBits.join(' · ');
+
+			// Badges: fee / refund eligibility / chat
+			badgesEl.innerHTML = '';
+			if ((data.fee_cents||0) > 0){
+				const feeB = document.createElement('span');
+				feeB.className = 'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200';
+				feeB.textContent = `Fee: €${(data.fee_cents/100).toFixed(2)}`;
+				badgesEl.appendChild(feeB);
+			}
+			if (data.refund_on_cancellation && (data.fee_cents||0)>0){
+				const refB = document.createElement('span');
+				refB.className = 'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200';
+				refB.textContent = 'Refundable on cancellation';
+				badgesEl.appendChild(refB);
+			}
+			if (data.chat_enabled){
+				const chatB = document.createElement('span');
+				chatB.className = 'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200';
+				chatB.textContent = 'Chat Enabled';
+				badgesEl.appendChild(chatB);
+			}
+
+			// Capacity bar
+			if (Number.isInteger(data.capacity) && data.capacity>0){
+				const count = Number(data.attendee_count)||0;
+				const pct = Math.min(100, Math.max(0, (count / data.capacity)*100));
+				capacityWrap.classList.remove('hidden');
+				capacityBar.setAttribute('aria-valuemax', String(data.capacity));
+				capacityBar.setAttribute('aria-valuenow', String(count));
+				const fill = capacityBar.firstElementChild; if (fill) fill.style.width = pct+'%';
+				capacityLabel.textContent = `${count}/${data.capacity} registered (${Math.round(pct)}%)`;
+			}
+
+			// After party
+			if (data.after_party_location && (data.after_party_location.address_public || data.after_party_location.address_public === null)) {
+				const ap = data.after_party_location;
+				afterPartySection.classList.remove('hidden');
+				afterPartyBody.innerHTML = ap.address_public ? `${ap.address_public}` : 'Location not yet published';
+			}
+		} catch (e) {
+			pushMessage(`Could not load event (id=${eventId}): ${e.message}`, 'error');
+		}
+	}
+
+	async function loadProfileForPrefill(){
+		// Only needed for showing solo registration form
+		try {
+			const resp = await fetchJson('/profile');
+			profileData = resp || {};
+		} catch(e){
+			console.warn('Profile prefill failed', e);
+		}
+	}
+
+	async function loadPlan() {
+		try {
+			const data = await fetchJson('/events/get_my_plan'); // backend helper at bottom of events.py (no id param)
+			// Some deployments may namescape differently; if message indicates no plan we handle gracefully
+			if (data && data.message && /No plan/i.test(data.message)) {
+				pushMessage('No itinerary yet – matching has not been run or released.', 'info');
+				planData = null;
+				return;
+			}
+			// Ensure event match
+			if (data && data.event_id && data.event_id !== eventId) {
+				// User has a plan but for another event
+				pushMessage('You have a plan for a different event. This event may not be matched yet.', 'warn');
+			}
+			planData = data;
+		} catch (e) {
+			pushMessage(`Could not load your itinerary: ${e.message}`, 'warn');
+		}
+	}
+
+	// Placeholder: attempt to find registration for this user/event (by listing? or dedicated endpoint not present). We'll skip complex fetch if no endpoint.
+	// Attempt to discover whether the current user is registered for this event.
+	// Backend does not yet expose a direct "my registration for event" endpoint, so we:
+	// 1. Call /events?participant=me and see if this event id is in the list -> user is registered somehow (solo or team)
+	// 2. Optimistically POST /registrations/solo (idempotent upsert for solo) to retrieve a registration_id when solo.
+	//    - If user registered as team, backend returns 400 detail 'Already registered with a team for this event'. We then mark mode=team.
+	//    - If previously cancelled solo, this reactivates the registration (acceptable UX for now).
+	// 3. If fee exists but we cannot obtain a registration_id (team case), we display guidance.
+	async function loadRegistration() {
+		registrationData = null;
+		try {
+	            // Step 1: attempt to detect membership via /events?participant=me across a set of status filters
+	            const statusCandidates = [null,'open','coming_soon','matched','released','published','draft'];
+	            let foundEvent = null;
+	            for (const st of statusCandidates) {
+	                if (foundEvent) break;
+	                let url = '/events?participant=me';
+	                if (st) url += `&status=${encodeURIComponent(st)}`;
+	                try {
+	                    const resp = await fetchJson(url);
+	                    if (Array.isArray(resp)) {
+	                        foundEvent = resp.find(e => (e.id || e._id) === eventId) || foundEvent;
+	                    }
+	                } catch (err) {
+	                    // Ignore individual filter failures
+	                }
+	            }
+	            if (!foundEvent) return; // no evidence of registration
+			// We have evidence of registration; initialize minimal object
+	            registrationData = { status: 'registered', mode: 'unknown' };
+			// Step 2: attempt to obtain a concrete registration_id via solo upsert
+			try {
+				const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' };
+				const res = await apiFetch('/registrations/solo', { method: 'POST', headers, body: JSON.stringify({ event_id: eventId }) });
+				if (res.ok) {
+					const body = await res.json().catch(()=>({}));
+					const regId = body.registration_id || body.registrationId || (Array.isArray(body.registration_ids)&&body.registration_ids[0]) || (Array.isArray(body.registrationIds)&&body.registrationIds[0]);
+					if (regId) {
+						registrationData.registration_id = String(regId);
+						registrationData.amount_cents = body.amount_cents;
+						registrationData.status = body.status || registrationData.status;
+						registrationData.mode = 'solo';
+					}
+				} else {
+					// Inspect error payload to detect team registration
+					let detail = '';
+					try { const errJson = await res.json(); detail = errJson.detail || errJson.message || ''; } catch {}
+					if (/team for this event/i.test(detail)) {
+						registrationData.mode = 'team';
+						registrationData.team = true;
+						// We cannot fetch team registration id without backend support.
+					} else if (res.status === 401 || res.status === 419) {
+						// Auth issue -> allow higher level handler to refresh
+						console.warn('Auth error during registration discovery');
+					} else {
+						console.warn('Solo upsert failed', res.status, detail);
+					}
+				}
+			} catch (e) {
+				console.warn('Solo upsert attempt errored', e);
+			}
+		} catch (e) {
+			console.warn('loadRegistration failed', e);
+		}
+	}
+
+	function maybeShowSoloForm(){
+		// Show form only if user NOT registered yet
+		if (registrationData && (registrationData.mode === 'solo' || registrationData.mode === 'team')){
+			return; // already registered
+		}
+		// Event must be open for registration
+		if (!eventData) return;
+		const status = (eventData.status||'').toLowerCase();
+		if (!['open','coming_soon'].includes(status)) return; // conservative: only open (coming_soon maybe later)
+		// Prefill values
+		if (profileData){
+			if (srDiet && profileData.default_dietary_preference){ srDiet.value = profileData.default_dietary_preference; }
+			if (srKitchen) srKitchen.checked = !!profileData.kitchen_available;
+			if (srMain) srMain.checked = !!profileData.main_course_possible;
+		}
+		updateMainCourseAvailability();
+		soloRegSection.classList.remove('hidden');
+	}
+
+	function updateMainCourseAvailability(){
+		if (!srMainWrapper) return;
+		const canMain = srMain && srMain.checked;
+		// Disable main course radio if main not possible
+		const mainRadio = srCourseChoices?.querySelector('input[type=radio][value="main"]');
+		if (mainRadio){
+			if (!canMain){
+				mainRadio.disabled = true;
+				if (mainRadio.checked){
+					// fallback to no preference
+					const none = srCourseChoices.querySelector('input[type=radio][value=""]');
+					if (none){ none.checked = true; }
+				}
+				srMainWrapper.classList.add('opacity-50');
+				srMainHint.classList.remove('text-teal-700');
+				srMainHint.classList.add('text-gray-500');
+			}else{
+				mainRadio.disabled = false;
+				srMainWrapper.classList.remove('opacity-50');
+				srMainHint.classList.remove('text-gray-500');
+				srMainHint.classList.add('text-teal-700');
+			}
+		}
+	}
+
+	if (srMain){ srMain.addEventListener('change', updateMainCourseAvailability); }
+	if (srKitchen){ srKitchen.addEventListener('change', () => {}); } // reserved future logic
+
+	if (soloRegForm){
+		soloRegForm.addEventListener('submit', async (e) => {
+			e.preventDefault();
+			if (!eventId) return;
+			srStatus.textContent = '';
+			srSubmit.disabled = true;
+			try {
+				const diet = srDiet?.value || 'omnivore';
+				const kitchen_available = !!(srKitchen?.checked);
+				const main_course_possible = !!(srMain?.checked);
+				const courseRadio = srCourseChoices?.querySelector('input[type=radio]:checked');
+				const course_preference = courseRadio ? (courseRadio.value||'') : '';
+				if (course_preference === 'main' && !main_course_possible){
+					throw new Error('Main Course preference requires that your kitchen is marked Main Course Possible.');
+				}
+				const payload = { event_id: eventId, dietary_preference: diet, kitchen_available, main_course_possible };
+				if (course_preference){ payload.course_preference = course_preference; }
+				const headers = { 'Content-Type':'application/json','Accept':'application/json' };
+				const resp = await apiFetch('/registrations/solo',{ method:'POST', headers, body: JSON.stringify(payload) });
+				const body = await resp.json().catch(()=>({}));
+				if (!resp.ok){
+					const msg = body.detail || body.message || `Registration failed (HTTP ${resp.status})`;
+					throw new Error(msg);
+				}
+				registrationData = registrationData || {};
+				registrationData.mode = 'solo';
+				registrationData.registration_id = body.registration_id || body.id || body.registrationId;
+				registrationData.amount_cents = body.amount_cents;
+				// hide form, render status
+				soloRegSection.classList.add('hidden');
+				renderRegistration();
+				pushMessage('Registered successfully.','success');
+				// Redirect to payment if fee due
+				if ((eventData?.fee_cents||0) > 0){
+					// Defer a tick to allow UI update
+					setTimeout(()=>{ if (payNowBtn && !payNowBtn.classList.contains('hidden')){ payNowBtn.click(); } }, 600);
+				}
+			} catch(err){
+				srStatus.textContent = (err && err.message) ? err.message : 'Registration failed';
+				srStatus.classList.remove('text-gray-500');
+				srStatus.classList.add('text-red-600');
+				console.error(err);
+			} finally {
+				srSubmit.disabled = false;
+			}
+		});
+	}
+
+	function renderRegistration() {
+		regSection.classList.remove('hidden');
+		if (!registrationData) {
+			regBody.innerHTML = `<div class="text-sm">You are either not registered yet or your registration hasn't been detected. If you believe this is an error, try:<ul class="list-disc ml-5 mt-1"><li>Refreshing this page</li><li>Re-opening the event list and ensuring you're registered</li><li>Submitting the Solo registration form again (safe if you originally registered solo)</li></ul></div>`;
+			cancelRegBtn.disabled = true;
+			if (payNowBtn) payNowBtn.classList.add('hidden');
+			return;
+		}
+		// Provide summary depending on mode
+		if (registrationData.mode === 'team' && !registrationData.registration_id) {
+			regBody.innerHTML = `<div class="text-sm">You are registered as part of a <strong>team</strong>. Detailed team registration data (and payment initiation) isn't yet available on this page without backend support.<br><br><em>Workaround:</em> The team creator can open the registration modal again or an organizer can assist with payment if required.</div>`;
+		} else if (registrationData.mode === 'solo' && registrationData.registration_id) {
+			const amount = (eventData?.fee_cents || 0) / 100;
+			let payLine = '';
+			if ((eventData?.fee_cents||0) > 0) {
+				payLine = `<div class="mt-2 text-xs ${payNowBtn && !payNowBtn.classList.contains('hidden') ? 'text-amber-700':'text-gray-600'}">Event fee: €${amount.toFixed(2)}</div>`;
+			}
+			regBody.innerHTML = `<div class="text-sm">Registered (solo).${payLine}</div>`;
+		} else {
+			// Fallback generic
+			regBody.innerHTML = `<div class="text-sm">Registration detected.</div>`;
+		}
+		// Future: display status & payment
+		if (registrationData.registration_id){
+			const unpaid = (eventData?.fee_cents||0) > 0 && !(registrationData.payment_status||'').match(/paid|succeeded/i);
+			if (unpaid && payNowBtn){
+				payNowBtn.classList.remove('hidden');
+				payNowBtn.disabled = false;
+				payNowBtn.onclick = () => startPaymentFlow({ quick:true });
+			}
+			if (unpaid && chooseProviderBtn){
+				chooseProviderBtn.classList.remove('hidden');
+				chooseProviderBtn.disabled = false;
+				chooseProviderBtn.onclick = () => startPaymentFlow({ quick:false });
+			} else if (chooseProviderBtn){ chooseProviderBtn.classList.add('hidden'); }
+		}
+	}
+
+	async function fetchProviders(){
+		let providers=['wero']; let def='wero';
+		try{ if (window.dh?.apiGet){ const { res, data } = await window.dh.apiGet('/payments/providers'); if (res.ok){ if (Array.isArray(data.providers)) providers = data.providers.slice(); else if (Array.isArray(data)) providers=data.slice(); if (typeof data.default==='string') def=data.default; } } }catch{}
+		if (!providers.length) providers=['wero'];
+		if (!providers.includes(def)) def = providers[0];
+		return { providers, def };
+	}
+
+	function buildProviderChooser(providers, def){
+		const overlay = document.createElement('div');
+		overlay.className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+		const panel = document.createElement('div');
+		panel.className='bg-white rounded-lg shadow-xl w-full max-w-sm p-5 space-y-4';
+		panel.innerHTML = '<h3 class="text-sm font-semibold text-gray-700">Select Payment Provider</h3>';
+		const list = document.createElement('div'); list.className='space-y-2';
+		providers.forEach(p=>{
+			const btn=document.createElement('button');
+			btn.type='button';
+			btn.className='w-full px-3 py-2 rounded border text-sm flex items-center justify-between hover:bg-gray-50';
+			btn.dataset.provider=p;
+			btn.innerHTML=`<span class="capitalize">${p}</span>${p===def?'<span class="text-xs text-teal-600">(default)</span>':''}`;
+			list.appendChild(btn);
+		});
+		const cancel=document.createElement('button');
+		cancel.type='button';
+		cancel.className='w-full mt-2 px-3 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm';
+		cancel.textContent='Cancel';
+		panel.appendChild(list); panel.appendChild(cancel); overlay.appendChild(panel);
+		document.body.appendChild(overlay);
+		return { overlay, panel, list, cancel };
+	}
+
+	async function startPaymentFlow({ quick }){
+		if (!registrationData?.registration_id) return;
+		const amount = eventData?.fee_cents || 0;
+		if (!amount){ alert('No fee to pay.'); return; }
+		payNowBtn && (payNowBtn.disabled=true);
+		chooseProviderBtn && (chooseProviderBtn.disabled=true);
+		try {
+			const { providers, def } = await fetchProviders();
+			let provider = def;
+			if (!quick && providers.length>1){
+				const ui = buildProviderChooser(providers, def);
+				provider = await new Promise(resolve=>{
+					ui.list.addEventListener('click', e=>{ const b=e.target.closest('button[data-provider]'); if(!b)return; resolve(b.dataset.provider); ui.overlay.remove(); });
+					ui.cancel.addEventListener('click', ()=>{ resolve(null); ui.overlay.remove(); });
+				});
+				if (!provider){ return; }
+			}
+			const payPayload = { registration_id: registrationData.registration_id, provider, amount_cents: amount };
+			const { res: createRes, data: payData } = await (window.dh?.apiPost ? window.dh.apiPost('/payments/create', payPayload) : { res:{ ok:false }, data:{} });
+			if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
+			const link = payData.payment_link || (payData.instructions && (payData.instructions.approval_link || payData.instructions.link));
+			if (link) window.location.assign(link.startsWith('http')? link: window.BACKEND_BASE_URL + link);
+			else alert('Payment initiated. Follow provider instructions.');
+		} catch(e){ alert(e.message || 'Payment failed'); }
+		finally { payNowBtn && (payNowBtn.disabled=false); chooseProviderBtn && (chooseProviderBtn.disabled=false); }
+	}
+
+	function renderPlan() {
+		if (!planData || !Array.isArray(planData.sections) || planData.sections.length === 0) {
+			planSection.classList.add('hidden');
+			return;
+		}
+		planSection.classList.remove('hidden');
+		planContainer.innerHTML = '';
+		planData.sections.forEach((section, idx) => {
+			const card = document.createElement('div');
+			card.className = 'border rounded-md p-4 bg-white shadow-sm';
+			const meal = (section.meal || `Phase ${idx+1}`).replace(/_/g,' ');
+			const host = section.host_email ? `<span class="font-medium">Host:</span> ${section.host_email}` : '<span class="italic text-gray-400">Host TBD</span>';
+			const guests = (section.guests || []).filter(g => g !== section.host_email).map(g => `<li>${g}</li>`).join('');
+			const loc = section.host_location ? `<div class="mt-1 text-xs text-gray-500">Approx. location: ${section.host_location.address_public || 'Area disclosed later'}</div>` : '';
+			card.innerHTML = `
+				<div class="flex items-center justify-between gap-2 flex-wrap">
+					<h3 class="text-sm font-semibold tracking-wide uppercase text-gray-700">${meal}</h3>
+					${section.time ? `<span class="text-xs rounded bg-gray-100 px-2 py-1 text-gray-600">${section.time}</span>` : ''}
+				</div>
+				<div class="mt-2 text-sm space-y-1">
+					<div>${host}</div>
+					${loc}
+					<div class="mt-2">
+						<span class="font-medium">Guests:</span>
+						${(guests ? `<ul class="list-disc ml-5 text-xs mt-1 space-y-0.5">${guests}</ul>` : '<span class="text-xs text-gray-400">No guests listed</span>')}
+					</div>
+				</div>`;
+			planContainer.appendChild(card);
+		});
+	}
+
+	function finalizeUI() {
+		spinnerEl.classList.add('hidden');
+		renderRegistration();
+		renderPlan();
+		actionButtons.hidden = false;
+	}
+
+	refreshPlanBtn.addEventListener('click', async () => {
+		refreshPlanBtn.disabled = true;
+		try {
+			await loadPlan();
+			renderPlan();
+			pushMessage('Itinerary refreshed.', 'success');
+		} catch (e) {
+			pushMessage('Failed to refresh plan: ' + e.message, 'error');
+		} finally {
+			refreshPlanBtn.disabled = false;
+		}
+	});
+
+	openChatsBtn.addEventListener('click', () => {
+		// Navigate to chats page with event context (if chat implementation expects it)
+		const target = `/chat.html?event_id=${encodeURIComponent(eventId)}`;
+		window.location.href = target;
+	});
+
+	cancelRegBtn.addEventListener('click', () => {
+		pushMessage('Cancellation feature not yet wired to backend endpoint.', 'warn');
+	});
+
+	await Promise.all([loadEvent(), loadProfileForPrefill(), loadPlan(), loadRegistration()]);
+	maybeShowSoloForm();
+	finalizeUI();
 })();
+

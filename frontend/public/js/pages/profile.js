@@ -21,7 +21,7 @@
         firstName: document.getElementById('profile-firstname'),
         lastName: document.getElementById('profile-lastname'),
         email: document.getElementById('profile-email'),
-  phone: document.getElementById('profile-phone'),
+        phone: document.getElementById('profile-phone'),
         address: document.getElementById('profile-address'),
         fullNameView: document.getElementById('profile-fullname'),
         // Name labels
@@ -136,6 +136,15 @@
 
             // Keep reference to checkbox
             el.allergyCheckboxes.push(checkbox);
+
+            // Attach change listeners now (they are created after generic watcher setup)
+            ['change', 'input'].forEach((ev) =>
+              checkbox.addEventListener(ev, () => {
+                if (!isEditing) return;
+                hasUnsaved = computeUnsaved();
+                setHidden(el.unsavedBanner, !hasUnsaved);
+              })
+            );
           });
 
           // Store valid allergies for validation
@@ -193,6 +202,13 @@
           el.allergiesGrid.appendChild(label);
 
           el.allergyCheckboxes.push(checkbox);
+          ['change', 'input'].forEach((ev) =>
+            checkbox.addEventListener(ev, () => {
+              if (!isEditing) return;
+              hasUnsaved = computeUnsaved();
+              setHidden(el.unsavedBanner, !hasUnsaved);
+            })
+          );
         });
       }
 
@@ -267,9 +283,11 @@
         const right = [a.postal_code, a.city].filter(Boolean).join(' ');
         return [left, right].filter(Boolean).join(', ');
       }
-function normalizePhoneInput(value) {
+      function normalizePhoneInput(value) {
         if (!value) return '';
-        let normalized = String(value).trim().replace(/[^0-9+]/g, '');
+        let normalized = String(value)
+          .trim()
+          .replace(/[^0-9+]/g, '');
         if (!normalized) return '';
         if (normalized.startsWith('+')) {
           normalized = '+' + normalized.slice(1).replace(/\+/g, '');
@@ -573,7 +591,20 @@ function normalizePhoneInput(value) {
           if (el.incompleteDetails)
             el.incompleteDetails.textContent = `Missing: ${missing.join(', ')}`;
         } else {
-          setHidden(el.incompleteBanner, true);
+          // If basics are complete, optionally show banner for missing optional details
+          const optMissing = getMissingOptional(data);
+          if (
+            !missing.length &&
+            optMissing.length &&
+            el.incompleteBanner &&
+            !data.optional_profile_completed
+          ) {
+            setHidden(el.incompleteBanner, false);
+            if (el.incompleteDetails)
+              el.incompleteDetails.textContent = `Optional details missing: ${optMissing.join(', ')}`;
+          } else {
+            setHidden(el.incompleteBanner, true);
+          }
         }
 
         const showOnboarding = data.profile_prompt_pending && !data.optional_profile_completed;
@@ -595,7 +626,7 @@ function normalizePhoneInput(value) {
         if (el.firstName) el.firstName.value = data.first_name || '';
         if (el.lastName) el.lastName.value = data.last_name || '';
         if (el.email) el.email.value = data.email || '';
-  if (el.phone) el.phone.value = data.phone_number || '';
+        if (el.phone) el.phone.value = data.phone_number || '';
         if (el.fullNameView) el.fullNameView.value = fullName;
 
         // Address (view + prefill edit fields when structured)
@@ -674,11 +705,25 @@ function normalizePhoneInput(value) {
           samePhone = false;
         }
         const sameAddr = current.address === formatAddressStruct(initial.address || '');
-        const samePrefs =
-          canonicalizePrefs(current.preferences) === canonicalizePrefs(initial.preferences);
-        const sameOpt =
-          canonicalizePrefs(current.optional) === canonicalizePrefs(initial.optional || {});
-        return !(sameFirst && sameLast && sameEmail && samePhone && sameAddr && samePrefs && sameOpt);
+        // Compare allergies (order-insensitive)
+        const sameAllergies =
+          canonicalizeAllergies(current.allergies) === canonicalizeAllergies(initial.allergies);
+        // Stable compare of optional object
+        function stable(obj) {
+          if (!obj || typeof obj !== 'object') return '';
+          const keys = Object.keys(obj).sort();
+          return keys.map((k) => k + ':' + String(obj[k])).join('|');
+        }
+        const sameOptional = stable(current.optional) === stable(initial.optional || {});
+        return !(
+          sameFirst &&
+          sameLast &&
+          sameEmail &&
+          samePhone &&
+          sameAddr &&
+          sameAllergies &&
+          sameOptional
+        );
       }
 
       /** Toggle edit mode and prepare inputs accordingly */
@@ -689,7 +734,7 @@ function normalizePhoneInput(value) {
         // First/last name are editable in edit mode
         disableInput(el.firstName, !isEditing);
         disableInput(el.lastName, !isEditing);
-  disableInput(el.phone, !isEditing);
+        disableInput(el.phone, !isEditing);
         if (el.fullNameView) setHidden(el.fullNameView, isEditing);
         if (el.fullNameLabel) setHidden(el.fullNameLabel, isEditing);
         if (el.firstName) setHidden(el.firstName, !isEditing);
@@ -722,6 +767,13 @@ function normalizePhoneInput(value) {
         setHidden(el.editActions, !isEditing);
         setHidden(el.unsavedBanner, true);
         hasUnsaved = false;
+
+        // Enable/disable allergy checkboxes & "other" input
+        (el.allergyCheckboxes || []).forEach((cb) => {
+          cb.disabled = !isEditing;
+        });
+        if (el.allergyOtherCheckbox) el.allergyOtherCheckbox.disabled = !isEditing;
+        if (el.allergyOtherInput) el.allergyOtherInput.disabled = !isEditing;
       }
 
       /** Get the legacy dh_token if present (via helper or direct cookie) */
@@ -795,7 +847,9 @@ function normalizePhoneInput(value) {
           try {
             normalizedPhone = normalizePhoneInput(phoneRaw);
           } catch (err) {
-            throw err instanceof Error ? err : new Error('Please enter a valid phone number with at least 6 digits.');
+            throw err instanceof Error
+              ? err
+              : new Error('Please enter a valid phone number with at least 6 digits.');
           }
           if (normalizedPhone !== initialPhone) payload.phone_number = normalizedPhone;
         } else if (initialPhone) {
@@ -822,7 +876,8 @@ function normalizePhoneInput(value) {
         }
 
         const allergies = getAllergies();
-        if (allergies.length > 0) payload.allergies = allergies;
+        // Always send allergies, even if empty, so backend can clear previous values
+        payload.allergies = allergies;
 
         const optional = collectOptionalPayload();
         Object.assign(payload, optional);
