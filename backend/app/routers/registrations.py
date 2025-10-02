@@ -911,3 +911,89 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
         body = f"Hi,\n\nYou were added as a replacement partner for event '{ev.get('title')}'.\nIf you cannot participate, you can cancel from your dashboard.\n\nThanks,\nDinnerHopping Team"
         _ = await send_email(to=partner_user.get('email'), subject=subject, body=body, category='team_replacement')
     return {'status': 'replaced', 'team_status': 'pending'}
+
+@router.get('/registration-status')
+async def registration_status(registration_id: str | None = None, current_user=Depends(get_current_user)):
+    """Return the current user's registration(s) and linked payment status.
+
+    If `registration_id` is provided the endpoint returns the single registration
+    (authorization enforced). Otherwise returns all registrations for the user (users are not supposed to have multiple registrations).
+    """
+    regs = []
+    if registration_id:
+        # Lookup and enforce owner/admin rights
+        reg = await get_registration_by_any_id(registration_id)
+        if not reg:
+            raise HTTPException(status_code=404, detail='Registration not found')
+        # require owner or admin
+        reg = await require_registration_owner_or_admin(current_user, reg.get('_id'))
+        regs = [reg]
+    else:
+        # fetch all registrations where the user is owner (by id) or snapshot email
+        query = {'$or': [{'user_id': current_user.get('_id')}, {'user_email_snapshot': (current_user.get('email') or '').lower()}]}
+        async for r in db_mod.db.registrations.find(query):
+            regs.append(r)
+
+    out = []
+    for r in regs:
+        event_title = None
+        ev = None
+        if r.get('event_id'):
+            try:
+                ev = await get_event(r.get('event_id'))
+            except Exception:
+                ev = None
+        if ev:
+            event_title = ev.get('title')
+
+        payment_summary = None
+        pay_id = r.get('payment_id')
+        if pay_id:
+            # try to resolve payment by ObjectId or raw id
+            pay = None
+            try:
+                pay_oid = pay_id if isinstance(pay_id, ObjectId) else ObjectId(pay_id)
+            except (InvalidId, TypeError):
+                pay = await db_mod.db.payments.find_one({'_id': pay_id})
+            else:
+                pay = await db_mod.db.payments.find_one({'_id': pay_oid})
+
+            if pay:
+                amount_cents = None
+                if pay.get('amount') is not None:
+                    try:
+                        amount_cents = int(round((pay.get('amount') or 0) * 100))
+                    except Exception:
+                        amount_cents = None
+                payment_summary = {
+                    'payment_id': str(pay.get('_id')),
+                    'status': pay.get('status'),
+                    'provider': pay.get('provider'),
+                    'amount_cents': amount_cents,
+                    'payment_link': pay.get('payment_link'),
+                }
+
+        # Compute canonical amount from event if available
+        amount_due_cents = None
+        try:
+            if ev:
+                fee = int(ev.get('fee_cents') or 0)
+                ts = int(r.get('team_size') or 1)
+                amount_due_cents = fee * ts
+        except Exception:
+            amount_due_cents = None
+
+        out.append({
+            'registration_id': str(r.get('_id')),
+            'event_id': str(r.get('event_id')) if r.get('event_id') else None,
+            'event_title': event_title,
+            'status': r.get('status'),
+            'team_id': str(r.get('team_id')) if r.get('team_id') else None,
+            'team_size': int(r.get('team_size') or 1),
+            'amount_due_cents': amount_due_cents,
+            'payment': payment_summary,
+            'created_at': r.get('created_at'),
+            'paid_at': r.get('paid_at'),
+        })
+
+    return {'registrations': out}
