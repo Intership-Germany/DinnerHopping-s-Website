@@ -1,11 +1,13 @@
 """
 FastAPI application for the DinnerHopping backend.
 """
-import os
 import json
+import os
+
 # Load environment variables from local .env before other imports that read os.getenv
 try:
     from pathlib import Path
+
     from dotenv import load_dotenv  # type: ignore
     _ENV_PATH = Path(__file__).resolve().parent / '.env'
     if _ENV_PATH.exists():
@@ -13,23 +15,30 @@ try:
 except Exception:
     # best-effort; continue if python-dotenv not installed at runtime
     pass
-from fastapi import FastAPI, APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+import contextvars
+import logging
+import time
+import uuid
+from contextlib import asynccontextmanager
+from typing import Optional
+
+from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
 from .auth import get_current_user
+from .db import close as close_mongo
+from .db import connect as connect_to_mongo
 from .logging_config import configure_logging
 from .middleware.rate_limit import RateLimit
-from .middleware.security import SecurityHeadersMiddleware, CSRFMiddleware
-from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
-from .db import close as close_mongo, connect as connect_to_mongo
-from .routers import admin, events, invitations, payments, users, matching, chats, registrations
+from .middleware.security import CSRFMiddleware, SecurityHeadersMiddleware
+from .routers import (admin, chats, events, invitations, matching, payments,
+                      registrations, users)
 from .settings import get_settings
-import logging, time, uuid
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.middleware.base import BaseHTTPMiddleware
-from typing import Optional
-import contextvars
 
 # Context variables for request-scoped logging
 _ctx_request_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("request_id", default=None)
@@ -73,9 +82,6 @@ except (ImportError, AttributeError):
     # best-effort only; don't fail startup for environments without bcrypt
     pass
 
-from contextlib import asynccontextmanager
-
-
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
         # startup
@@ -95,7 +101,10 @@ app = FastAPI(title=settings.app_name,
                             redoc_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/redocu',
                             openapi_url=None if os.getenv('DISABLE_DOCS', '0') == '1' else '/openapi.json',
                             lifespan=_lifespan,
+                            redirect_slashes=False
                         )
+
+app.add_middleware(TrustedHostMiddleware)
 
 ######## Structured Logging & Request ID Middleware ########
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -157,6 +166,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 # (cookies) and automatically injects the X-CSRF-Token header read from the
 # CSRF cookie. This allows testing CSRF-protected endpoints from /docs.
 from fastapi.openapi.docs import get_swagger_ui_html
+
 
 def custom_swagger_ui_html(*, openapi_url: str, title: str):
     swagger_js = """
