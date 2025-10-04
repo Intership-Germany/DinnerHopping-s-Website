@@ -37,11 +37,16 @@ import httpx
 # ---------- Config ----------
 DEFAULT_PASSWORD = os.getenv("PASSWORD", "Azertyuiop12!")
 BASE_URL = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
-EVENT_ID = os.getenv("EVENT_ID", "68d401896e923fec74e0b57b")
+# Default to the requested target event; can be overridden via env EVENT_ID
+EVENT_ID = os.getenv("EVENT_ID", "68dd24d9a200300110a5b830")
 DATASET_PATH = Path(__file__).resolve().parents[1] / "app" / "data" / "dataset_for_event.csv"
 LOGS_DIR = Path(os.getenv("LOG_DIR", Path(__file__).resolve().parents[1] / "logs"))
 ROOT_LOG_FILE = os.getenv("LOGS_ROOT_FILE")
 RATE_LIMIT_SECONDS = float(os.getenv("RATE_LIMIT_SECONDS", "1.0"))
+# New: cap number of successful registrations (solo or team). Default ~50.
+MAX_REGISTRATIONS = int(os.getenv("MAX_REGISTRATIONS", os.getenv("COUNT", "50")))
+# New: force solo registrations (ignore partner/team) if set
+REGISTER_SOLO_ONLY = os.getenv("REGISTER_SOLO_ONLY", "false").lower() in {"1","true","yes"}
 
 _last_call_ts: float = 0.0
 
@@ -251,6 +256,7 @@ def main():
     processed = 0
     solo_ok = 0
     team_ok = 0
+    reg_ok_total = 0  # count of successful registration actions
 
     # Pre-scan to build set of all creator emails (person1) to reduce team conflicts
     creator_emails = set()
@@ -264,6 +270,9 @@ def main():
     with DATASET_PATH.open("r", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
+            # stop early if we hit desired cap
+            if MAX_REGISTRATIONS and reg_ok_total >= MAX_REGISTRATIONS:
+                break
             processed += 1
             p1_email = (row.get("person1_email") or "").strip().lower()
             p2_email = (row.get("person2_email") or "").strip().lower()
@@ -298,7 +307,7 @@ def main():
             api_put_profile_preferences(token1, prefs_extra)
 
             did_team = False
-            if p2_email:
+            if p2_email and not REGISTER_SOLO_ONLY:
                 # Avoid trying team if partner is also a creator elsewhere (likely to cause duplicate registration conflicts)
                 partner_is_creator = p2_email in creator_emails
 
@@ -334,6 +343,7 @@ def main():
                     }
                     if api_register_team(token1, team_payload):
                         team_ok += 1
+                        reg_ok_total += 1
                         did_team = True
                     else:
                         # Likely duplicate registration or constraints -> fall back to solo to ensure creator is registered
@@ -346,6 +356,7 @@ def main():
                         }
                         if api_register_solo(token1, solo_payload):
                             solo_ok += 1
+                            reg_ok_total += 1
                 # else: partner is also a creator; skip team to avoid duplicate conflicts
                 if partner_is_creator:
                     # Register creator solo to ensure participation (idempotent on server)
@@ -358,11 +369,12 @@ def main():
                     }
                     if api_register_solo(token1, solo_payload):
                         solo_ok += 1
+                        reg_ok_total += 1
                     else:
                         print(f"WARN: solo registration failed for creator {p1_email} (partner is a creator)")
 
-            if not did_team and not p2_email:
-                # Solo registration (no partner in row)
+            if not did_team and (REGISTER_SOLO_ONLY or not p2_email):
+                # Solo registration (no partner in row or forced solo mode)
                 solo_payload = {
                     "event_id": EVENT_ID,
                     "dietary_preference": food_pref,
@@ -372,10 +384,16 @@ def main():
                 }
                 if api_register_solo(token1, solo_payload):
                     solo_ok += 1
+                    reg_ok_total += 1
+
+            # allow early stop if we reached cap mid-iteration
+            if MAX_REGISTRATIONS and reg_ok_total >= MAX_REGISTRATIONS:
+                break
 
     print(f"Processed rows: {processed}")
     print(f"Solo registrations OK: {solo_ok}")
     print(f"Team registrations OK: {team_ok}")
+    print(f"Total registrations OK: {reg_ok_total} (target {MAX_REGISTRATIONS})")
 
 
 if __name__ == "__main__":

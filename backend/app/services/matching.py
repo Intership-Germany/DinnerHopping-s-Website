@@ -19,6 +19,14 @@ W_ALL = _DEF('MATCH_W_ALLERGY', '3')          # penalty for allergy/diet conflic
 W_HOST = _DEF('MATCH_W_DESIRED_HOST', '10')   # reward if team hosts their desired course
 W_TRANS = _DEF('MATCH_W_TRANS', '0.5')        # penalty weight for between-phase transition time to next host
 W_PARTY = _DEF('MATCH_W_FINAL_PARTY', '0.5')  # penalty weight for distance from dessert host to final party
+# New: encourage monotonic convergence to final party phase-by-phase (main/dessert)
+W_ORDER = _DEF('MATCH_W_PHASE_ORDER', '0.0')  # penalty weight for being farther from final party than previous phase
+
+# Host selection breadth (evaluate multiple host candidates per phase). 0 or <=0 means all eligible
+try:
+    _HOST_CAND = int(os.getenv('MATCH_HOST_CANDIDATES', '0') or '0')
+except (TypeError, ValueError):
+    _HOST_CAND = 0
 
 # Fast travel estimation helpers (fallback / fast mode)
 from ..utils import haversine_m as _haversine_m  # type: ignore
@@ -548,6 +556,7 @@ async def _phase_groups(units: List[dict], phase: str, used_pairs: Set[Tuple[str
     """Form groups of 3 units for a given phase, greedily optimizing score and distance while avoiding duplicate pairs across phases.
 
     Adds penalties for between-phase transitions (from last host to this host for all members), and for dessert phase optionally penalizes distance to final party location.
+    Also: applies a phase-order penalty so participants get closer to the final party as phases progress (when configured).
     """
     last_at_host = last_at_host or {}
     remaining = units[:]
@@ -561,68 +570,90 @@ async def _phase_groups(units: List[dict], phase: str, used_pairs: Set[Tuple[str
             return 0.0
         d = _haversine_m(float(a[0]), float(a[1]), float(b[0]), float(b[1]))
         return _approx_minutes(d, mode='bike') * 60.0
-    # Build list of preferred hosts first (eligible), fallback to any
+    # helper distance from a point to final party (seconds proxy)
+    def secs_to_party(pt: Tuple[Optional[float], Optional[float]]) -> float:
+        if after_party_point is None:
+            return 0.0
+        return approx_secs(pt, (after_party_point[0], after_party_point[1]))
+
     while len(remaining) >= 3:
         eligible_hosts = [u for u in remaining if can_host(u)]
         if not eligible_hosts:
             eligible_hosts = remaining[:]
-        host = eligible_hosts[0]
-        host_pt = (host.get('lat'), host.get('lon'))
-        # pick best two guests
-        others = [u for u in remaining if u is not host]
-        best: Optional[Tuple[float, dict, dict, float, List[str], Tuple[Optional[str], Optional[str]]]] = None  # (score, g1, g2, travel, warnings, host_addr)
-        L = len(others)
-        # prefetch host address once
-        host_email = (host.get('host_emails') or [None])[0]
-        host_addr: Tuple[Optional[str], Optional[str]] = (None, None)
-        if host_email:
-            try:
-                addr = await _user_address_string(host_email)
-                if addr:
-                    host_addr = addr
-            except Exception:
-                pass
-        for i in range(L):
-            for j in range(i+1, L):
-                g1 = others[i]; g2 = others[j]
-                base_score, warnings = _score_group_phase(host, [g1, g2], phase, weights)
-                # duplicate pair penalties
-                dup_penalty = 0.0
-                def _pair(a: str, b: str) -> Tuple[str,str]:
-                    return (a, b) if a <= b else (b, a)
-                pair_list = [_pair(host['unit_id'], g1['unit_id']), _pair(host['unit_id'], g2['unit_id']), _pair(g1['unit_id'], g2['unit_id'])]
-                for p in pair_list:
-                    if p in used_pairs:
-                        dup_penalty += weights.get('dup', W_DUP)
-                        warnings = warnings + ['duplicate_pair']
-                travel = await _travel_time_for_phase(host, [g1, g2])
-                # between-phase transition penalties
-                trans_seconds = 0.0
-                for u in (host, g1, g2):
-                    prev = last_at_host.get(u['unit_id'])
-                    if prev:
-                        trans_seconds += approx_secs(prev, host_pt)
-                # dessert -> final party penalty
-                party_seconds = 0.0
-                if after_party_point is not None:
+        # choose candidate host set (breadth)
+        if _HOST_CAND and _HOST_CAND > 0:
+            candidates = eligible_hosts[:min(_HOST_CAND, len(eligible_hosts))]
+        else:
+            candidates = eligible_hosts
+        best_overall: Optional[Tuple[float, dict, dict, dict, float, List[str], Tuple[Optional[str], Optional[str]]]] = None  # (score, host, g1, g2, travel, warnings, host_addr)
+        phases = ['appetizer','main','dessert']
+        L = len(remaining)
+        for host in candidates:
+            host_pt = (host.get('lat'), host.get('lon'))
+            # build list of other units (not host)
+            others = [u for u in remaining if u is not host]
+            # prefetch host address once
+            host_email = (host.get('host_emails') or [None])[0]
+            host_addr: Tuple[Optional[str], Optional[str]] = (None, None)
+            if host_email:
+                try:
+                    addr = await _user_address_string(host_email)
+                    if addr:
+                        host_addr = addr
+                except Exception:
+                    pass
+            # evaluate all guest pairs for this host
+            for i in range(len(others)):
+                for j in range(i+1, len(others)):
+                    g1 = others[i]; g2 = others[j]
+                    base_score, warnings = _score_group_phase(host, [g1, g2], phase, weights)
+                    # duplicate pair penalties
+                    dup_penalty = 0.0
+                    def _pair(a: str, b: str) -> Tuple[str,str]:
+                        return (a, b) if a <= b else (b, a)
+                    pair_list = [_pair(host['unit_id'], g1['unit_id']), _pair(host['unit_id'], g2['unit_id']), _pair(g1['unit_id'], g2['unit_id'])]
+                    for p in pair_list:
+                        if p in used_pairs:
+                            dup_penalty += weights.get('dup', W_DUP)
+                            warnings = warnings + ['duplicate_pair']
+                    travel = await _travel_time_for_phase(host, [g1, g2])
+                    # between-phase transition penalties
+                    trans_seconds = 0.0
+                    for u in (host, g1, g2):
+                        prev = last_at_host.get(u['unit_id'])
+                        if prev:
+                            trans_seconds += approx_secs(prev, host_pt)
+                    # dessert -> final party penalty (absolute distance at dessert)
                     party_seconds = 0.0
-                    for _ in (host, g1, g2):
-                        party_seconds += approx_secs(host_pt, after_party_point)
-                score = base_score \
-                        - weights.get('dist', W_DIST) * float(travel) \
-                        - weights.get('trans', W_TRANS) * float(trans_seconds) \
-                        - (weights.get('final_party', W_PARTY) * float(party_seconds) if after_party_point is not None else 0.0) \
-                        - dup_penalty
-                if (best is None) or (score > best[0]):
-                    best = (score, g1, g2, travel, warnings, host_addr)
-        if best is None:
+                    if after_party_point is not None and phase == 'dessert':
+                        for _ in (host, g1, g2):
+                            party_seconds += secs_to_party(host_pt)
+                    # phase-order (monotonic) penalty relative to previous host location for each participant
+                    order_seconds = 0.0
+                    if after_party_point is not None and phase in ('main','dessert') and weights.get('phase_order', W_ORDER) > 0.0:
+                        d_now = secs_to_party(host_pt)
+                        for u in (host, g1, g2):
+                            prev = last_at_host.get(u['unit_id'])
+                            if prev:
+                                d_prev = secs_to_party(prev)
+                                if d_now > d_prev:
+                                    order_seconds += (d_now - d_prev)
+                    score = base_score \
+                            - weights.get('dist', W_DIST) * float(travel) \
+                            - weights.get('trans', W_TRANS) * float(trans_seconds) \
+                            - (weights.get('final_party', W_PARTY) * float(party_seconds) if (after_party_point is not None and phase=='dessert') else 0.0) \
+                            - (weights.get('phase_order', W_ORDER) * float(order_seconds) if (after_party_point is not None and phase in ('main','dessert')) else 0.0) \
+                            - dup_penalty
+                    if (best_overall is None) or (score > best_overall[0]):
+                        best_overall = (score, host, g1, g2, travel, warnings, host_addr)
+        if best_overall is None:
             break
-        _, g1, g2, travel, warnings, host_addr = best
+        _, host, g1, g2, travel, warnings, host_addr = best_overall
         grp = {
             'phase': phase,
             'host_team_id': host['unit_id'],
             'guest_team_ids': [g1['unit_id'], g2['unit_id']],
-            'score': float(best[0]),
+            'score': float(_),
             'travel_seconds': float(travel),
             'warnings': list(sorted(set(warnings))) if warnings else [],
         }
@@ -1032,14 +1063,41 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
     if not m:
         return {'team_paths': {}, 'bounds': None, 'after_party': None}
     groups = m.get('groups') or []
-    # Build mapping team_id -> lat/lon from teams
+    # Apply ids-based filtering early to avoid unnecessary work
+    id_filter: Optional[Set[str]] = set(ids) if ids else None
+    if id_filter:
+        def _involves_requested(g: dict) -> bool:
+            host = str(g.get('host_team_id')) if g.get('host_team_id') is not None else None
+            guests = [str(x) for x in (g.get('guest_team_ids') or [])]
+            if host and host in id_filter:
+                return True
+            for t in guests:
+                if t in id_filter:
+                    return True
+            return False
+        groups = [g for g in groups if _involves_requested(g)]
+        if not groups:
+            return {'team_paths': {}, 'bounds': None, 'after_party': None}
+    # Build mapping team_id -> lat/lon from teams (restrict to relevant ids when provided)
     ev = await _get_event(event_id)
     if not ev:
         return {'team_paths': {}, 'bounds': None, 'after_party': None}
     teams = await _build_teams(ev['_id'])
+    needed_ids: Optional[Set[str]] = None
+    if id_filter:
+        needed_ids = set()
+        for g in groups:
+            h = g.get('host_team_id')
+            if h is not None:
+                needed_ids.add(str(h))
+            for t in (g.get('guest_team_ids') or []):
+                needed_ids.add(str(t))
     coord_map: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
     for t in teams:
-        coord_map[str(t['team_id'])] = (t.get('lat'), t.get('lon'))
+        tid = str(t['team_id'])
+        if needed_ids and tid not in needed_ids:
+            continue
+        coord_map[tid] = (t.get('lat'), t.get('lon'))
     # Helper to resolve split/pair and missing ids
     async def _resolve_coords(tid: str) -> Tuple[Optional[float], Optional[float]]:
         if tid in coord_map:
@@ -1050,7 +1108,6 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
             if u and isinstance(u.get('lat'), (int,float)) and isinstance(u.get('lon'), (int,float)):
                 return (float(u['lat']), float(u['lon']))
         if tid.startswith('pair:'):
-            # approximate by averaging members' coords if available
             part = tid.split(':',1)[1]
             ems = [e for e in part.split('+') if e]
             pts = []
@@ -1065,7 +1122,6 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
         return (None, None)
     # Build per-phase host map
     phases = ['appetizer','main','dessert']
-    # For each team, determine their host location for each phase
     path_points: Dict[str, List[Tuple[str, Optional[float], Optional[float]]]] = {}
     for phase in phases:
         for g in groups:
@@ -1075,9 +1131,8 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
             guests = [str(x) for x in (g.get('guest_team_ids') or [])]
             if not host:
                 continue
-            # host's own point
             for tid in [host] + guests:
-                if ids and tid not in ids:
+                if id_filter and tid not in id_filter:
                     continue
                 lat, lon = await _resolve_coords(host)
                 path_points.setdefault(tid, []).append((phase, lat, lon))

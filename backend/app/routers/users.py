@@ -206,9 +206,12 @@ async def register(u: UserCreate):
     with suppress(Exception):
         _token, email_sent = await generate_and_send_verification(email_lower)
     # Respond to client that the user was created successfully, include email_sent flag & message if failed
-    resp = {"message": "Utilisateur créé avec succès", "id": user_doc['id'], "email_sent": email_sent}
+    resp = {"message": "User created successfully", "id": user_doc['id'], "email_sent": email_sent}
     if not email_sent:
-        resp["email_warning"] = "Compte créé mais l'email de vérification n'a pas pu être envoyé. Réessayez plus tard ou utilisez la route /resend-verification."
+        resp["email_warning"] = (
+            "Account created but the verification email could not be sent. "
+            "Please try again later or use the /resend-verification route."
+        )
     return resp
 
 class LoginIn(BaseModel):

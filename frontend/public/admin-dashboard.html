@@ -172,39 +172,6 @@
       </div>
     </section>
 
-    <!-- Manual Adjustments & Issues -->
-    <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
-      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Manual Adjustments & Issues</h2>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-        <div>
-          <label class="block text-sm font-semibold mb-1">Event</label>
-          <select id="issues-event-select" class="border border-[#f0f4f7] rounded-xl p-3 w-full"></select>
-        </div>
-        <div>
-          <label class="block text-sm font-semibold mb-1">Version</label>
-          <input id="issues-version" type="number" min="1" class="border border-[#f0f4f7] rounded-xl p-3 w-full">
-        </div>
-        <button id="btn-load-issues" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Load Issues</button>
-        <button id="btn-finalize" class="bg-[#1b5e20] text-white rounded-xl px-4 py-2 font-semibold shadow hover:opacity-90 transition">Release Final Plan</button>
-      </div>
-      <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="md:col-span-1">
-          <h3 class="font-semibold">Move team between groups</h3>
-          <div class="grid grid-cols-2 gap-2 text-sm">
-            <input id="move-phase" type="text" placeholder="Phase (appetizer/main/dessert)" class="border border-[#f0f4f7] rounded-xl p-2 col-span-2">
-            <input id="move-from" type="number" placeholder="From group index" class="border border-[#f0f4f7] rounded-xl p-2">
-            <input id="move-to" type="number" placeholder="To group index" class="border border-[#f0f4f7] rounded-xl p-2">
-            <input id="move-team" type="text" placeholder="Team ID" class="border border-[#f0f4f7] rounded-xl p-2 col-span-2">
-            <button id="btn-move-team" class="bg-[#ffc241] text-[#172a3a] rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#ffe5d0] transition col-span-2">Move Team</button>
-          </div>
-        </div>
-        <div class="md:col-span-2">
-          <h3 class="font-semibold">Detected issues</h3>
-          <div id="issues-list" class="space-y-2"></div>
-        </div>
-      </div>
-    </section>
-
     <!-- Cancellations / Refunds -->
     <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
       <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Cancellations & Refunds</h2>
@@ -261,6 +228,8 @@
 
   <!-- Footer -->
   <div data-include="partials/footer.html"></div>
+  <!-- Toast utility -->
+  <script src="js/utils/toast.js"></script>
   <script src="js/admin-dashboard.js"></script>
 </body>
 </html>
