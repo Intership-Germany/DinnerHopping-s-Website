@@ -15,9 +15,8 @@
   async function loadList(){
     listEl.innerHTML = '<li>Loading...</li>';
     try {
-      const res = await fetch('/admin/email-templates');
+      const { res, data } = await window.dh.apiGet('/admin/email-templates');
       if(!res.ok){ listEl.innerHTML = '<li>Error loading list</li>'; return; }
-      const data = await res.json();
       listEl.innerHTML = '';
       data.forEach(t => {
         const li = document.createElement('li');
@@ -46,9 +45,8 @@
 
   async function openTemplate(key){
     try {
-      const res = await fetch('/admin/email-templates/' + encodeURIComponent(key));
+      const { res, data: t } = await window.dh.apiGet('/admin/email-templates/' + encodeURIComponent(key));
       if(!res.ok){ statusEl.textContent='Failed to load template'; statusEl.style.color='#b00020'; return; }
-      const t = await res.json();
       currentKey = t.key;
       editor.style.display='block';
       document.getElementById('editorTitle').textContent = 'Edit: ' + t.key;
@@ -75,18 +73,18 @@
       html_body: fields.html.value
     };
     if(!payload.key){ statusEl.textContent='Key required'; statusEl.style.color='#b00020'; return; }
-    const method = currentKey ? 'PUT' : 'POST';
     const url = currentKey ? '/admin/email-templates/' + encodeURIComponent(currentKey) : '/admin/email-templates';
     try {
-      const res = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      const { res, data } = currentKey 
+        ? await window.dh.apiPut(url, payload)
+        : await window.dh.apiPost(url, payload);
       if(res.ok){
         statusEl.textContent='Saved';
         statusEl.style.color='#0a7a2a';
         currentKey = payload.key;
         loadList();
       } else {
-        const data = await res.json().catch(()=>({}));
-        statusEl.textContent=data.detail || 'Save failed';
+        statusEl.textContent=data?.detail || 'Save failed';
         statusEl.style.color='#b00020';
       }
     } catch(err){
@@ -99,7 +97,7 @@
     if(!currentKey){ editor.style.display='none'; return; }
     if(!confirm('Delete template ' + currentKey + '?')) return;
     try {
-      const res = await fetch('/admin/email-templates/' + encodeURIComponent(currentKey), { method:'DELETE' });
+      const { res } = await window.dh.apiDelete('/admin/email-templates/' + encodeURIComponent(currentKey));
       if(res.ok){
         statusEl.textContent='Deleted';
         statusEl.style.color='#0a7a2a';
