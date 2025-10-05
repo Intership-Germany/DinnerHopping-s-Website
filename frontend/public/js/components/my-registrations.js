@@ -128,7 +128,7 @@
       if (id) evMap.set(String(id), e);
     });
     // LocalStorage snapshots removed per request (no longer persisting registration data client-side)
-    // Instead we only rely on events returned by the API (e.g., /events?participant=me).
+    // Instead we only rely on events returned by the API (e.g., /events/?participant=me).
     // If in the future an API to list detailed registrations (with payment / preferences) exists,
     // adapt here to merge that data. For now, we treat membership as a simple "registered" state.
     const combined = [];

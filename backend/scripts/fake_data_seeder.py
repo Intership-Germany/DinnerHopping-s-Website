@@ -471,7 +471,7 @@ def list_events(admin_token: Optional[str] = None, limit: int = 50) -> List[dict
                 r = c.get(f"{BASE_URL}/events", params={"limit": limit})
         else:
             _rate_limit()
-            r = get(f"/events?limit={limit}")
+            r = get(f"/events/?limit={limit}")
         if r.status_code == 200:
             data = r.json()
             # Expect either {'items':[...]} or list
