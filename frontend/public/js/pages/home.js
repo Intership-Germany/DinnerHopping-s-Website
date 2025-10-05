@@ -40,7 +40,7 @@
     U.fetchPublishedEvents ||
     async function () {
       const api = window.dh?.apiFetch || window.apiFetch;
-      const r = await api('/events?status=open', { headers: { Accept: 'application/json' } });
+      const r = await api('/events/?status=open', { headers: { Accept: 'application/json' } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     };
@@ -48,7 +48,7 @@
     U.fetchMyEvents ||
     async function () {
       const api = window.dh?.apiFetch || window.apiFetch;
-      const r = await api('/events?participant=me', { headers: { Accept: 'application/json' } });
+      const r = await api('/events/?participant=me', { headers: { Accept: 'application/json' } });
       if (!r.ok) return [];
       return r.json();
     };
@@ -326,7 +326,7 @@
     } catch {}
     try {
       const events = await fetchPublishedEvents();
-      __ALL_EVENTS = Array.isArray(events) ? events : events?.events || [];
+      __ALL_EVENTS = Array.isArray(events) ? events : events/?.events || [];
       applyFilters();
     } catch (err) {
       console.error('Failed to load events', err);

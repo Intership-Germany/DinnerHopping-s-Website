@@ -208,7 +208,7 @@
 	// Placeholder: attempt to find registration for this user/event (by listing? or dedicated endpoint not present). We'll skip complex fetch if no endpoint.
 	// Attempt to discover whether the current user is registered for this event.
 	// Backend does not yet expose a direct "my registration for event" endpoint, so we:
-	// 1. Call /events?participant=me and see if this event id is in the list -> user is registered somehow (solo or team)
+	// 1. Call /events/?participant=me and see if this event id is in the list -> user is registered somehow (solo or team)
 	// 2. Optimistically POST /registrations/solo (idempotent upsert for solo) to retrieve a registration_id when solo.
 	//    - If user registered as team, backend returns 400 detail 'Already registered with a team for this event'. We then mark mode=team.
 	//    - If previously cancelled solo, this reactivates the registration (acceptable UX for now).
@@ -216,12 +216,12 @@
 	async function loadRegistration() {
 		registrationData = null;
 		try {
-	            // Step 1: attempt to detect membership via /events?participant=me across a set of status filters
+	            // Step 1: attempt to detect membership via /events/?participant=me across a set of status filters
 	            const statusCandidates = [null,'open','coming_soon','matched','released','published','draft'];
 	            let foundEvent = null;
 	            for (const st of statusCandidates) {
 	                if (foundEvent) break;
-	                let url = '/events?participant=me';
+	                let url = '/events/?participant=me';
 	                if (st) url += `&status=${encodeURIComponent(st)}`;
 	                try {
 	                    const resp = await fetchJson(url);

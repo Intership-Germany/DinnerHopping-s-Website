@@ -4,13 +4,13 @@
 
   async function fetchPublishedEvents(){
     const api = window.dh.apiFetch || window.apiFetch;
-    const res = await api('/events?status=open', { method: 'GET', headers:{ Accept: 'application/json' } });
+    const res = await api('/events/?status=open', { method: 'GET', headers:{ Accept: 'application/json' } });
     if (!res.ok) throw Object.assign(new Error('Events load failed'), { status: res.status });
     return res.json();
   }
   async function fetchMyEvents(){
     const api = window.dh.apiFetch || window.apiFetch;
-    const res = await api('/events?participant=me', { method: 'GET', headers:{ Accept: 'application/json' } });
+    const res = await api('/events/?participant=me', { method: 'GET', headers:{ Accept: 'application/json' } });
     if (!res.ok) return [];
     return res.json();
   }
