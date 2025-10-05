@@ -326,7 +326,7 @@
     } catch {}
     try {
       const events = await fetchPublishedEvents();
-      __ALL_EVENTS = Array.isArray(events) ? events : events?.events || [];
+      __ALL_EVENTS = Array.isArray(events) ? events : events/?.events || [];
       applyFilters();
     } catch (err) {
       console.error('Failed to load events', err);

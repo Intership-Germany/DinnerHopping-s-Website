@@ -337,7 +337,7 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
         'registration_id': str(reg_id),
         'team_size': 1,
         'amount_cents': int(ev.get('fee_cents') or 0),
-        'payment_create_endpoint': '/payments',
+        'payment_create_endpoint': '/payments/create',
         'registration_status': 'pending_payment',
     }
 
@@ -593,7 +593,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
         'partner_registration_id': str(reg_partner_id) if reg_partner_id else None,
         'team_size': 2,
         'amount_cents': team_amount,
-        'payment_create_endpoint': '/payments',
+        'payment_create_endpoint': '/payments/create',
         'registration_status': 'pending_payment',
     }
 
