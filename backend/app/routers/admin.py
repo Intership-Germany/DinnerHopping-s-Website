@@ -128,6 +128,84 @@ class EmailTemplateOut(EmailTemplateIn):
 async def list_email_templates(_=Depends(require_admin)):
     out = []
     cursor = db_mod.db.email_templates.find({})
+    # If the collection is empty, seed a small set of default templates so
+    # the admin UI is useful out-of-the-box. This mirrors `scripts/seed_email_templates.py`
+    # but kept local to avoid import cycles and to run idempotently on first list.
+    try:
+        count = await db_mod.db.email_templates.count_documents({})
+    except Exception:
+        # Some fake/test DB implementations may not implement count_documents
+        count = None
+    if not count:
+        DEFAULT_TEMPLATES = [
+            {
+                'key': 'verification_reminder',
+                'subject': 'Reminder: verify your DinnerHopping account',
+                'html_body': "<p>Hi!</p><p>You still need to verify your email to activate your account.</p><p>If you've already verified, you can ignore this message.</p>",
+                'description': 'Sent to users who have not yet verified their email.',
+                'variables': ['email']
+            },
+            {
+                'key': 'payment_confirmation',
+                'subject': 'Registration confirmed for {{event_title}}',
+                'html_body': "<p>Your registration for <strong>{{event_title}}</strong> is confirmed.</p><p>Event date: {{event_date}}</p><p>You'll receive your detailed schedule closer to the event.</p><p>Have fun!<br/>— DinnerHopping Team</p>",
+                'description': 'Payment / registration confirmation',
+                'variables': ['event_title','event_date','email']
+            },
+            {
+                'key': 'cancellation_confirmation',
+                'subject': 'Cancellation confirmed: {{event_title}}',
+                'html_body': "<p>Your registration for <strong>{{event_title}}</strong> has been cancelled.</p><p>{{refund}}</p>",
+                'description': 'Registration cancellation notice',
+                'variables': ['event_title','refund','email']
+            }
+            ,{
+                'key': 'invitation',
+                'subject': "You've been invited to an event on DinnerHopping",
+                'html_body': "<p>Hi!</p><p>You have been invited to join an event on DinnerHopping. To accept, click: <a href=\"{{invitation_link}}\">Accept invitation</a></p><p>If you don't have an account, register with this email.</p><p>— DinnerHopping Team</p>",
+                'description': 'Invitation email with accept link',
+                'variables': ['invitation_link','email','temp_password']
+            },
+            {
+                'key': 'invitation_accept',
+                'subject': 'Invitation accepted',
+                'html_body': '<p>The invitation has been accepted.</p><p>Registration id: {{registration_id}}</p>',
+                'description': 'Notify inviter that invitation was accepted',
+                'variables': ['registration_id','email']
+            },
+            {
+                'key': 'password_reset',
+                'subject': 'Password reset for your DinnerHopping account',
+                'html_body': "<p>Hi!</p><p>Reset your password by clicking: <a href=\"{{reset_url}}\">Reset password</a></p><p>If you didn't request this, ignore this message.</p>",
+                'description': 'Password reset email',
+                'variables': ['reset_url','email']
+            },
+            {
+                'key': 'team_invitation',
+                'subject': 'You have been added to a DinnerHopping team',
+                'html_body': "<p>Hi!</p><p>You were added to a team for event \"{{event_title}}\". If you cannot participate, decline here: <a href=\"{{decline_link}}\">Decline</a></p><p>— DinnerHopping Team</p>",
+                'description': 'Team invitation email (partner)',
+                'variables': ['event_title','decline_link','email']
+            }
+            ,{
+                'key': 'email_verification',
+                'subject': 'Please verify your DinnerHopping account',
+                'html_body': "<p>Hi!</p><p>Please verify your email by clicking the link below:</p><p><a href=\"{{verification_url}}\">Verify my email</a></p><p>If you didn't request this, ignore this message.</p><p>— DinnerHopping Team</p>",
+                'description': 'Initial verification email with a link to verify the address.',
+                'variables': ['verification_url','email']
+            }
+        ]
+        from datetime import datetime
+        for tpl in DEFAULT_TEMPLATES:
+            existing = await db_mod.db.email_templates.find_one({'key': tpl['key']})
+            if existing:
+                continue
+            tpl['updated_at'] = datetime.utcnow()
+            # Best-effort insert; ignore errors to keep listing functional
+            try:
+                await db_mod.db.email_templates.insert_one(tpl)
+            except Exception:
+                pass
     # Some test fakes return cursors that don't support sort(); handle gracefully
     try:
         cursor = cursor.sort('key', 1)

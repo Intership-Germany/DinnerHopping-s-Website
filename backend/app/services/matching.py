@@ -1038,7 +1038,10 @@ async def finalize_and_generate_plans(event_id: str, version: int, finalized_by:
             '— DinnerHopping Team',
         ]
         try:
-            ok = await send_email(to=em, subject=title, body='\n'.join(lines), category='final_plan')
+            # include event title if available so template can use it
+            ev = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
+            ev_title = ev.get('title') if ev else None
+            ok = await send_email(to=em, subject=title, body='\n'.join(lines), category='final_plan', template_vars={'event_title': ev_title, 'email': em})
             sent += 1 if ok else 0
         except Exception:
             pass

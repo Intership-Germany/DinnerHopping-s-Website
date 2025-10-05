@@ -202,6 +202,7 @@ async def send_email(
     from_address: str | None = None,
     headers: Mapping[str, str] | None = None,
     category: str = "generic",
+    template_vars: Mapping[str, object] | None = None,
 ) -> bool:
     """Low-level reusable email sender with retry & console fallback.
 
@@ -247,6 +248,64 @@ async def send_email(
     smtp_timeout = int(os.getenv("SMTP_TIMEOUT_SECONDS", "10"))
     max_retries = int(os.getenv("SMTP_MAX_RETRIES", "2"))
     from_addr = from_address or os.getenv("SMTP_FROM_ADDRESS", "info@acrevon.fr")
+
+    # Attempt to render a DB template matching the category name. We import
+    # notifications lazily to avoid circular imports between utils and
+    # notifications modules.
+    try:
+        from . import notifications as _notifications
+        # prepare fallback lines for the renderer from the provided body
+        fallback_lines = (body or '').splitlines() if body is not None else []
+        vars_map = {}
+        if recipients:
+            vars_map['email'] = recipients[0]
+        # merge explicit template_vars (caller-provided) into vars_map (caller overrides)
+        if template_vars and isinstance(template_vars, dict):
+            vars_map = {**vars_map, **template_vars}
+        try:
+            # Try direct category key first
+            tpl_subject, tpl_body = await _notifications._render_template(
+                key=category,
+                fallback_subject=subject,
+                fallback_lines=fallback_lines,
+                variables=vars_map,
+                category=category,
+            )
+        except Exception:
+            # If direct category not present, try a few common aliases mapping
+            alias_map = {
+                'verification': 'email_verification',
+                'cancellation': 'cancellation_confirmation',
+                'team_cancellation': 'team_partner_cancelled',
+                'team_update': 'team_update',
+                'payment': 'payment_confirmation',
+                'payment_confirmation': 'payment_confirmation',
+            }
+            tried = False
+            if category in alias_map:
+                try:
+                    tpl_subject, tpl_body = await _notifications._render_template(
+                        key=alias_map[category],
+                        fallback_subject=subject,
+                        fallback_lines=fallback_lines,
+                        variables=vars_map,
+                        category=alias_map[category],
+                    )
+                    tried = True
+                except Exception:
+                    tried = False
+            if not tried:
+                # re-raise to outer except to fall back
+                raise
+            # replace subject/body with rendered values
+            subject = tpl_subject
+            body = tpl_body
+        except Exception:
+            # If template rendering fails, ignore and use provided subject/body
+            pass
+    except Exception:
+        # couldn't import notifications - skip template rendering
+        pass
 
     # Build message (text only for now; can extend with HTML alternative)
     def _build_message() -> EmailMessage:
@@ -355,16 +414,23 @@ async def generate_and_send_verification(recipient: str) -> tuple[str, bool]:
     base = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
     frontend_base = os.getenv("FRONTEND_BASE_URL", base)
     verification_url = f"{frontend_base}/verify-email.html?token={token}"
-    subject = "Please verify your DinnerHopping account"
-    body = (
+
+    # Use the centralized send_email template rendering. We pass the verification
+    # URL via template_vars; send_email will attempt to render a template whose
+    # key matches the category ('email_verification'). If not found, the
+    # provided subject/body will be used as fallback.
+    fallback_subject = "Please verify your DinnerHopping account"
+    fallback_body = (
         f"Hi,\n\nPlease verify your email by clicking the link below:\n{verification_url}\n\n"
         "If you didn't request this, ignore this message.\n\nThanks,\nDinnerHopping Team"
     )
+
     ok = await send_email(
         to=recipient,
-        subject=subject,
-        body=body,
-        category="verification"
+        subject=fallback_subject,
+        body=fallback_body,
+        category='email_verification',
+        template_vars={'verification_url': verification_url, 'email': recipient},
     )
     if not ok:
         # fallback print of link if send failed *despite* having SMTP configured

@@ -11,6 +11,7 @@
     html: document.getElementById('tplHtml')
   };
   let currentKey = null;
+  const variablesListEl = document.getElementById('variablesList');
 
   async function loadList(){
     listEl.innerHTML = '<li>Loading...</li>';
@@ -41,6 +42,7 @@
     fields.html.value='';
     statusEl.textContent='';
     statusEl.style.color='';
+    renderVariables();
   }
 
   async function openTemplate(key){
@@ -57,10 +59,56 @@
       fields.html.value = t.html_body || '';
       statusEl.textContent='';
       statusEl.style.color='';
-      await loadList();
+        renderVariables();
+        await loadList();
     } catch(err){
       statusEl.textContent='Network error loading template';
       statusEl.style.color='#b00020';
+    }
+  }
+
+  // Render variable tokens. Uses automatic variables + user-declared variables
+  function renderVariables(){
+    if(!variablesListEl) return;
+    variablesListEl.innerHTML = '';
+    // automatic variables
+    const auto = ['current_date','current_time','current_datetime','current_year','email'];
+    auto.forEach(v => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'px-2 py-1 bg-gray-100 text-sm rounded-md border';
+      btn.textContent = '{{' + v + '}}';
+      btn.onclick = () => insertAtCursor(fields.html, '{{' + v + '}}');
+      variablesListEl.appendChild(btn);
+    });
+    // user-declared variables from the vars field (comma separated)
+    const extra = (fields.vars.value || '').split(',').map(s=>s.trim()).filter(Boolean);
+    extra.forEach(v => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'px-2 py-1 bg-yellow-50 text-sm rounded-md border';
+      btn.textContent = '{{' + v + '}}';
+      btn.onclick = () => insertAtCursor(fields.html, '{{' + v + '}}');
+      variablesListEl.appendChild(btn);
+    });
+  }
+
+  // Insert text at cursor position for a textarea/input
+  function insertAtCursor(el, text){
+    try{
+      el.focus();
+      const start = el.selectionStart || 0;
+      const end = el.selectionEnd || 0;
+      const val = el.value || '';
+      el.value = val.slice(0, start) + text + val.slice(end);
+      // move cursor after inserted text
+      const pos = start + text.length;
+      el.selectionStart = el.selectionEnd = pos;
+      // trigger input event in case other code listens
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }catch(e){
+      // fallback: append at end
+      el.value = (el.value || '') + text;
     }
   }
 
@@ -118,6 +166,8 @@
   window.__EmailTplAdmin = { reload: loadList, newTemplate };
 
   document.getElementById('newBtn').onclick = newTemplate;
+  // update variables preview when vars input changes
+  fields.vars.addEventListener('input', renderVariables);
   document.getElementById('saveBtn').onclick = save;
   document.getElementById('deleteBtn').onclick = del;
   document.getElementById('cancelBtn').onclick = () => { editor.style.display='none'; };
