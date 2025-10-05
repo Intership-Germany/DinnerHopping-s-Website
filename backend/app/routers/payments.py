@@ -189,7 +189,7 @@ def _normalize_idempotency_key(raw_key, registration_id, provider: str, flow: st
     return key
 
 
-@router.post('/')
+@router.post('/create')
 async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get_current_user)):
     """Create a payment record and return the next action to the client."""
 
