@@ -20,8 +20,28 @@ async def _render_template(key: str, fallback_subject: str, fallback_lines: Iter
 
     Falls back to provided plaintext subject/body if template not found.
     Supports simple variable substitution; missing variables become empty string.
+    
+    Automatic variables added to all templates:
+    - current_date: Current date in YYYY-MM-DD format
+    - current_time: Current time in HH:MM:SS format
+    - current_datetime: Current datetime in ISO format
+    - current_year: Current year (e.g., 2024)
     """
+    import datetime
+    
+    # Add automatic time/date variables
+    now = datetime.datetime.now(datetime.timezone.utc)
+    auto_vars = {
+        'current_date': now.strftime('%Y-%m-%d'),
+        'current_time': now.strftime('%H:%M:%S'),
+        'current_datetime': now.isoformat(),
+        'current_year': str(now.year),
+    }
+    
+    # Merge user variables with automatic variables (user variables take precedence)
     variables = variables or {}
+    merged_vars = {**auto_vars, **variables}
+    
     tpl = await db_mod.db.email_templates.find_one({'key': key})
     if not tpl:
         body = "\n".join(fallback_lines) + "\n"
@@ -31,7 +51,7 @@ async def _render_template(key: str, fallback_subject: str, fallback_lines: Iter
 
     def _sub(match):
         name = match.group(1)
-        value = variables
+        value = merged_vars
         for part in name.split('.'):
             if isinstance(value, Mapping) and part in value:
                 value = value[part]

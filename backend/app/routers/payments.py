@@ -446,11 +446,13 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
 
 
 @router.get('/{payment_id}/cancel')
-async def payment_cancel(payment_id: str, current_user=Depends(get_current_user)):
+async def payment_cancel(payment_id: str):
     """Generic cancel landing endpoint for providers. Marks payment as failed (non-destructive).
     
-    Requires authentication and verifies user owns the payment through registration ownership.
+    Redirects to frontend after marking payment as cancelled.
     """
+    from fastapi.responses import RedirectResponse
+    
     try:
         oid = ObjectId(payment_id)
     except InvalidId as exc:
@@ -458,20 +460,14 @@ async def payment_cancel(payment_id: str, current_user=Depends(get_current_user)
     p = await db_mod.db.payments.find_one({"_id": oid})
     if not p:
         raise HTTPException(status_code=404, detail='Payment not found')
-
-    # Verify user owns this payment through registration ownership
-    reg_id = p.get('registration_id')
-    if reg_id:
-        # authorization helper will raise HTTPException if not owner/admin
-        await require_registration_owner_or_admin(current_user, reg_id)
-    else:
-        # Fallback: check if user is admin for orphaned payments
-        if not _is_admin(current_user):
-            raise HTTPException(status_code=403, detail='Access denied')
     
     await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "updated_at": datetime.datetime.utcnow()}})
-    log.info('payment.cancel payment_id=%s user_email=%s', payment_id, current_user.get('email'))
-    return {"status": "cancelled"}
+    log.info('payment.cancel payment_id=%s', payment_id)
+    
+    # Redirect to frontend
+    frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+    redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}&status=cancelled"
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @router.get('/{payment_id}/success')
@@ -552,7 +548,12 @@ async def payment_details(payment_id: str, current_user=Depends(get_current_user
 
 @router.get('/paypal/return')
 async def paypal_return(payment_id: str, token: Optional[str] = None):
-    """Return URL for PayPal. Captures the order and marks payment as paid if completed."""
+    """Return URL for PayPal. Captures the order and marks payment as paid if completed.
+    
+    Redirects to frontend success page instead of returning JSON.
+    """
+    from fastapi.responses import RedirectResponse
+    
     try:
         oid = ObjectId(payment_id)
     except InvalidId as exc:
@@ -567,14 +568,22 @@ async def paypal_return(payment_id: str, token: Optional[str] = None):
     capture = await paypal_provider.capture_order(order_id)
     status = (capture.get('status') or '').upper()
     now = datetime.datetime.now(datetime.timezone.utc)
+    
+    # Determine frontend URL for redirect
+    frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+    
     if status == 'COMPLETED':
         log.info('paypal.return.completed payment_id=%s order_id=%s', payment_id, order_id)
         await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now, "meta.capture": capture}})
         await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
-        return {"status": "paid"}
+        redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}"
+        return RedirectResponse(url=redirect_url, status_code=303)
+    
     log.warning('paypal.return.failed payment_id=%s order_id=%s status=%s', payment_id, order_id, status)
     await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
-    return {"status": "failed"}
+    # For failed payments, redirect to a cancel/error page or back to payment selection
+    redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}&status=failed"
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @router.post('/{payment_id}/capture')
