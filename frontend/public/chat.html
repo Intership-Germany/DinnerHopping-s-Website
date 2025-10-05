@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Group Chat - Starter</title>
+    <title>Group Chat</title>
     <script src="js/auth-guard.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -11,6 +11,8 @@
     <script src="js/auth.js"></script>
     <script src="js/debug-banner.js"></script>
     <script src="js/includes.js" defer></script>
+    <script src="js/core/client.js"></script>
+    <script src="js/pages/chat.js" defer></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -25,50 +27,45 @@
     
     <!-- Shared site header -->
     <div data-include="partials/header.html"></div>
+    
     <main class="flex-1 flex flex-col justify-end px-4 py-6 bg-[#f0f4f7]">
+        <!-- Loading spinner -->
+        <div id="loadingSpinner" class="flex justify-center items-center py-12">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-[#008080]"></div>
+        </div>
+
+        <!-- Error message -->
+        <div id="errorMessage" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+            Error loading chat
+        </div>
+
+        <!-- Group selector (shown when multiple groups exist) -->
+        <div id="groupSelector" class="hidden mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Select Group:</label>
+            <select class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#008080] outline-none">
+            </select>
+        </div>
+
         <!-- Chat contextual header -->
-        <div class="bg-[#008080] text-white px-6 py-3 rounded-xl shadow mb-4 flex items-center">
-            <span class="font-bold">Starter Group Chat</span>
-            <span class="ml-auto text-xs opacity-80">Weender Landstraße</span>
+        <div id="chatHeader" class="bg-[#008080] text-white px-6 py-3 rounded-xl shadow mb-4 flex items-center">
+            <span id="chatTitle" class="font-bold">Group Chat</span>
+            <span id="chatLocation" class="ml-auto text-xs opacity-80"></span>
         </div>
-        <div class="space-y-4 mb-4">
-            <!-- Fake conversation -->
-            <div class="flex items-end gap-2">
-                <img src="https://placehold.co/32x32/008080/fff?text=D" alt="David" class="w-8 h-8 rounded-full">
-                <div class="chat-bubble bg-white rounded-2xl px-4 py-2 shadow text-sm">
-                    Hi everyone! Looking forward to seeing you all tonight 😊
-                </div>
-            </div>
-            <div class="flex items-end gap-2 justify-end">
-                <div class="chat-bubble bg-[#008080] text-white rounded-2xl px-4 py-2 shadow text-sm">
-                    Thanks for the invite, David! I'll bring a bottle of white wine 🍾
-                </div>
-                <img src="https://placehold.co/32x32/ffc241/fff?text=A" alt="Anna" class="w-8 h-8 rounded-full">
-            </div>
-            <div class="flex items-end gap-2">
-                <img src="https://placehold.co/32x32/172a3a/fff?text=H" alt="Hans" class="w-8 h-8 rounded-full">
-                <div class="chat-bubble bg-white rounded-2xl px-4 py-2 shadow text-sm">
-                    I'll bring dessert! Any allergies I should know about?
-                </div>
-            </div>
-            <div class="flex items-end gap-2 justify-end">
-                <div class="chat-bubble bg-[#008080] text-white rounded-2xl px-4 py-2 shadow text-sm">
-                    I'm lactose intolerant, but fruit is perfect for me!
-                </div>
-                <img src="https://placehold.co/32x32/ffc241/fff?text=A" alt="Anna" class="w-8 h-8 rounded-full">
-            </div>
-            <div class="flex items-end gap-2">
-                <img src="https://placehold.co/32x32/f46f47/fff?text=I" alt="Ida" class="w-8 h-8 rounded-full">
-                <div class="chat-bubble bg-white rounded-2xl px-4 py-2 shadow text-sm">
-                    No allergies for me! See you at 18:00 🕕
-                </div>
+
+        <!-- Messages container -->
+        <div class="space-y-4 mb-4 max-h-96 overflow-y-auto" style="flex-grow: 1;">
+            <div id="messagesContainer" class="space-y-4">
+                <!-- Messages will be dynamically inserted here -->
             </div>
         </div>
-        <form class="flex gap-2 mt-2">
-            <input type="text" class="flex-1 p-3 rounded-xl border border-gray-200 bg-white focus:ring-2 focus:ring-[#008080] outline-none text-sm" placeholder="Type your message..." disabled>
-            <button type="submit" class="px-5 py-2 bg-[#008080] text-white font-bold rounded-xl shadow-lg" disabled>Send</button>
+
+        <!-- Message input form -->
+        <form id="messageForm" class="flex gap-2 mt-2">
+            <input id="messageInput" type="text" class="flex-1 p-3 rounded-xl border border-gray-200 bg-white focus:ring-2 focus:ring-[#008080] outline-none text-sm" placeholder="Type your message..." disabled>
+            <button id="sendButton" type="submit" class="px-5 py-2 bg-[#008080] text-white font-bold rounded-xl shadow-lg" disabled>Send</button>
         </form>
     </main>
+    
     <!-- Shared footer for layout balance -->
     <div data-include="partials/footer.html"></div>
 </body>
