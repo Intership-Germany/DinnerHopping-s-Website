@@ -50,9 +50,9 @@ async def test_wero_payment_is_idempotent(client, verified_user):
     headers = {"Authorization": f"Bearer {token}"}
     payload = {"registration_id": str(reg_id), "provider": "wero"}
 
-    first = await client.post("/payments/", json=payload, headers=headers)
+    first = await client.post("/payments/create", json=payload, headers=headers)
     assert first.status_code == 200, first.text
-    second = await client.post("/payments/", json=payload, headers=headers)
+    second = await client.post("/payments/create", json=payload, headers=headers)
     assert second.status_code == 200, second.text
 
     body1 = first.json()
@@ -74,7 +74,7 @@ async def test_custom_idempotency_key_sanitized(client, verified_user):
         "idempotency_key": custom_key,
     }
 
-    resp = await client.post("/payments/", json=payload, headers=headers)
+    resp = await client.post("/payments/create", json=payload, headers=headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     payment_id = body["payment_id"]
@@ -96,7 +96,7 @@ async def test_idempotency_key_truncated_to_limit(client, verified_user):
         "idempotency_key": very_long_key,
     }
 
-    resp = await client.post("/payments/", json=payload, headers=headers)
+    resp = await client.post("/payments/create", json=payload, headers=headers)
     assert resp.status_code == 200, resp.text
     payment_id = resp.json()["payment_id"]
     stored = await db_mod.db.payments.find_one({"_id": ObjectId(payment_id)})
