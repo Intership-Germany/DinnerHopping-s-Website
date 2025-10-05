@@ -555,7 +555,13 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
                 f"Hi,\n\nYou were added to a team for event '{ev.get('title')}'. If you cannot participate, you can decline here:\n{decline_link}\n\nThanks,\nDinnerHopping Team"
             )
             # best-effort notification
-            _ = await send_email(to=partner_user.get('email'), subject=subject, body=body, category='team_invitation')
+            _ = await send_email(
+                to=partner_user.get('email'),
+                subject=subject,
+                body=body,
+                category='team_invitation',
+                template_vars={'event_title': ev.get('title'), 'decline_link': decline_link, 'email': partner_user.get('email')}
+            )
         else:
             # External partner: no user account, no auto-registration. Store snapshot only.
             reg_partner_id = None
@@ -728,7 +734,13 @@ async def cancel_solo_registration(registration_id: str, current_user=Depends(ge
     
     # email best-effort
     if reg.get('user_email_snapshot'):
-        _ = await send_email(to=reg['user_email_snapshot'], subject=f'Cancellation confirmed for {ev.get("title")}', body='Your registration has been cancelled. If eligible, a refund will be processed later.', category='cancellation')
+        _ = await send_email(
+            to=reg['user_email_snapshot'],
+            subject=f'Cancellation confirmed for {ev.get("title")}',
+            body='Your registration has been cancelled. If eligible, a refund will be processed later.',
+            category='cancellation',
+            template_vars={'event_title': ev.get('title'), 'refund': False, 'email': reg.get('user_email_snapshot')}
+        )
     return {'status': 'cancelled_by_user'}
 
 
@@ -778,7 +790,13 @@ async def cancel_team_member(team_id: str, registration_id: str, current_user=De
             f"You may invite a replacement via: {replace_url}\n"
             "If you do nothing, the team may be excluded during matching if incomplete."
         )
-        _ = await send_email(to=creator_reg['user_email_snapshot'], subject='Team partner cancelled', body=body, category='team_cancellation')
+        _ = await send_email(
+            to=creator_reg['user_email_snapshot'],
+            subject='Team partner cancelled',
+            body=body,
+            category='team_cancellation',
+            template_vars={'event_title': ev.get('title'), 'email': creator_reg['user_email_snapshot']}
+        )
     return {'status': 'cancelled_by_user', 'team_status': 'incomplete'}
 
 

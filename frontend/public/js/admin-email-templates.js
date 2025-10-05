@@ -11,13 +11,13 @@
     html: document.getElementById('tplHtml')
   };
   let currentKey = null;
+  const variablesListEl = document.getElementById('variablesList');
 
   async function loadList(){
     listEl.innerHTML = '<li>Loading...</li>';
     try {
-      const res = await fetch('/admin/email-templates');
+      const { res, data } = await window.dh.apiGet('/admin/email-templates');
       if(!res.ok){ listEl.innerHTML = '<li>Error loading list</li>'; return; }
-      const data = await res.json();
       listEl.innerHTML = '';
       data.forEach(t => {
         const li = document.createElement('li');
@@ -42,13 +42,13 @@
     fields.html.value='';
     statusEl.textContent='';
     statusEl.style.color='';
+    renderVariables();
   }
 
   async function openTemplate(key){
     try {
-      const res = await fetch('/admin/email-templates/' + encodeURIComponent(key));
+      const { res, data: t } = await window.dh.apiGet('/admin/email-templates/' + encodeURIComponent(key));
       if(!res.ok){ statusEl.textContent='Failed to load template'; statusEl.style.color='#b00020'; return; }
-      const t = await res.json();
       currentKey = t.key;
       editor.style.display='block';
       document.getElementById('editorTitle').textContent = 'Edit: ' + t.key;
@@ -59,10 +59,56 @@
       fields.html.value = t.html_body || '';
       statusEl.textContent='';
       statusEl.style.color='';
-      await loadList();
+        renderVariables();
+        await loadList();
     } catch(err){
       statusEl.textContent='Network error loading template';
       statusEl.style.color='#b00020';
+    }
+  }
+
+  // Render variable tokens. Uses automatic variables + user-declared variables
+  function renderVariables(){
+    if(!variablesListEl) return;
+    variablesListEl.innerHTML = '';
+    // automatic variables
+    const auto = ['current_date','current_time','current_datetime','current_year','email'];
+    auto.forEach(v => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'px-2 py-1 bg-gray-100 text-sm rounded-md border';
+      btn.textContent = '{{' + v + '}}';
+      btn.onclick = () => insertAtCursor(fields.html, '{{' + v + '}}');
+      variablesListEl.appendChild(btn);
+    });
+    // user-declared variables from the vars field (comma separated)
+    const extra = (fields.vars.value || '').split(',').map(s=>s.trim()).filter(Boolean);
+    extra.forEach(v => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'px-2 py-1 bg-yellow-50 text-sm rounded-md border';
+      btn.textContent = '{{' + v + '}}';
+      btn.onclick = () => insertAtCursor(fields.html, '{{' + v + '}}');
+      variablesListEl.appendChild(btn);
+    });
+  }
+
+  // Insert text at cursor position for a textarea/input
+  function insertAtCursor(el, text){
+    try{
+      el.focus();
+      const start = el.selectionStart || 0;
+      const end = el.selectionEnd || 0;
+      const val = el.value || '';
+      el.value = val.slice(0, start) + text + val.slice(end);
+      // move cursor after inserted text
+      const pos = start + text.length;
+      el.selectionStart = el.selectionEnd = pos;
+      // trigger input event in case other code listens
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }catch(e){
+      // fallback: append at end
+      el.value = (el.value || '') + text;
     }
   }
 
@@ -75,18 +121,18 @@
       html_body: fields.html.value
     };
     if(!payload.key){ statusEl.textContent='Key required'; statusEl.style.color='#b00020'; return; }
-    const method = currentKey ? 'PUT' : 'POST';
     const url = currentKey ? '/admin/email-templates/' + encodeURIComponent(currentKey) : '/admin/email-templates';
     try {
-      const res = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      const { res, data } = currentKey 
+        ? await window.dh.apiPut(url, payload)
+        : await window.dh.apiPost(url, payload);
       if(res.ok){
         statusEl.textContent='Saved';
         statusEl.style.color='#0a7a2a';
         currentKey = payload.key;
         loadList();
       } else {
-        const data = await res.json().catch(()=>({}));
-        statusEl.textContent=data.detail || 'Save failed';
+        statusEl.textContent=data?.detail || 'Save failed';
         statusEl.style.color='#b00020';
       }
     } catch(err){
@@ -99,7 +145,7 @@
     if(!currentKey){ editor.style.display='none'; return; }
     if(!confirm('Delete template ' + currentKey + '?')) return;
     try {
-      const res = await fetch('/admin/email-templates/' + encodeURIComponent(currentKey), { method:'DELETE' });
+      const { res } = await window.dh.apiDelete('/admin/email-templates/' + encodeURIComponent(currentKey));
       if(res.ok){
         statusEl.textContent='Deleted';
         statusEl.style.color='#0a7a2a';
@@ -120,6 +166,8 @@
   window.__EmailTplAdmin = { reload: loadList, newTemplate };
 
   document.getElementById('newBtn').onclick = newTemplate;
+  // update variables preview when vars input changes
+  fields.vars.addEventListener('input', renderVariables);
   document.getElementById('saveBtn').onclick = save;
   document.getElementById('deleteBtn').onclick = del;
   document.getElementById('cancelBtn').onclick = () => { editor.style.display='none'; };

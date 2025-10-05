@@ -730,7 +730,13 @@ async def forgot_password(payload: ForgotPasswordIn):
             reset_link = f"{base}/reset-password?token={token}"
             subject = 'Reset your DinnerHopping password'
             body = f"Hi,\n\nTo reset your password, click the link below:\n{reset_link}\n\nIf you didn't request this, ignore this message.\n\nThanks,\nDinnerHopping Team"
-            email_sent = await send_email(to=email, subject=subject, body=body, category='password_reset')
+            email_sent = await send_email(
+                to=email,
+                subject=subject,
+                body=body,
+                category='password_reset',
+                template_vars={'reset_url': reset_link, 'email': email}
+            )
 
     return {"message": "If an account exists for this email, a password reset link has been sent.", "email_sent": email_sent}
 

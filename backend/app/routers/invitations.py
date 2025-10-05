@@ -297,7 +297,13 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
                     "If you don't have an account, you can register using the same email address.\n\nThanks,\nDinnerHopping Team"
                 )
             # fire-and-forget but await to surface SMTP errors in logs (send_email handles its own failures)
-            await send_email(to=invited_email_lc, subject=subject, body=body, category='invitation')
+            await send_email(
+                to=invited_email_lc,
+                subject=subject,
+                body=body,
+                category='invitation',
+                template_vars={'invitation_link': link, 'temp_password': temp_password, 'email': invited_email_lc}
+            )
 
             return {"id": str(res.inserted_id), "token": token, "link": link}
         except DuplicateKeyError:
@@ -597,7 +603,14 @@ async def accept_invitation_via_link(token: str, request: Request):
             f"Hi,\n\nYour account was created and the invitation was accepted for you. You can log in with:\n\n"
             f"Email: {user_email}\nTemporary password: {temp_password}\n\nPlease change your password after signing in.\n\nThanks,\nDinnerHopping Team"
         )
-        await send_email(to=user_email, subject=subject, body=body, category='invitation_accept')
+        reg_id = str(reg_res.inserted_id) if hasattr(reg_res, 'inserted_id') else str(reg_res.get('_id'))
+        await send_email(
+            to=user_email,
+            subject=subject,
+            body=body,
+            category='invitation_accept',
+            template_vars={'registration_id': reg_id, 'email': user_email, 'temp_password': temp_password}
+        )
 
     # redirect to frontend success page when requested by a browser
     accept_success_url = f"{(os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL') or 'http://localhost:8000').rstrip('/')}/invitations/accepted"

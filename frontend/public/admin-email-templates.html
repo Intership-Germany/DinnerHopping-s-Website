@@ -62,6 +62,14 @@
           <button id="deleteBtn" class="px-4 py-2 bg-red-600 text-white rounded-xl">Delete</button>
         </div>
         <div id="status" class="mt-3 text-sm"></div>
+        
+        <!-- Variables help panel: JS will populate clickable variables here -->
+        <div class="mt-6 border-t pt-4">
+          <h3 class="font-semibold mb-2">Variables help</h3>
+          <p class="text-sm text-gray-700 mb-2">Click a variable to insert it into the HTML Body at the cursor position.</p>
+          <div id="variablesList" class="flex flex-wrap gap-2"></div>
+          <p class="text-xs text-gray-500 mt-2">Automatic variables available in all templates: <code class="bg-gray-100 px-1 rounded">{{current_date}}</code>, <code class="bg-gray-100 px-1 rounded">{{current_time}}</code>, <code class="bg-gray-100 px-1 rounded">{{current_datetime}}</code>, <code class="bg-gray-100 px-1 rounded">{{current_year}}</code></p>
+        </div>
       </div>
     </div>
   </div>
