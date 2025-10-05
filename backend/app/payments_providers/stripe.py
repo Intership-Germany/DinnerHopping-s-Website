@@ -10,6 +10,8 @@ def create_checkout_session(amount_cents: int, payment_id, idempotency_key: str 
     stripe.api_key = stripe_key
 
     # Build common kwargs for session creation
+    # Use FRONTEND_BASE_URL for user-facing redirects, fallback to BACKEND_BASE_URL
+    frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
     session_kwargs = dict(
         payment_method_types=['card'],
         line_items=[
@@ -23,8 +25,8 @@ def create_checkout_session(amount_cents: int, payment_id, idempotency_key: str 
             }
         ],
         mode='payment',
-        success_url=os.getenv('BACKEND_BASE_URL', 'http://localhost:8000') + f'/payments/{payment_id}/success',
-        cancel_url=os.getenv('BACKEND_BASE_URL', 'http://localhost:8000') + f'/payments/{payment_id}/cancel',
+        success_url=frontend_base.rstrip('/') + f'/payment-success.html?payment_id={payment_id}',
+        cancel_url=frontend_base.rstrip('/') + f'/payment-success.html?payment_id={payment_id}&status=cancelled',
         metadata={
             "payment_db_id": str(payment_id),
             "idempotency_key": idempotency_key or '',

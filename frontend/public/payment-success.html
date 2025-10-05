@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Payment Success - DinnerHopping</title>
+  <title>Payment Status - DinnerHopping</title>
   <script src="js/config.js"></script>
   <script src="js/includes.js" defer></script>
   <script src="js/client.js" defer></script>
@@ -12,12 +12,34 @@
 <body class="bg-gray-50">
   <div data-include="partials/header.html"></div>
   <main class="max-w-3xl mx-auto px-4 py-12">
-    <div class="bg-white rounded-2xl shadow-xl p-8 text-center">
-      <div class="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 mb-4">
-        <svg xmlns="https://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-10 h-10"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293A1 1 0 006.293 10.707l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+    <div id="status-container" class="bg-white rounded-2xl shadow-xl p-8 text-center">
+      <!-- Success state (default) -->
+      <div id="success-state">
+        <div class="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 mb-4">
+          <svg xmlns="https://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-10 h-10"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293A1 1 0 006.293 10.707l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+        </div>
+        <h1 class="text-2xl font-bold text-gray-900">Payment confirmed</h1>
+        <p class="text-gray-600 mt-2">Thanks for completing your registration. You'll receive an email with details shortly.</p>
       </div>
-      <h1 class="text-2xl font-bold text-gray-900">Payment confirmed</h1>
-      <p class="text-gray-600 mt-2">Thanks for completing your registration. You’ll receive an email with details shortly.</p>
+      
+      <!-- Failed state -->
+      <div id="failed-state" class="hidden">
+        <div class="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center text-red-600 mb-4">
+          <svg xmlns="https://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-10 h-10"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>
+        </div>
+        <h1 class="text-2xl font-bold text-gray-900">Payment failed</h1>
+        <p class="text-gray-600 mt-2">Unfortunately, your payment could not be processed. Please try again or contact support if the problem persists.</p>
+      </div>
+      
+      <!-- Cancelled state -->
+      <div id="cancelled-state" class="hidden">
+        <div class="mx-auto w-16 h-16 rounded-full bg-yellow-100 flex items-center justify-center text-yellow-600 mb-4">
+          <svg xmlns="https://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-10 h-10"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>
+        </div>
+        <h1 class="text-2xl font-bold text-gray-900">Payment cancelled</h1>
+        <p class="text-gray-600 mt-2">You cancelled the payment process. You can try again whenever you're ready.</p>
+      </div>
+      
       <div class="mt-6 flex items-center justify-center gap-3">
         <a href="/home.html" class="px-5 py-2 rounded-lg bg-[#008080] text-white font-semibold">Back to events</a>
         <a id="go-dashboard" href="#" class="px-5 py-2 rounded-lg border border-gray-300 text-gray-700">Go to my event dashboard</a>
@@ -26,6 +48,25 @@
   </main>
   <script>
   (async function(){
+    // Parse URL parameters
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('status');
+    const paymentId = params.get('payment_id');
+    
+    // Show appropriate status message
+    const successState = document.getElementById('success-state');
+    const failedState = document.getElementById('failed-state');
+    const cancelledState = document.getElementById('cancelled-state');
+    
+    if (status === 'failed') {
+      successState.classList.add('hidden');
+      failedState.classList.remove('hidden');
+    } else if (status === 'cancelled') {
+      successState.classList.add('hidden');
+      cancelledState.classList.remove('hidden');
+    }
+    // Default is success, already visible
+    
     try{
       // Try to infer a recent event registration for dashboard link (best-effort)
       const res = await (window.apiFetch ? window.apiFetch('/events/my', { method: 'GET' }) : fetch((window.BACKEND_BASE_URL||'') + '/events/my'));
