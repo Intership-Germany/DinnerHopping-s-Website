@@ -128,7 +128,14 @@ async def send_partner_replaced_notice(old_partner_email: str | None, new_partne
         ok_any = await _send(r, "Team update", lines, "team_update", template_key="team_update", variables={'event_title': event_title, 'email': r, 'old_partner_email': old_partner_email, 'new_partner_email': new_partner_email}) or ok_any
     return ok_any
 
-# Future notifications placeholder: plan release, reminders, refund processed, etc.
+async def send_refund_processed(email: str, event_title: str, amount_cents: int) -> bool:
+    amount_eur = f"{amount_cents/100:.2f}"
+    lines = [
+        f"Your refund for '{event_title}' has been processed.",
+        f"Amount: {amount_eur} €",
+        "It may take a few days to appear depending on your payment provider.",
+    ]
+    return await _send(email, f"Refund processed for {event_title}", lines, "refund_processed", template_key="refund_processed", variables={'event_title': event_title, 'amount_eur': amount_eur, 'email': email})
 
 __all__ = [
     "send_payment_confirmation_emails",
@@ -136,4 +143,5 @@ __all__ = [
     "send_team_partner_cancelled",
     "send_partner_replaced_notice",
     "send_verification_reminder",
+    "send_refund_processed",
 ]

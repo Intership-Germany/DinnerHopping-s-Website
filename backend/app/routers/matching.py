@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any, Tuple, Set
 from ..services.matching import run_algorithms, persist_match_proposal, mark_finalized, list_issues, refunds_overview, finalize_and_generate_plans, _build_teams, _score_group_phase, _travel_time_for_phase, _compute_metrics, _team_emails_map
 from ..services.matching import compute_team_paths  # new for travel map
 from ..services.routing import route_polyline  # use OSRM real route geometry
+from ..services.matching import process_refunds  # ajout pour refunds processing
 import datetime
 
 ######### Router / Endpoints #########
@@ -157,6 +158,18 @@ async def move_team(event_id: str, payload: dict, _=Depends(require_admin)):
 async def refunds(event_id: str, _=Depends(require_admin)):
     await require_event_published(event_id)
     return await refunds_overview(event_id)
+
+
+@router.post('/{event_id}/refunds/process')
+async def process_refunds_endpoint(event_id: str, payload: dict | None = None, _=Depends(require_admin)):
+    await require_event_published(event_id)
+    registration_ids = None
+    if payload and isinstance(payload, dict):
+        val = payload.get('registration_ids')
+        if isinstance(val, list):
+            registration_ids = [str(x) for x in val if isinstance(x, (str, int))]
+    result = await process_refunds(event_id, registration_ids=registration_ids)
+    return result
 
 
 @router.get('/{event_id}/details')
