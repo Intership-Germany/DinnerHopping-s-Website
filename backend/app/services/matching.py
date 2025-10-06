@@ -3,12 +3,16 @@ import os
 import random
 from typing import Any, Dict, List, Optional, Tuple, Set
 from bson.objectid import ObjectId
+from datetime import datetime, timezone
+from bson.objectid import ObjectId
+from ..notifications import send_refund_processed
 
 from .. import db as db_mod
 from ..enums import CoursePreference, DietaryPreference, normalized_value
 from .geocoding import geocode_address
 from .routing import route_duration_seconds
 from ..utils import send_email  # reuse notification helper
+from .. import datetime_utils
 
 # Weights default from env with sensible fallbacks
 _DEF = lambda name, d: float(os.getenv(name, d))
@@ -899,6 +903,61 @@ async def list_issues(event_id: str, version: Optional[int] = None) -> dict:
         else:
             if cancelled:
                 team_cancelled.add(tid)
+    # --- Payment issues (optional) ---
+    ev = await _get_event(event_id)
+    include_payment_checks = False
+    if ev and int(ev.get('fee_cents') or 0) > 0:
+        pddl = ev.get('payment_deadline') or ev.get('registration_deadline')
+        # Normalize to aware datetime
+        if isinstance(pddl, str):
+            try:
+                pddl_dt = datetime_utils.parse_iso(pddl)
+            except Exception:
+                pddl_dt = None
+        else:
+            pddl_dt = pddl
+        if pddl is None:
+            # If no deadline defined, still allow checks (set include true) but only if event status is not draft
+            include_payment_checks = (ev.get('status') or '').lower() not in ('draft','coming_soon')
+        else:
+            try:
+                if pddl_dt and pddl_dt.tzinfo is None:
+                    pddl_dt = pddl_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+            now = datetime.now(timezone.utc)
+            include_payment_checks = bool(pddl_dt and now >= pddl_dt)
+    team_payment_missing: Set[str] = set()
+    team_payment_partial: Set[str] = set()
+    if include_payment_checks:
+        # Collect all registration ids for single scan of payments
+        all_reg_ids: List[ObjectId] = []
+        for regs in reg_by_team.values():
+            for r in regs:
+                rid = r.get('_id')
+                if rid is not None:
+                    all_reg_ids.append(rid)
+        payments_by_reg: Dict[str, dict] = {}
+        if all_reg_ids:
+            async for p in db_mod.db.payments.find({'registration_id': {'$in': all_reg_ids}}):
+                rid = p.get('registration_id')
+                if rid is not None:
+                    payments_by_reg[str(rid)] = p
+        cancelled_statuses = {'cancelled_by_user','cancelled_admin','refunded','expired'}
+        for tid, regs in reg_by_team.items():
+            active = [r for r in regs if r.get('status') not in cancelled_statuses]
+            if not active:
+                continue
+            paid_count = 0
+            for r in active:
+                rid = r.get('_id')
+                pr = payments_by_reg.get(str(rid)) if rid is not None else None
+                if pr and pr.get('status') == 'paid':
+                    paid_count += 1
+            if paid_count == 0:
+                team_payment_missing.add(tid)
+            elif paid_count < len(active):
+                team_payment_partial.add(tid)
     # Flag groups
     for g in groups:
         g_issues: List[str] = []
@@ -907,6 +966,10 @@ async def list_issues(event_id: str, version: Optional[int] = None) -> dict:
                 g_issues.append('faulty_team_cancelled')
             if tid in team_incomplete:
                 g_issues.append('team_incomplete')
+            if tid in team_payment_missing:
+                g_issues.append('payment_missing')
+            if tid in team_payment_partial:
+                g_issues.append('payment_partial')
         if g_issues:
             issues.append({'group': g, 'issues': list(sorted(set(g_issues)))})
     return {'groups': groups, 'issues': issues}
@@ -1203,7 +1266,6 @@ async def process_refunds(event_id: str, registration_ids: list[str] | None = No
         # Lors d'un traitement ciblé inclure aussi les enregistrements déjà marqués 'refunded' pour renvoyer un statut idempotent.
         if 'refunded' not in q['status']['$in']:
             q['status']['$in'].append('refunded')
-        from bson.objectid import ObjectId
         oids = []
         for rid in registration_ids:
             try:
@@ -1220,9 +1282,7 @@ async def process_refunds(event_id: str, registration_ids: list[str] | None = No
     processed_items: list[dict] = []
     if not candidates:
         return {'processed': 0, 'items': []}
-    from datetime import datetime, timezone
     from . import matching as _self  # self import for helpers if needed
-    from ..notifications import send_refund_processed
     ev_title = ev.get('title') or 'DinnerHopping Event'
     for reg in candidates:
         reg_id = reg.get('_id')

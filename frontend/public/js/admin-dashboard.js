@@ -138,16 +138,36 @@
     const pref = det.course_preference ? `pref: ${det.course_preference}` : '';
     const diet = det.team_diet ? `diet: ${det.team_diet}` : '';
     const canMain = det.can_host_main ? 'main✔' : '';
+    const pay = (det.payment)||{};
+    const payStatus = pay.status; // 'paid'|'partial'|'unpaid'|'n/a'
+    let colorClasses = 'bg-white border';
+    let dot = '';
+    if (payStatus === 'unpaid'){
+      colorClasses = 'bg-[#fef2f2] border border-[#fecaca]';
+      dot = '<span class="inline-block w-2.5 h-2.5 rounded-full bg-[#dc2626]" title="Unpaid"></span>';
+    } else if (payStatus === 'partial'){
+      colorClasses = 'bg-[#fffbeb] border border-[#fde68a]';
+      dot = '<span class="inline-block w-2.5 h-2.5 rounded-full bg-[#f59e0b]" title="Partial payment"></span>';
+    } else if (payStatus === 'paid'){
+      colorClasses = 'bg-[#f0fdf4] border border-[#bbf7d0]';
+      dot = '<span class="inline-block w-2.5 h-2.5 rounded-full bg-[#16a34a]" title="Paid"></span>';
+    } else {
+      colorClasses = 'bg-white border border-[#e5e7eb]';
+    }
     const names = Array.isArray(det.members) && det.members.length
       ? det.members.map(m=> (m.display_name || [m.first_name, m.last_name].filter(Boolean).join(' ') || m.email)).join(', ')
       : null;
     const header = names ? names : tid;
     const meta = [pref, diet, canMain].filter(Boolean).join(' · ');
     const el = document.createElement('div');
-    el.className = 'team-card border rounded-lg p-2 text-xs bg-white cursor-move shadow-sm flex items-start justify-between gap-2';
+    el.className = `team-card ${colorClasses} rounded-lg p-2 text-xs cursor-move shadow-sm flex items-start justify-between gap-2 transition-colors duration-150`;
     el.draggable = true;
     el.dataset.teamId = tid;
-    el.innerHTML = `<div class="min-w-0"><div class="font-semibold text-sm truncate">${header}</div>${meta?`<div class=\"text-[#4a5568] truncate\">${meta}</div>`:''}</div><button class="team-map-btn text-[13px]" title="View path" data-team-id="${tid}">🗺️</button>`;
+    el.innerHTML = `<div class="min-w-0">
+      <div class="flex items-center gap-1 font-semibold text-sm truncate">${header}${dot}</div>
+      ${meta?`<div class=\"text-[#4a5568] truncate\">${meta}</div>`:''}
+      ${payStatus && payStatus!=='n/a'?`<div class=\"mt-0.5 text-[10px] uppercase tracking-wide ${payStatus==='unpaid'?'text-[#b91c1c]':'text-[#92400e]'}\">${payStatus}</div>`:''}
+    </div><button class="team-map-btn text-[13px]" title="View path" data-team-id="${tid}">🗺️</button>`;
     return el;
   }
 
@@ -165,28 +185,37 @@
     const by = groupsByPhase();
     const phases = ['appetizer','main','dessert'];
     box.innerHTML = '';
+    // Legend (payment coloring)
+    const legend = document.createElement('div');
+    legend.className = 'flex flex-wrap gap-4 items-center text-[11px] bg-[#f8fafc] p-2 rounded-lg border border-[#e2e8f0]';
+    legend.innerHTML = `
+      <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#dc2626]"></span> unpaid</div>
+      <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#f59e0b]"></span> partial</div>
+      <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#16a34a]"></span> paid</div>
+      <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#9ca3af]"></span> n/a</div>`;
+    box.appendChild(legend);
     phases.forEach(phase=>{
       const section = document.createElement('div');
       section.innerHTML = `<div class="font-semibold mb-2 capitalize">${phase}</div>`;
       const wrap = document.createElement('div'); wrap.className = 'grid grid-cols-1 md:grid-cols-3 gap-3';
       (by[phase]||[]).forEach((g, localIdx)=>{
         const card = document.createElement('div');
-        card.className = 'p-3 rounded-xl border border-[#f0f4f7] bg-[#fcfcfd]';
+        card.className = 'p-3 rounded-xl border border-[#f0f4f7] bg-[#fcfcfd] group relative';
         // host
-        const hostZone = document.createElement('div'); hostZone.className = 'host-zone mb-2 p-2 rounded border border-dashed';
+        const hostZone = document.createElement('div'); hostZone.className = 'host-zone mb-2 p-2 rounded border border-dashed bg-white/40';
         hostZone.dataset.phase = phase; hostZone.dataset.groupIdx = String(g._idx); hostZone.dataset.role = 'host';
-        hostZone.innerHTML = '<div class="text-xs text-[#4a5568] mb-1">Host</div>';
+        hostZone.innerHTML = '<div class="text-xs text-[#4a5568] mb-1 flex items-center justify-between"><span>Host</span></div>';
         const hostCard = g.host_team_id ? renderTeamCard(String(g.host_team_id)) : null;
         if (hostCard){ hostCard.dataset.phase = phase; hostCard.dataset.groupIdx = String(g._idx); hostCard.dataset.role = 'host'; hostZone.appendChild(hostCard); }
         // host address (public) if available
         const addr = g.host_address_public || g.host_address;
         const addrEl = document.createElement('div');
-        addrEl.className = 'text-[11px] text-[#4a5568] mt-1';
+        addrEl.className = 'text-[11px] text-[#4a5568] mt-1 truncate';
         addrEl.textContent = `Host address: ${addr ? addr : '—'}`;
         hostZone.appendChild(addrEl);
         card.appendChild(hostZone);
         // guests
-        const guestZone = document.createElement('div'); guestZone.className = 'guest-zone p-2 rounded border border-dashed min-h-10';
+        const guestZone = document.createElement('div'); guestZone.className = 'guest-zone p-2 rounded border border-dashed min-h-10 bg-white/40';
         guestZone.dataset.phase = phase; guestZone.dataset.groupIdx = String(g._idx); guestZone.dataset.role = 'guest';
         guestZone.innerHTML = '<div class="text-xs text-[#4a5568] mb-1">Guests</div>';
         (g.guest_team_ids||[]).forEach(tid=>{
@@ -220,6 +249,36 @@
     bindDnD();
     bindDetailsControls();
     bindTeamMapButtons();
+    // async fetch payment issues summary
+    fetchIssuesForDetails();
+  }
+
+  async function fetchIssuesForDetails(){
+    try {
+      if (!detailsVersion) return;
+      const evId = $('#matching-event-select').value; if (!evId) return;
+      const res = await apiFetch(`/matching/${evId}/issues?version=${detailsVersion}`);
+      if (!res.ok) return;
+      const data = await res.json().catch(()=>null); if (!data) return;
+      const groups = data.issues || [];
+      let missing = 0, partial = 0, cancelled = 0, incomplete = 0;
+      groups.forEach(g=>{
+        (g.issues||[]).forEach(isu=>{
+          if (isu==='payment_missing') missing++; else if (isu==='payment_partial') partial++; else if (isu==='faulty_team_cancelled') cancelled++; else if (isu==='team_incomplete') incomplete++;
+        });
+      });
+      const el = $('#details-issues');
+      const parts = [];
+      if (missing) parts.push(`${missing} missing payment`);
+      if (partial) parts.push(`${partial} partial payment`);
+      if (cancelled) parts.push(`${cancelled} with cancelled team`);
+      if (incomplete) parts.push(`${incomplete} incomplete team`);
+      if (parts.length){
+        el.textContent = (el.textContent? el.textContent + ' | ' : '') + parts.join(' · ');
+      } else if (!el.textContent){
+        el.textContent = 'No payment issues.';
+      }
+    } catch(e){}
   }
 
   function bindTeamMapButtons(){
@@ -580,23 +639,28 @@
         t.close();
       } else if (i){
         const v = Number(i.getAttribute('data-issues'));
-        // Dynamically fetch and display issues as a collapsible panel under the proposal card and a toast summary
         const card = i.closest('div.p-3');
         const existing = card.querySelector('.issues-panel');
         if (existing) { existing.remove(); return; }
         const t = toastLoading('Analyzing issues...');
         const res = await apiFetch(`/matching/${evId}/issues?version=${v}`);
         const data = await res.json().catch(()=>({ groups:[], issues:[] }));
-        const count = (data.issues||[]).length;
+        const items = data.issues||[];
+        const count = items.length;
         if (!count){ t.update('No issues detected'); t.close(); return; }
-        t.update(`${count} group(s) with issues`);
-        t.close();
+        t.update(`${count} group(s) with issues`); t.close();
+        // Build grouped counts
+        const counts = {};
+        items.forEach(it=> (it.issues||[]).forEach(isu=>{ counts[isu] = (counts[isu]||0)+1; }));
+        const badge = (k, v)=>`<span class=\"px-2 py-0.5 rounded-full text-[11px] font-medium ${k==='payment_missing'?'bg-[#fee2e2] text-[#991b1b]':k==='payment_partial'?'bg-[#fef3c7] text-[#92400e]':k==='faulty_team_cancelled'?'bg-[#fecaca] text-[#7f1d1d]':k==='team_incomplete'?'bg-[#e0f2fe] text-[#075985]':'bg-[#e2e8f0] text-[#334155]'}\">${k.replace(/_/g,' ')}: ${v}</span>`;
         const panel = document.createElement('div');
-        panel.className = 'issues-panel mt-2 border border-[#fde2e1] bg-[#fff7f7] rounded-xl p-2 text-sm';
-        panel.innerHTML = (data.issues||[]).map(it=>{
-          const g = it.group || {}; const tags = (it.issues||[]).join(', ');
-          return `<div class=\"py-1\"><span class=\"font-semibold\">${g.phase||''}</span>: host ${g.host_team_id} → guests ${(g.guest_team_ids||[]).join(', ')} <span class=\"text-[#7a0916]\">[${tags}]</span></div>`;
-        }).join('');
+        panel.className = 'issues-panel mt-2 border border-[#fde2e1] bg-[#fff7f7] rounded-xl p-3 text-sm';
+        panel.innerHTML = `
+          <div class=\"mb-2 flex flex-wrap gap-2\">${Object.entries(counts).map(([k,v])=>badge(k,v)).join('')}</div>
+          <div class=\"space-y-1 max-h-60 overflow-auto pr-1\">${items.map(it=>{
+            const g = it.group || {}; const tags = (it.issues||[]).map(isu=>`<span class=\"inline-block px-1.5 py-0.5 mr-1 mb-1 rounded text-[11px] ${isu==='payment_missing'?'bg-[#fee2e2] text-[#991b1b]':isu==='payment_partial'?'bg-[#fef3c7] text-[#92400e]':isu==='faulty_team_cancelled'?'bg-[#fecaca] text-[#7f1d1d]':isu==='team_incomplete'?'bg-[#e0f2fe] text-[#075985]':'bg-[#e2e8f0] text-[#334155]'}\">${isu.replace(/_/g,' ')}</span>`).join('');
+            return `<div class=\"py-1 border-b last:border-b-0 border-[#f0d4d3]\"><div class=\"text-xs text-[#475569]\"><span class=\"font-semibold\">${g.phase||''}</span> · host <code>${g.host_team_id}</code> → guests ${(g.guest_team_ids||[]).map(x=>`<code>${x}</code>`).join(', ')} </div><div class=\"mt-1\">${tags}</div></div>`;
+          }).join('')}</div>`;
         card.appendChild(panel);
       } else if (del){
         const v = Number(del.getAttribute('data-delete'));
@@ -605,7 +669,6 @@
         if (r.ok){
           await loadProposals();
           if (detailsVersion === v){
-            // Reload latest details (may not exist anymore)
             await loadMatchDetails();
           }
         } else {

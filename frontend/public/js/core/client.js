@@ -142,7 +142,19 @@
       const t = await ensureCsrfFor(options.method);
       if (t) options.headers[CSRF_HEADER] = t;
     }
-    const url = `${BASE}${path}`;
+    // Build final URL: respect absolute URLs and robustly join base + relative path
+    function buildUrl(p) {
+      try {
+        if (typeof p === 'string' && /^https?:\/\//i.test(p)) return p; // already absolute
+      } catch {}
+      const base = String(BASE || '');
+      const trimmedBase = base.replace(/\/+$/, '');
+      const rel = String(p || '');
+      if (!trimmedBase) return rel; // fallback when BASE missing
+      if (rel.startsWith('/')) return trimmedBase + rel;
+      return trimmedBase + '/' + rel;
+    }
+    const url = buildUrl(path);
     let res;
     try {
       res = await fetch(url, options);

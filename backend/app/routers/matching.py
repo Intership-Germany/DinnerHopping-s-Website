@@ -187,7 +187,7 @@ async def process_refunds_endpoint(event_id: str, payload: dict | None = None, _
 async def match_details(event_id: str, version: Optional[int] = None, _=Depends(require_admin)):
     """Return enriched details for a match proposal: groups, metrics, and team_details.
 
-    team_details: { team_id: { size, team_diet, course_preference, can_host_main, lat, lon, members: [ {email, first_name, last_name, display_name} ] } }
+    team_details now also includes a payment summary: payment: { status: 'paid'|'partial'|'unpaid'|'n/a', paid_count:int, active_reg_count:int }
     """
     # Find match doc
     q: Dict[str, Any] = {'event_id': event_id}
@@ -202,14 +202,55 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
         raise HTTPException(status_code=404, detail='Event not found')
     teams = await _build_teams(ev['_id'])
     team_map: Dict[str, dict] = {}
+    # Precollect registration ids for payment lookup & active filtering
+    reg_ids: List[ObjectId] = []
+    reg_status_cancelled = {'cancelled_by_user','cancelled_admin','refunded','expired'}
+    team_active_regs: Dict[str, List[ObjectId]] = {}
     for t in teams:
-        team_map[str(t['team_id'])] = {
+        tid = str(t['team_id'])
+        active_regs: List[ObjectId] = []
+        for r in t.get('member_regs') or []:
+            rid = r.get('_id')
+            if rid is None:
+                continue
+            reg_ids.append(rid)
+            if r.get('status') not in reg_status_cancelled:
+                active_regs.append(rid)
+        team_active_regs[tid] = active_regs
+    payments_by_reg: Dict[str, dict] = {}
+    if reg_ids:
+        async for p in db_mod.db.payments.find({'registration_id': {'$in': reg_ids}}):
+            rid = p.get('registration_id')
+            if rid is not None:
+                payments_by_reg[str(rid)] = p
+    for t in teams:
+        tid = str(t['team_id'])
+        team_map[tid] = {
             'size': t.get('size'),
             'team_diet': t.get('team_diet'),
             'course_preference': t.get('course_preference'),
             'can_host_main': t.get('can_host_main'),
             'lat': t.get('lat'),
             'lon': t.get('lon'),
+        }
+        active_ids = team_active_regs.get(tid) or []
+        paid_count = 0
+        for rid in active_ids:
+            pr = payments_by_reg.get(str(rid))
+            if pr and pr.get('status') == 'paid':
+                paid_count += 1
+        if not active_ids:
+            payment_status = 'n/a'
+        elif paid_count == 0:
+            payment_status = 'unpaid'
+        elif paid_count < len(active_ids):
+            payment_status = 'partial'
+        else:
+            payment_status = 'paid'
+        team_map[tid]['payment'] = {
+            'status': payment_status,
+            'paid_count': paid_count,
+            'active_reg_count': len(active_ids),
         }
     # Attach members (names) using team->emails mapping
     emails_map = await _team_emails_map(event_id)

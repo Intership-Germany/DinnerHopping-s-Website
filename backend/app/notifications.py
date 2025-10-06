@@ -17,7 +17,7 @@ import html
 # must be escaped in the regex so they are treated as literal characters.
 PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_\.]+)\s*\}\}")
 
-async def _render_template(key: str, fallback_subject: str, fallback_lines: Iterable[str], variables: Mapping[str, Any] | None = None, category: str = "generic") -> tuple[str,str]:
+async def _render_template(key: str, fallback_subject: str, fallback_lines: Iterable[str], variables: Mapping[str, Any] | None = None) -> tuple[str,str]:
     """Load template by key from DB and render with {{placeholders}}.
 
     Falls back to provided plaintext subject/body if template not found.
@@ -48,7 +48,8 @@ async def _render_template(key: str, fallback_subject: str, fallback_lines: Iter
     if not tpl:
         body = "\n".join(fallback_lines) + "\n"
         return fallback_subject, body
-    subject = tpl.get('subject') or fallback_subject
+    # Render subject and body using the same placeholder substitution logic
+    raw_subject = tpl.get('subject') or fallback_subject
     html_body = tpl.get('html_body') or "\n".join(fallback_lines)
 
     def _sub(match):
@@ -61,6 +62,8 @@ async def _render_template(key: str, fallback_subject: str, fallback_lines: Iter
                 return ''
         return html.escape(str(value))
 
+    # Substitute placeholders in subject and body
+    subject = PLACEHOLDER_PATTERN.sub(_sub, raw_subject)
     rendered = PLACEHOLDER_PATTERN.sub(_sub, html_body)
     # Simple heuristic: if template contains HTML tags, send as text by stripping tags? For now keep raw.
     # Current send_email only supports plaintext; we downgrade by stripping basic tags.

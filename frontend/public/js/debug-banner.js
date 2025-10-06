@@ -34,7 +34,6 @@
     var userRoles = null; // array or null
     var userEmail = null;
     var csrfPresent = false;
-    var online = typeof navigator !== 'undefined' ? navigator.onLine : true;
     var collapsed = false;
     var secureCookies = false;
     var authMode = 'unknown'; // cookie | bearer-ls | bearer-dh | none | unknown
@@ -91,15 +90,6 @@
     detectAuthMode();
     detectCsrf();
     detectSecureCookies();
-
-    window.addEventListener('online', function () {
-      online = true;
-      render();
-    });
-    window.addEventListener('offline', function () {
-      online = false;
-      render();
-    });
 
     function dot(color, title) {
       return (
@@ -167,7 +157,6 @@
             ? '#9ca3af'
             : '#0ea5e9';
       var csrfColor = csrfPresent ? '#22c55e' : '#ef4444';
-      var onlineColor = online ? '#22c55e' : '#ef4444';
       var secureColor = secureCookies ? '#22c55e' : '#f59e0b';
       var latencyPart = lastLatencyMs != null ? ' ' + lastLatencyMs + 'ms' : '';
       var emailDisplay = shortEmail(userEmail || '');
@@ -199,7 +188,6 @@
           '<div style="display:flex;align-items:center;gap:4px;pointer-events:auto;">' +
           '<button data-act="toggle" style="background:transparent;border:none;color:#fff;font-size:11px;cursor:pointer;padding:0 4px;">▸</button>' +
           statusDot(backendStatus) +
-          dot(onlineColor, 'Online status') +
           dot(csrfColor, 'CSRF ' + (csrfPresent ? 'present' : 'absent')) +
           dot(authColor, 'Auth mode: ' + authLabel) +
           '</div>';
@@ -235,11 +223,6 @@
         dot(csrfColor, 'CSRF token ' + (csrfPresent ? 'present' : 'absent')) +
         'CSRF: ' +
         (csrfPresent ? 'present' : 'absent') +
-        '</div>' +
-        '<div style="white-space:nowrap;">' +
-        dot(onlineColor, 'Navigator online state') +
-        'Net: ' +
-        (online ? 'online' : 'offline') +
         '</div>' +
         '<div style="white-space:nowrap;">' +
         dot(secureColor, 'Secure cookie heuristic (__Host-)') +
@@ -400,7 +383,6 @@
         roles: userRoles,
         email: userEmail,
         csrf_present: csrfPresent,
-        online: online,
         secure_cookies: secureCookies,
         auth_mode: authMode,
         last_profile_status: lastProfileStatus,

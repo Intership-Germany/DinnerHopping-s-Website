@@ -374,6 +374,35 @@ async def send_email(
         if template_vars and isinstance(template_vars, dict):
             vars_map = {**vars_map, **template_vars}
 
+        # Best-effort: enrich template vars with user details resolved by recipient email
+        try:
+            rec_email = (vars_map.get('email') or '').strip().lower()
+            if rec_email:
+                user_doc = await db_mod.db.users.find_one({'email': rec_email})
+                if user_doc:
+                    first_name = (user_doc.get('first_name') or '').strip()
+                    last_name = (user_doc.get('last_name') or '').strip()
+                    full_name = (f"{first_name} {last_name}".strip()) or (user_doc.get('email') or '').strip()
+                    # Do not override if caller already provided; only fill gaps
+                    vars_map.setdefault('first_name', first_name)
+                    vars_map.setdefault('last_name', last_name)
+                    vars_map.setdefault('full_name', full_name)
+                    existing_user = user_doc if isinstance(user_doc, dict) else {}
+                    # Create a safe nested user map limited to simple fields
+                    nested_user = {
+                        'email': user_doc.get('email'),
+                        'first_name': first_name,
+                        'last_name': last_name,
+                        'full_name': full_name,
+                    }
+                    current_user_map = vars_map.get('user') if isinstance(vars_map.get('user'), dict) else {}
+                    # Caller-provided nested user fields take precedence
+                    merged_user = {**nested_user, **(current_user_map or {})}
+                    vars_map['user'] = merged_user
+        except Exception:
+            # Never break email sending due to enrichment failures
+            pass
+
         # Candidate keys to check in DB: first the direct category, then a few
         # common aliases mapping to canonical template keys.
         alias_map = {
@@ -409,7 +438,6 @@ async def send_email(
                     fallback_subject=subject,
                     fallback_lines=fallback_lines,
                     variables=vars_map,
-                    category=found_template_key,
                 )
                 subject = tpl_subject
                 body = tpl_body
@@ -883,7 +911,13 @@ async def send_payment_confirmation(registration_id) -> bool:
     ]
     ok_any = False
     for to in recipients:
-        ok = await send_email(to=to, subject=subject, body="\n".join(lines), category='payment_confirmation')
+        ok = await send_email(
+            to=to,
+            subject=subject,
+            body="\n".join(lines),
+            category='payment_confirmation',
+            template_vars={'event_title': title, 'event_date': date, 'email': to},
+        )
         ok_any = ok_any or ok
     return ok_any
 
