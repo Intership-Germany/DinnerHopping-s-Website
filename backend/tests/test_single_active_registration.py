@@ -89,15 +89,16 @@ async def test_solo_registration_prevents_second_active_registration(test_data):
     assert result1['registration_id']
     assert result1['registration_status'] == 'pending_payment'
     
-    # Second registration for a different event should fail with 409
+    # Second registration for a different event: previous active registration should be auto-cancelled
+    # and the new registration should succeed (re-registration / auto-cancel behavior)
     payload2 = SoloPayload(data['event2_id'])
-    
-    with pytest.raises(HTTPException) as exc_info:
-        await register_solo(payload2, data['user'])
-    
-    assert exc_info.value.status_code == 409
-    assert 'existing_registration' in exc_info.value.detail
-    assert exc_info.value.detail['existing_registration']['event_title'] == 'Event 1'
+    result2 = await register_solo(payload2, data['user'])
+    assert result2['registration_id']
+    assert result2['registration_status'] == 'pending_payment'
+    # Ensure the previous registration was cancelled
+    prev_reg = await db_mod.db.registrations.find_one({'user_email_snapshot': 'test@example.com', 'event_id': data['event1_id']})
+    assert prev_reg is not None
+    assert prev_reg.get('status') in ('cancelled_by_user', 'cancelled_admin')
 
 
 @pytest.mark.asyncio
@@ -198,14 +199,14 @@ async def test_team_registration_prevents_second_active_registration(test_data):
     solo_payload = SoloPayload(data['event1_id'])
     await register_solo(solo_payload, data['user'])
     
-    # Try to create team registration for event 2 - should fail
+    # Try to create team registration for event 2 - should auto-cancel previous solo and succeed
     team_payload = TeamPayload(data['event2_id'])
-    
-    with pytest.raises(HTTPException) as exc_info:
-        await register_team(team_payload, data['user'])
-    
-    assert exc_info.value.status_code == 409
-    assert 'existing_registration' in exc_info.value.detail
+    result = await register_team(team_payload, data['user'])
+    assert result['team_id']
+    # Ensure previous solo registration was cancelled
+    prev = await db_mod.db.registrations.find_one({'user_email_snapshot': 'test@example.com', 'event_id': data['event1_id']})
+    assert prev is not None
+    assert prev.get('status') in ('cancelled_by_user', 'cancelled_admin')
 
 
 @pytest.mark.asyncio
@@ -247,10 +248,11 @@ async def test_team_registration_blocks_if_partner_has_active_registration(test_
             self.cooking_location = 'creator'
     
     # Try to create team registration for event 2 with partner who has active reg for event 1
+    # Partner's active registration should be auto-cancelled and team creation should succeed
     team_payload = TeamPayload(data['event2_id'])
-    
-    with pytest.raises(HTTPException) as exc_info:
-        await register_team(team_payload, data['user'])
-    
-    assert exc_info.value.status_code == 409
-    assert 'partner already has an active registration' in str(exc_info.value.detail).lower()
+    result = await register_team(team_payload, data['user'])
+    assert result['team_id']
+    # Ensure partner's previous registration was cancelled
+    partner_prev = await db_mod.db.registrations.find_one({'user_email_snapshot': 'partner@example.com', 'event_id': data['event1_id']})
+    assert partner_prev is not None
+    assert partner_prev.get('status') in ('cancelled_by_user', 'cancelled_admin')

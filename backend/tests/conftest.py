@@ -18,6 +18,10 @@ os.environ.setdefault("ENFORCE_HTTPS", "false")
 os.environ.setdefault("USE_FAKE_DB_FOR_TESTS", "1")
 # Disable CSRF enforcement during tests by default to avoid breaking unrelated flows
 os.environ.setdefault("CSRF_ENFORCE", "false")
+# Ensure password policy during tests matches test data (many tests use 8-char passwords)
+os.environ.setdefault("PASSWORD_MIN_LENGTH", "8")
+# Never write logs to files during tests; keep logs on stdout only
+os.environ.setdefault("LOG_TO_FILES", "false")
 
 # Import app AFTER env vars
 from app.main import app  # noqa: E402

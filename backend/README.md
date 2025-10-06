@@ -167,6 +167,14 @@ Fields:
 
 Placeholders use the form `{{variable_name}}` and are replaced with simple string values. Nested lookup using dot notation is supported (e.g. `{{user.first_name}}`). Missing variables become an empty string. The current mail sender downgrades HTML to plain text by stripping tags until full multipart support is implemented.
 
+Auto-available variables:
+- `email`: recipient email (first recipient when multiple)
+- `first_name`, `last_name`, `full_name`: looked up from the recipient user in DB (best-effort)
+- `user.*`: a nested map with `email`, `first_name`, `last_name`, `full_name`
+- `current_date`, `current_time`, `current_datetime`, `current_year`: timestamps in UTC
+
+You can still override any of these by providing explicit `template_vars` in code. Caller-provided values take precedence over auto-enriched values.
+
 **Automatic Variables**: The following variables are automatically available in all templates:
 - `{{current_date}}` - Current date in YYYY-MM-DD format
 - `{{current_time}}` - Current time in HH:MM:SS format  

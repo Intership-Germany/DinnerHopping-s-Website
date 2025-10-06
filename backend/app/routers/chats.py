@@ -23,34 +23,49 @@ class PostMessageIn(BaseModel):
     group_id: str
     body: str
 
-
 @router.post('/groups')
 async def create_group(payload: CreateGroupIn, current_user=Depends(get_current_user)):
-    now = datetime.datetime.now(datetime.timezone.utc)
-    # ensure event exists and is published; ensure user is registered or organizer
-    ev = await require_event_published(payload.event_id)
-    await require_user_registered_or_organizer(current_user, payload.event_id)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        # ensure event exists and is published; ensure user is registered or organizer
+        ev = await require_event_published(payload.event_id)
+        await require_user_registered_or_organizer(current_user, payload.event_id)
 
-    # ensure creator is included
-    participants = list(dict.fromkeys(payload.participant_emails or []))
-    creator_email = current_user.get('email')
-    if creator_email not in participants:
-        participants.append(creator_email)
+        # if a group for this event already exists, return it
+        existing = await db_mod.db.chat_groups.find_one({'event_id': payload.event_id})
+        if existing:
+            participants_out = []
+            for e in existing.get('participant_emails', []):
+                u = await db_mod.db.users.find_one({'email': e})
+                participants_out.append({'email': e, 'name': u.get('name') if u else None, 'address_public': u.get('address_public') if u else None})
+            return {
+                'group_id': str(existing.get('_id')),
+                'event_id': existing.get('event_id'),
+                'section_ref': existing.get('section_ref'),
+                'participants': participants_out,
+                'created_at': existing.get('created_at').isoformat() if existing.get('created_at') else None,
+                'created_by': existing.get('created_by')
+            }
 
-    doc = {
-        'event_id': payload.event_id,
-        'section_ref': payload.section_ref,
-        'participant_emails': participants,
-        'created_at': now,
-        'created_by': creator_email
-    }
-    res = await db_mod.db.chat_groups.insert_one(doc)
-    # enrich participant info for response
-    participants_out = []
-    for e in participants:
-        u = await db_mod.db.users.find_one({'email': e})
-        participants_out.append({'email': e, 'name': u.get('name') if u else None, 'address_public': u.get('address_public') if u else None})
-    return {'group_id': str(res.inserted_id), 'event_id': payload.event_id, 'section_ref': payload.section_ref, 'participants': participants_out, 'created_at': now.isoformat(), 'created_by': creator_email}
+        # ensure creator is included
+        participants = list(dict.fromkeys(payload.participant_emails or []))
+        creator_email = current_user.get('email')
+        if creator_email not in participants:
+            participants.append(creator_email)
+
+        doc = {
+            'event_id': payload.event_id,
+            'section_ref': payload.section_ref,
+            'participant_emails': participants,
+            'created_at': now,
+            'created_by': creator_email
+        }
+        res = await db_mod.db.chat_groups.insert_one(doc)
+        # enrich participant info for response
+        participants_out = []
+        for e in participants:
+            u = await db_mod.db.users.find_one({'email': e})
+            participants_out.append({'email': e, 'name': u.get('name') if u else None, 'address_public': u.get('address_public') if u else None})
+        return {'group_id': str(res.inserted_id), 'event_id': payload.event_id, 'section_ref': payload.section_ref, 'participants': participants_out, 'created_at': now.isoformat(), 'created_by': creator_email}
 
 @router.post('/cleanup')
 async def cleanup_chat_groups(days: int = 7, user=Depends(require_admin)):

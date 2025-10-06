@@ -243,6 +243,11 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
     canonical_idempotency = _normalize_idempotency_key(payload.idempotency_key, reg_obj, provider, flow)
 
     existing = await db_mod.db.payments.find_one({"idempotency_key": canonical_idempotency})
+    # If an idempotent payment exists but it was already refunded, treat it as expired
+    # and proceed to create a fresh payment instead of returning the refunded record.
+    if existing and (existing.get('status') or '').lower() == 'refunded':
+        existing = None
+
     if existing:
         log.debug('payment.create.idempotent key=%s payment_id=%s', canonical_idempotency, existing.get('_id'))
         next_action = None
@@ -264,6 +269,11 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
         )
 
     existing_for_registration = await db_mod.db.payments.find_one({"registration_id": reg_obj, "provider": provider})
+    # If there is an existing payment for this registration but it was refunded,
+    # ignore it so we create a fresh payment instead.
+    if existing_for_registration and (existing_for_registration.get('status') or '').lower() == 'refunded':
+        existing_for_registration = None
+
     if existing_for_registration and not existing_for_registration.get('idempotency_key'):
         await db_mod.db.payments.update_one({"_id": existing_for_registration.get('_id')}, {"$set": {"idempotency_key": canonical_idempotency}})
         existing_for_registration['idempotency_key'] = canonical_idempotency
