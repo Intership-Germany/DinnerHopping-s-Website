@@ -6,7 +6,8 @@
     "lint": "eslint \"public/js/**/*.js\" --max-warnings=0",
     "lint:fix": "eslint \"public/js/**/*.js\" --fix",
     "format": "prettier \"public/**/*.html\" \"public/js/**/*.js\" --write",
-    "check": "npm run lint && prettier \"public/js/**/*.js\" --check"
+    "check": "npm run lint && prettier \"public/js/**/*.js\" --check",
+    "docs:scan": "node scripts/generate-js-manifest.js"
   },
   "devDependencies": {
     "eslint": "^8.57.0",

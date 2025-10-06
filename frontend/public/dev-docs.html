@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DinnerHopping Frontend – JS Overview & Flow</title>
+    <meta name="robots" content="noindex" />
+    <style>
+      :root {
+        --bg: #0f172a; /* slate-900 */
+        --panel: #111827; /* gray-900 */
+        --muted: #94a3b8; /* slate-400 */
+        --text: #e5e7eb; /* gray-200 */
+        --accent: #38bdf8; /* sky-400 */
+        --accent-2: #34d399; /* emerald-400 */
+        --border: #1f2937; /* gray-800 */
+      }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Noto Sans, "Apple Color Emoji", "Segoe UI Emoji";
+        color: var(--text);
+        background: linear-gradient(180deg, var(--bg) 0%, #0b1220 100%);
+      }
+      .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+      header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+      h1 { font-size: 24px; margin: 0; letter-spacing: .3px; }
+      .tag { color: var(--muted); font-size: 13px; }
+      .panel {
+        background: rgba(17,24,39,0.7);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 18px 16px;
+        margin: 14px 0;
+      }
+      .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+      @media (min-width: 960px) { .grid { grid-template-columns: 1fr 1fr; } }
+      h2 { font-size: 18px; margin: 6px 0 10px; color: var(--accent); }
+      h3 { font-size: 16px; margin: 8px 0 6px; color: var(--accent-2); }
+      ul { margin: 8px 0 0 20px; padding: 0; }
+      li { margin: 4px 0; }
+      code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12.5px; }
+      .muted { color: var(--muted); }
+      .kbd { border: 1px solid var(--border); background: #0b1020; border-radius: 6px; padding: 0 6px; display: inline-block; }
+      a { color: #7dd3fc; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .small { font-size: 12px; }
+      .table { width: 100%; border-collapse: collapse; }
+      .table th, .table td { border-bottom: 1px solid var(--border); padding: 8px 6px; vertical-align: top; }
+      .table th { text-align: left; color: var(--muted); font-weight: 600; }
+      .callout { border-left: 3px solid var(--accent); padding: 10px 12px; background: rgba(56,189,248,0.06); border-radius: 8px; }
+      .mermaid-panel { overflow: auto; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.4/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({ startOnLoad: true, theme: 'dark', securityLevel: 'loose' });</script>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div>
+          <h1 id="i18n-title">Frontend JavaScript map</h1>
+          <div class="tag" id="i18n-subtitle">DinnerHopping · static frontend (vanilla JS + Tailwind via CDN)</div>
+        </div>
+        <div>
+          <label for="lang" class="small muted" id="i18n-language-label">Language:</label>
+          <select id="lang" class="kbd" aria-label="Language">
+            <option value="en">English</option>
+            <option value="fr">Français</option>
+          </select>
+        </div>
+      </header>
+
+      <div class="panel callout small" id="i18n-callout">
+        This page documents only the frontend. Backend code must not be changed from here. File list based on <span class="mono">frontend/public/js</span> structure. Descriptions are purpose-oriented, not exhaustive APIs.
+      </div>
+
+      <section class="panel">
+  <h2 id="i18n-flow">High-level flow</h2>
+        <div class="mermaid-panel">
+          <div class="mermaid">
+flowchart TD
+  page[Page HTML loaded] --> includes[public/js/includes.js loads partials]
+  includes --> guard{Auth guard passes?}
+  guard -- yes --> csrf[core/client.js initCsrf]
+  guard -- no --> unauthorized[unauthorized page]
+  csrf --> pageScripts[pages/*.js bootstraps page logic]
+  pageScripts --> components[components/* init widgets]
+  components --> action[User action -> apiFetch]
+  action --> backend[(Backend APIs)]
+  backend --> ui[utils/toast.js + DOM updates]
+  ui --> pageScripts
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 id="i18n-core">Core and infrastructure</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th id="i18n-th-file">File</th>
+              <th id="i18n-th-purpose">Purpose</th>
+              <th id="i18n-th-key">Key functions / behaviors</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>public/js/includes.js</code></td>
+              <td>Injects shared partials (header/footer), highlights active nav, and safely runs inline scripts embedded in partials.</td>
+              <td>
+                - Load HTML fragments via <span class="mono">data-include</span><br />
+                - Re-run per-page inline initializers after include<br />
+              </td>
+            </tr>
+            <tr>
+              <td><code>public/js/core/client.js</code></td>
+              <td>HTTP client wrapper around <span class="mono">fetch</span> with cookie-based auth, CSRF management, and 401/419 refresh flow.</td>
+              <td>
+                - <span class="mono">initCsrf()</span>: primes CSRF token from cookies<br />
+                - <span class="mono">apiFetch(path, options)</span>: attaches credentials, X-CSRF-Token, handles refresh
+              </td>
+            </tr>
+            <tr>
+              <td><code>public/js/core/auth.js</code></td>
+              <td>Auth helpers on top of the client (login/logout/refresh/profile).</td>
+              <td>
+                - Login flow, sets cookies exposed by backend<br />
+                - Read/update current user profile via API
+              </td>
+            </tr>
+            <tr>
+              <td><code>public/js/core/auth-guard.js</code></td>
+              <td>Protects pages, redirecting unauthenticated users. Also supports legacy <span class="mono">dh_token</span> gate.</td>
+              <td>
+                - Guard check on load<br />
+                - Optional role checks (admin-only sections)
+              </td>
+            </tr>
+            <tr>
+              <td><code>public/js/core/admin-guard.js</code></td>
+              <td>Extra guard for admin pages.</td>
+              <td>- Verifies current user roles/claims</td>
+            </tr>
+            <tr>
+              <td><code>public/js/core/header.js</code></td>
+              <td>Header partial behaviors (active link state, user menu).</td>
+              <td>- Bind header interactions; reflect auth state</td>
+            </tr>
+            <tr>
+              <td><code>public/js/core/includes.js</code></td>
+              <td>Internal include/setup helpers used by core modules.</td>
+              <td>- Utility glue for partial initialization</td>
+            </tr>
+            <tr>
+              <td><code>public/js/debug-banner.js</code></td>
+              <td>Displays a banner in non-production builds/environments.</td>
+              <td>- Shows environment/config hints on the page</td>
+            </tr>
+            <tr>
+              <td><code>public/js/config.js</code></td>
+              <td>Generated by <span class="mono">generate-config.js</span>. Holds env-specific constants (e.g., <span class="mono">API_BASE_URL</span>).</td>
+              <td>- Configuration only; no runtime logic</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2 id="i18n-utilities">Utilities</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th class="i18n-th-file">File</th>
+              <th class="i18n-th-purpose">Purpose</th>
+              <th class="i18n-th-key">Key functions / behaviors</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>public/js/utils/dom.js</code></td>
+              <td>Lightweight DOM helpers.</td>
+              <td>- Query helpers, class toggles, element builders</td>
+            </tr>
+            <tr>
+              <td><code>public/js/utils/events.js</code></td>
+              <td>Small event-bus / pub-sub style utility.</td>
+              <td>- <span class="mono">on/off/emit</span> to coordinate components</td>
+            </tr>
+            <tr>
+              <td><code>public/js/utils/toast.js</code></td>
+              <td>Toast notifications.</td>
+              <td>- <span class="mono">showToast(type, message)</span>; auto-dismiss & accessibility</td>
+            </tr>
+            <tr>
+              <td><code>public/js/utils/network-errors.js</code></td>
+              <td>Normalizes API/network errors for user-friendly messages.</td>
+              <td>- Maps HTTP status and backend error codes to strings</td>
+            </tr>
+            <tr>
+              <td><code>public/js/utils/registration.js</code></td>
+              <td>Shared helpers for event registration flows.</td>
+              <td>- Form value shaping, validation, computed fee helpers</td>
+            </tr>
+            <tr>
+              <td><code>public/js/utils/debug.js</code></td>
+              <td>Debug toggles and logging helpers for local development.</td>
+              <td>- Conditional logging, feature flags</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2 id="i18n-components">Reusable UI components</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th class="i18n-th-file">File</th>
+              <th class="i18n-th-purpose">Purpose</th>
+              <th class="i18n-th-key">Key functions / behaviors</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>public/js/components/address-autocomplete.js</code></td>
+              <td>Autocomplete for address inputs (plain JS).</td>
+              <td>- Bind to input; emit selection; integrates with profile/registration</td>
+            </tr>
+            <tr>
+              <td><code>public/js/components/event-card.js</code></td>
+              <td>Renders an event card snippet.</td>
+              <td>- Render function; click handlers; slots for actions</td>
+            </tr>
+            <tr>
+              <td><code>public/js/components/my-registrations.js</code></td>
+              <td>Shows the current user’s registrations.</td>
+              <td>- Fetch+render list; cancel/inspect actions</td>
+            </tr>
+            <tr>
+              <td><code>public/js/components/password-strength.js</code></td>
+              <td>Password strength meter.</td>
+              <td>- Analyze input; update meter UI; hints</td>
+            </tr>
+            <tr>
+              <td><code>public/js/components/password-toggle.js</code></td>
+              <td>Show/hide password input.</td>
+              <td>- Toggle input type; preserve caret; aria updates</td>
+            </tr>
+            <tr>
+              <td><code>public/js/components/register-modal.js</code></td>
+              <td>Registration modal used on event pages.</td>
+              <td>- Open/close; validate; submit via <span class="mono">apiFetch()</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2 id="i18n-pages">Page scripts</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th class="i18n-th-file">File</th>
+              <th class="i18n-th-purpose">Purpose</th>
+              <th class="i18n-th-key">Key functions / behaviors</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>public/js/pages/index.js</code></td>
+              <td>Entry for landing/index page.</td>
+              <td>- Boot page; lightweight analytics hooks</td>
+            </tr>
+            <tr>
+              <td><code>public/js/pages/home.js</code></td>
+              <td>Home page content wiring.</td>
+              <td>- Load featured events; bind CTA</td>
+            </tr>
+            <tr>
+              <td><code>public/js/pages/event.js</code></td>
+              <td>Event details and registration actions.</td>
+              <td>- Fetch event; open register modal; handle payments link</td>
+            </tr>
+            <tr>
+              <td><code>public/js/pages/registration.js</code></td>
+              <td>Standalone registration flow.</td>
+              <td>- Validate inputs; create registration; route to payment</td>
+            </tr>
+            <tr>
+              <td><code>public/js/pages/login.js</code></td>
+              <td>Login form handling.</td>
+              <td>- Handle submit; show errors; redirect post-login</td>
+            </tr>
+            <tr>
+              <td><code>public/js/pages/profile.js</code></td>
+              <td>Profile view/edit.</td>
+              <td>- Load profile; update via PUT; address helpers</td>
+            </tr>
+            <tr>
+              <td><code>public/js/pages/reset-password.js</code></td>
+              <td>Password reset (request and confirm).</td>
+              <td>- Parse token; submit new password; success state</td>
+            </tr>
+            <tr>
+              <td><code>public/js/pages/chat.js</code></td>
+              <td>Chat UI for matched groups.</td>
+              <td>- Poll/send messages; render thread; typing indicators</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2 id="i18n-admin">Admin and access</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th class="i18n-th-file">File</th>
+              <th class="i18n-th-purpose">Purpose</th>
+              <th class="i18n-th-key">Key functions / behaviors</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>public/js/admin-dashboard.js</code></td>
+              <td>Admin dashboard page logic.</td>
+              <td>- Load metrics/lists; admin-only actions guarded</td>
+            </tr>
+            <tr>
+              <td><code>public/js/admin-email-templates.js</code></td>
+              <td>Admin email template editor.</td>
+              <td>- Load, edit, preview, save templates</td>
+            </tr>
+            <tr>
+              <td><code>public/js/unauthorized.js</code></td>
+              <td>Handles unauthorized view (info/redirect).</td>
+              <td>- Present CTA to login; navigate back</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel small muted">
+        <div>
+          <span id="i18n-last-updated-label">Last updated:</span> <span id="last-updated"></span> ·
+          <span id="i18n-manifest-label">Manifest:</span> <span id="manifest-stamp">not generated</span>
+        </div>
+      </section>
+
+    </div>
+
+    <script src="js/js-manifest.js" defer></script>
+    <script>
+      // Stamp the current build time for quick reference
+      (function(){
+        const el = document.getElementById('last-updated');
+        el.textContent = new Date().toLocaleString();
+      })();
+
+      // i18n dictionaries
+      const I18N = {
+        en: {
+          language: 'Language:',
+          title: 'Frontend JavaScript map',
+          subtitle: 'DinnerHopping · static frontend (vanilla JS + Tailwind via CDN)',
+          callout: 'This page documents only the frontend. Backend code must not be changed from here. File list based on <span class="mono">frontend/public/js</span> structure. Descriptions are purpose-oriented, not exhaustive APIs.',
+          flow: 'High-level flow',
+          core: 'Core and infrastructure',
+          utilities: 'Utilities',
+          components: 'Reusable UI components',
+          pages: 'Page scripts',
+          admin: 'Admin and access',
+          thFile: 'File',
+          thPurpose: 'Purpose',
+          thKey: 'Key functions / behaviors',
+          lastUpdated: 'Last updated:',
+          manifest: 'Manifest:',
+          manifestMissing: 'missing (run npm run docs:scan)',
+          detectedFunctions: 'Detected functions:',
+          exports: 'Exports:',
+          m_pageLoaded: 'Page HTML loaded',
+          m_includes: 'public/js/includes.js loads partials',
+          m_guard: 'Auth guard passes?',
+          m_yes: 'yes',
+          m_no: 'no',
+          m_csrf: 'core/client.js initCsrf',
+          m_pageBoot: 'pages/*.js bootstraps page logic',
+          m_components: 'components/* init widgets',
+          m_action: 'User action -> apiFetch',
+          m_backend: 'Backend APIs',
+          m_ui: 'utils/toast.js + DOM updates',
+          m_unauthorized: 'unauthorized page',
+        },
+        fr: {
+          language: 'Langue :',
+          title: 'Carte JavaScript du frontend',
+          subtitle: 'DinnerHopping · frontend statique (vanilla JS + Tailwind via CDN)',
+          callout: 'Cette page documente uniquement le frontend. Le code backend ne doit pas être modifié ici. La liste des fichiers est basée sur la structure <span class="mono">frontend/public/js</span>. Les descriptions indiquent l’objectif, pas une API exhaustive.',
+          flow: 'Flux global',
+          core: 'Socle et infrastructure',
+          utilities: 'Utilitaires',
+          components: 'Composants réutilisables',
+          pages: 'Scripts de page',
+          admin: 'Administration et accès',
+          thFile: 'Fichier',
+          thPurpose: 'Rôle',
+          thKey: 'Fonctions / comportements clés',
+          lastUpdated: 'Dernière mise à jour :',
+          manifest: 'Manifeste :',
+          manifestMissing: 'manquant (exécutez npm run docs:scan)',
+          detectedFunctions: 'Fonctions détectées :',
+          exports: 'Exports :',
+          m_pageLoaded: 'Page HTML chargée',
+          m_includes: 'public/js/includes.js charge les partiels',
+          m_guard: 'Contrôle d’accès réussi ?',
+          m_yes: 'oui',
+          m_no: 'non',
+          m_csrf: 'core/client.js initCsrf',
+          m_pageBoot: 'pages/*.js initialise la logique de page',
+          m_components: 'components/* initialise les widgets',
+          m_action: 'Action utilisateur -> apiFetch',
+          m_backend: 'APIs backend',
+          m_ui: 'utils/toast.js + mises à jour DOM',
+          m_unauthorized: 'page non autorisée',
+        }
+      };
+
+      // Enhance tables with function names from generated manifest and handle i18n
+      window.addEventListener('DOMContentLoaded', () => {
+        const langSel = document.getElementById('lang');
+        const savedLang = localStorage.getItem('devDocsLang') || 'en';
+        if (savedLang) langSel.value = savedLang;
+
+        function renderMermaid(di) {
+          const container = document.querySelector('.mermaid-panel .mermaid');
+          if (!container) return;
+          container.textContent = `flowchart TD\n  page[${di.m_pageLoaded}] --> includes[${di.m_includes}]\n  includes --> guard{${di.m_guard}}\n  guard -- ${di.m_yes} --> csrf[${di.m_csrf}]\n  guard -- ${di.m_no} --> unauthorized[${di.m_unauthorized}]\n  csrf --> pageScripts[${di.m_pageBoot}]\n  pageScripts --> components[${di.m_components}]\n  components --> action[${di.m_action}]\n  action --> backend[(${di.m_backend})]\n  backend --> ui[${di.m_ui}]\n  ui --> pageScripts`;
+          if (window.mermaid && typeof window.mermaid.run === 'function') {
+            try { window.mermaid.run({ querySelector: '.mermaid' }); } catch (e) {}
+          }
+        }
+
+        function applyI18n(lang) {
+          const di = I18N[lang] || I18N.en;
+          document.getElementById('i18n-language-label').textContent = di.language;
+          document.getElementById('i18n-title').textContent = di.title;
+          document.getElementById('i18n-subtitle').textContent = di.subtitle;
+          document.getElementById('i18n-callout').innerHTML = di.callout;
+          document.getElementById('i18n-flow').textContent = di.flow;
+          document.getElementById('i18n-core').textContent = di.core;
+          document.getElementById('i18n-utilities').textContent = di.utilities;
+          document.getElementById('i18n-components').textContent = di.components;
+          document.getElementById('i18n-pages').textContent = di.pages;
+          document.getElementById('i18n-admin').textContent = di.admin;
+          document.getElementById('i18n-th-file').textContent = di.thFile;
+          document.getElementById('i18n-th-purpose').textContent = di.thPurpose;
+          document.getElementById('i18n-th-key').textContent = di.thKey;
+          document.querySelectorAll('.i18n-th-file').forEach(el => el.textContent = di.thFile);
+          document.querySelectorAll('.i18n-th-purpose').forEach(el => el.textContent = di.thPurpose);
+          document.querySelectorAll('.i18n-th-key').forEach(el => el.textContent = di.thKey);
+          document.getElementById('i18n-last-updated-label').textContent = di.lastUpdated;
+          document.getElementById('i18n-manifest-label').textContent = di.manifest;
+          // Update existing manifest labels if already injected
+          document.querySelectorAll('.i18n-detected').forEach(el => el.textContent = di.detectedFunctions);
+          document.querySelectorAll('.i18n-exports').forEach(el => el.textContent = di.exports);
+          renderMermaid(di);
+          window.__I18N_RUNTIME__ = di;
+        }
+
+        langSel.addEventListener('change', () => {
+          const lang = langSel.value;
+          localStorage.setItem('devDocsLang', lang);
+          applyI18n(lang);
+        });
+
+        applyI18n(langSel.value);
+
+        const manifest = window.__JS_MANIFEST__;
+        const stamp = document.getElementById('manifest-stamp');
+        if (!manifest) {
+          stamp.textContent = (window.__I18N_RUNTIME__ || I18N.en).manifestMissing;
+          stamp.classList.add('muted');
+          return;
+        }
+        stamp.textContent = `generated ${new Date(manifest.generatedAt).toLocaleString()}`;
+
+        const lookup = new Map(manifest.files.map(f => [f.file, f]));
+
+        function injectIntoTableElement(table) {
+          if (!table) return;
+          const rows = table.querySelectorAll('tbody tr');
+          rows.forEach(tr => {
+            const fileCell = tr.querySelector('td:first-child code');
+            const keyCell = tr.querySelector('td:nth-child(3)');
+            if (!fileCell || !keyCell) return;
+            const filePath = fileCell.textContent.trim();
+            const entry = lookup.get(filePath.replace(/^\/?/, ''))
+                        || lookup.get(filePath.replace(/^public\//, ''))
+                        || lookup.get(filePath.startsWith('js/') ? `public/${filePath}` : filePath);
+            if (!entry) return;
+
+            const functions = entry.functions || [];
+            const exported = entry.exported || [];
+
+            const list = document.createElement('div');
+            list.className = 'small';
+            const di = window.__I18N_RUNTIME__ || I18N.en;
+            if (functions.length) {
+              const fn = document.createElement('div');
+              fn.innerHTML = `<span class="muted i18n-detected">${di.detectedFunctions}</span> <span class="mono">${functions.join(', ')}</span>`;
+              list.appendChild(fn);
+            }
+            if (exported.length) {
+              const ex = document.createElement('div');
+              ex.innerHTML = `<span class="muted i18n-exports">${di.exports}</span> <span class="mono">${exported.join(', ')}</span>`;
+              list.appendChild(ex);
+            }
+            if (list.childElementCount) {
+              keyCell.appendChild(list);
+            }
+          });
+        }
+
+        document.querySelectorAll('section.panel table').forEach(table => injectIntoTableElement(table));
+      });
+    </script>
+  </body>
+  </html>
