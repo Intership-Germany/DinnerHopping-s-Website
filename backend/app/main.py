@@ -86,6 +86,13 @@ except (ImportError, AttributeError):
 async def _lifespan(app: FastAPI):
         # startup
         await connect_to_mongo()
+        # ensure default email templates exist (best-effort)
+        try:
+            from . import email_templates as _email_templates
+            await _email_templates.ensure_default_templates()
+        except Exception:
+            # best-effort: don't fail startup if templates can't be ensured
+            pass
         try:
                 yield
         finally:
