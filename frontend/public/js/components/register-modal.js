@@ -150,7 +150,20 @@
             if (typeof window.handleUnauthorized === 'function') window.handleUnauthorized();
             return;
           }
-          throw new Error(`HTTP ${res.status}`);
+          // Try to read server error detail for better feedback
+          let errMsg = `HTTP ${res.status}`;
+          try {
+            const errBody = await res.clone().json();
+            const detail = errBody?.detail || errBody?.message || errBody?.error;
+            if (detail) errMsg = detail;
+            console.error('Registration failed:', errBody);
+          } catch {
+            try {
+              const t = await res.clone().text();
+              if (t) console.error('Registration failed (raw):', t);
+            } catch {}
+          }
+          throw new Error(errMsg);
         }
         const body = await res.json();
         const paymentLink =

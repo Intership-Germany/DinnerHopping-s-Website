@@ -40,7 +40,7 @@
     U.fetchPublishedEvents ||
     async function () {
       const api = window.dh?.apiFetch || window.apiFetch;
-      const r = await api('/events/?status=open', { headers: { Accept: 'application/json' } });
+      const r = await api('/events/', { headers: { Accept: 'application/json' } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     };
