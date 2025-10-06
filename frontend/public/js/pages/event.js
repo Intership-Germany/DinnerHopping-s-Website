@@ -605,13 +605,25 @@
 			}
 			const payPayload = { registration_id: registrationData.registration_id, provider };
 			// amount_cents optional in new API (validated server-side); omit to accept canonical amount.
-			const { res: createRes, data: payData } = await (window.dh?.apiPost ? window.dh.apiPost('/payments', payPayload) : { res:{ ok:false }, data:{} });
+						const { res: createRes, data: payData } = await (window.dh?.apiPost ? window.dh.apiPost('/payments/create', payPayload) : { res:{ ok:false }, data:{} });
 			if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
 			// Normalize next_action / legacy fields
 			let link = null;
 			if (payData.next_action){
-				if (payData.next_action.type === 'redirect') link = payData.next_action.url;
-				else if (payData.next_action.type === 'paypal_order') link = payData.next_action.approval_link;
+								if (payData.next_action.type === 'redirect') link = payData.next_action.url;
+								else if (payData.next_action.type === 'paypal_order') link = payData.next_action.approval_link;
+								else if (payData.next_action.type === 'instructions') {
+									const instr = payData.next_action.instructions || payData.instructions;
+									if (instr) {
+										const summary = [
+											instr.reference && `Reference: ${instr.reference}`,
+											instr.iban && `IBAN: ${instr.iban}`,
+											instr.amount && `Amount: ${instr.amount}`,
+											instr.currency && `Currency: ${instr.currency}`,
+										].filter(Boolean).join('\n');
+										alert('Payment instructions generated.\n\n' + summary);
+									}
+								}
 			}
 			if (!link) link = payData.payment_link;
 			if (!link && payData.instructions){

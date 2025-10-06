@@ -150,7 +150,7 @@
       if (!provider) return;
     }
     try {
-      const { res, data } = await window.dh.apiPost('/payments', {
+      const { res, data } = await window.dh.apiPost('/payments/create', {
         registration_id: regId,
         provider,
       });
@@ -163,6 +163,18 @@
       if (data.next_action) {
         if (data.next_action.type === 'redirect') link = data.next_action.url;
         else if (data.next_action.type === 'paypal_order') link = data.next_action.approval_link;
+        else if (data.next_action.type === 'instructions') {
+          const instr = data.next_action.instructions || data.instructions;
+          if (instr) {
+            const summary = [
+              instr.reference && `Reference: ${instr.reference}`,
+              instr.iban && `IBAN: ${instr.iban}`,
+              instr.amount && `Amount: ${instr.amount}`,
+              instr.currency && `Currency: ${instr.currency}`,
+            ].filter(Boolean).join('\n');
+            alert('Bank transfer instructions generated.\n\n' + summary);
+          }
+        }
       }
       if (!link) link = data.payment_link;
       if (!link && data.instructions)
@@ -187,20 +199,44 @@
       wrap.classList.add('hidden');
       return;
     }
-    const tpl = document.getElementById('tpl-myreg-card');
-    if (!tpl) { wrap.classList.add('hidden'); return; }
-    // Build map of events by id for quick lookup
+    // Load active events (for metadata) and real registrations for current user
+    let events = Array.isArray(passedEvents) ? passedEvents : [];
+    const [regs] = await Promise.all([
+      fetchRegistrations(),
+      (async () => {
+        if (!events.length) {
+          try {
+            events = await fetchActiveEvents();
+          } catch {}
+        }
+      })(),
+    ]);
+    // Map events by id for quick lookup when enriching registrations
     const evMap = new Map();
-    events.forEach(e => {
+    events.forEach((e) => {
       const id = e.id || e._id || e.eventId;
       if (id) evMap.set(String(id), e);
     });
-    // LocalStorage snapshots removed per request (no longer persisting registration data client-side)
-    // Instead we only rely on events returned by the API (e.g., /events/?participant=me).
-    // If in the future an API to list detailed registrations (with payment / preferences) exists,
-    // adapt here to merge that data. For now, we treat membership as a simple "registered" state.
+    // Build combined list from registrations (only show events the user is registered for)
     const combined = [];
-    evMap.forEach((ev) => combined.push({ event: ev, regInfo: null }));
+    if (Array.isArray(regs) && regs.length) {
+      // regs might already be the array, or {registrations: []} (handled in fetchRegistrations)
+      for (const r of regs) {
+        const rid = r && (r.event_id || r.eventId || r.eventIdStr);
+        let ev = rid ? evMap.get(String(rid)) : null;
+        if (!ev && rid) {
+          // Try fetch detail for events not in the active list (e.g., past events)
+          try {
+            const detail = await fetchEventDetail(rid);
+            if (detail) {
+              ev = detail;
+              evMap.set(String(rid), detail);
+            }
+          } catch {}
+        }
+        combined.push({ event: ev || { id: rid, title: r.event_title }, regInfo: r });
+      }
+    }
 
     // Partition future/past by event start/date
     const nowTs = Date.now();
@@ -215,7 +251,7 @@
       else future.push(c);
     });
 
-    function renderRecord(ev, regInfo) {
+    function renderRecord(ev, regInfo, container) {
       const node = tpl.content.cloneNode(true);
       const titleEl = node.querySelector('.reg-title');
       const dateEl = node.querySelector('.reg-date');
@@ -223,21 +259,20 @@
       const note = node.querySelector('.reg-note');
       const btnPay = node.querySelector('.reg-pay');
       const spanPaymentId = node.querySelector('.reg-payment-id');
-      const prefsEl = node.querySelector('.reg-prefs');
       const aGo = node.querySelector('.reg-go');
       const eventId = ev.id || ev._id || ev.eventId;
       if (aGo) aGo.href = `/event.html?id=${encodeURIComponent(eventId)}`;
-      if (titleEl) titleEl.textContent = ev.title || ev.name || regInfo.event_title || 'Event';
+      if (titleEl)
+        titleEl.textContent = ev.title || ev.name || (regInfo && regInfo.event_title) || 'Event';
       if (dateEl) {
         const d = ev.start_at ? new Date(ev.start_at) : ev.date ? new Date(ev.date) : null;
         dateEl.textContent = d && !isNaN(d) ? d.toLocaleString() : '';
       }
-      if (prefsEl) prefsEl.textContent = 'Preferences: n/a';
 
       const meta = computeStatus(regInfo);
       applyBadge(badge, meta);
       const amountDue =
-        typeof regInfo.amount_due_cents === 'number' ? regInfo.amount_due_cents : null;
+        regInfo && typeof regInfo.amount_due_cents === 'number' ? regInfo.amount_due_cents : null;
       const isPaid = meta.label.toLowerCase() === 'paid';
       if (meta.cancelled || meta.refunded) {
         if (note) {
@@ -252,8 +287,9 @@
         }
         if (btnPay) {
           btnPay.classList.remove('hidden');
-          btnPay.addEventListener('click', () =>
-            chooseProviderAndCreatePayment(regInfo.registration_id)
+          btnPay.addEventListener(
+            'click',
+            () => regInfo && chooseProviderAndCreatePayment(regInfo.registration_id)
           );
         }
       }
@@ -261,7 +297,7 @@
         btnPay && btnPay.classList.add('hidden');
         note && note.classList.add('hidden');
       }
-      list.appendChild(node);
+      (container || list).appendChild(node);
     }
 
     future
@@ -270,7 +306,7 @@
         const tb = b.event.start_at ? new Date(b.event.start_at).getTime() : 0;
         return ta - tb;
       })
-      .forEach((c) => renderRecord(c.event, c.reg));
+      .forEach((c) => renderRecord(c.event, c.regInfo, list));
     if (past.length) {
       const wrapPast = document.createElement('div');
       wrapPast.className = 'mt-4';
@@ -286,9 +322,7 @@
           const tb = b.event.start_at ? new Date(b.event.start_at).getTime() : 0;
           return tb - ta;
         })
-        .forEach((c) => renderRecord(c.event, c.reg));
-      // move rendered nodes into pastList
-      const nodes = Array.from(list.querySelectorAll(':scope > .past-temp-marker')); // legacy placeholder (noop)
+        .forEach((c) => renderRecord(c.event, c.regInfo, pastList));
       // toggle logic
       btn.addEventListener('click', () => {
         const hidden = pastList.classList.contains('hidden');
