@@ -170,7 +170,7 @@
   fields.vars.addEventListener('input', renderVariables);
   document.getElementById('saveBtn').onclick = save;
   document.getElementById('deleteBtn').onclick = del;
-  document.getElementById('cancelBtn').onclick = () => { editor.style.display='none'; };
+  document.getElementById('cancelBtn').onclick = () => { window.location.href = 'admin-dashboard.html'; };
 
   loadList();
 })();

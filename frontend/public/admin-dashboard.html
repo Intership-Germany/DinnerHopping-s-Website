@@ -45,7 +45,13 @@
       <div class="flex items-center justify-between mb-4">
         <h2 id="create-form-title" class="text-xl font-bold text-[#f46f47]">Create New Event</h2>
         <div class="flex items-center gap-3">
-          <a href="admin-email-templates.html" class="px-3 py-2 bg-[#4a5568] text-white rounded-xl text-sm hover:opacity-90">Email Templates</a>
+          <div class="relative inline-block text-left">
+            <button id="admin-menu-btn" class="px-3 py-2 bg-[#4a5568] text-white rounded-xl text-sm hover:opacity-90">Admin Menu</button>
+            <div id="admin-menu" class="hidden absolute mt-2 right-0 w-56 bg-white rounded-xl shadow-lg border p-2">
+              <a href="admin-email-templates.html" class="block px-3 py-2 rounded hover:bg-gray-100">Email Templates</a>
+              <a href="admin-chat-management.html" class="block px-3 py-2 rounded hover:bg-gray-100">Chat Management</a>
+            </div>
+          </div>
           <button id="btn-cancel-edit" class="hidden bg-[#4a5568] text-white rounded-xl px-3 py-2 text-sm hover:opacity-90">Cancel edit</button>
         </div>
       </div>

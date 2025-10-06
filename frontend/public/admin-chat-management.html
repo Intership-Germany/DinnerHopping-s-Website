@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - Chat Management</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <script src="js/config.js"></script>
+  <script src="js/core/client.js"></script>
+  <script src="js/core/auth.js"></script>
+  <script src="js/utils/network-errors.js"></script>
+  <script src="js/debug-banner.js"></script>
+  <script src="js/core/includes.js" defer></script>
+</head>
+<body class="text-[#172a3a] bg-[#f0f4f7] min-h-screen font-inter">
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-[#172a3a]">Chat Management</h1>
+      <div class="flex items-center gap-3">
+        <a href="admin-dashboard.html" class="px-3 py-2 bg-gray-600 text-white rounded-xl">Back to dashboard</a>
+        <a href="admin-email-templates.html" class="px-3 py-2 bg-[#4a5568] text-white rounded-xl">Email Templates</a>
+      </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-2xl shadow border">
+      <div class="flex gap-3 items-center mb-4">
+        <label class="block text-sm font-semibold">Select Event</label>
+        <select id="event-select" class="border rounded p-2"></select>
+        <button id="btn-refresh-events" class="px-3 py-2 bg-[#f46f47] text-white rounded-xl">Refresh</button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="md:col-span-1">
+          <h3 class="font-semibold mb-2">Actions</h3>
+          <div class="space-y-2">
+            <button id="btn-create-chat" class="w-full px-3 py-2 bg-[#008080] text-white rounded-xl">Create Chat for Selected Event</button>
+            <button id="btn-clear-chat" class="w-full px-3 py-2 bg-[#ffc241] text-[#172a3a] rounded-xl">Clear Chats for Event</button>
+            <button id="btn-delete-chat" class="w-full px-3 py-2 bg-[#e53e3e] text-white rounded-xl">Delete Chat Group</button>
+          </div>
+          <div class="mt-4">
+            <label class="block text-sm font-semibold">Manual Group ID (for delete)</label>
+            <input id="manual-group-id" class="mt-1 p-2 border rounded w-full" placeholder="group id">
+          </div>
+        </div>
+
+        <div class="md:col-span-2">
+          <h3 class="font-semibold mb-2">Groups for event</h3>
+          <div id="groups-list" class="space-y-2 bg-gray-50 p-3 rounded max-h-[420px] overflow-auto"></div>
+
+          <div class="mt-4">
+            <h4 class="font-semibold">Post message to group</h4>
+            <div class="flex gap-2 items-center mt-2">
+              <input id="post-group-id" placeholder="group id" class="p-2 border rounded w-1/3">
+              <input id="post-message" placeholder="message body" class="p-2 border rounded flex-1">
+              <button id="btn-post-message" class="px-3 py-2 bg-[#4a5568] text-white rounded-xl">Post</button>
+            </div>
+            <div id="post-status" class="text-sm mt-2"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="/js/admin-chat-management.js" defer></script>
+</body>
+</html>

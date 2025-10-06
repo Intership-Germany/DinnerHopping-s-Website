@@ -36,6 +36,115 @@ from pymongo.errors import PyMongoError
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
 
+
+async def create_chat_group(event_id: str, participant_emails: list[str], created_by: str, section_ref: str = 'general') -> None:
+    """Best-effort helper to create a chat group document.
+
+    - event_id: stored as string to match chats router expectations
+    - participant_emails: list of emails (will be lowercased and deduped)
+    This function intentionally swallows errors to make it safe to call from
+    registration flows as a best-effort enhancement.
+    """
+    try:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        participants = list(dict.fromkeys([e.lower() for e in (participant_emails or []) if e]))
+        if not participants:
+            return
+        # Idempotency: check whether a group already exists for the same event, section
+        # and exact set of participants (order-insensitive). We use $all + $expr size
+        # to ensure the sets are equal.
+        filter_q = {
+            'event_id': str(event_id),
+            'section_ref': section_ref,
+            '$and': [
+                {'participant_emails': {'$all': participants}},
+                {'$expr': {'$eq': [{'$size': '$participant_emails'}, len(participants)]}}
+            ]
+        }
+        existing = await db_mod.db.chat_groups.find_one(filter_q)
+        if existing:
+            return
+        doc = {
+            'event_id': str(event_id),
+            'section_ref': section_ref,
+            'participant_emails': participants,
+            'created_at': now,
+            'created_by': created_by,
+        }
+        await db_mod.db.chat_groups.insert_one(doc)
+    except Exception:
+        # swallow any errors — caller should not fail because of chat creation
+        return
+
+
+async def cleanup_old_chat_groups(older_than_days: int = 7) -> dict:
+    """Delete chat groups for events that finished more than `older_than_days` ago.
+
+    Returns a dict with counts: {'events_considered': int, 'groups_deleted': int}
+    This is best-effort; errors during cleanup are swallowed and reported via counts as 0.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cutoff = now - datetime.timedelta(days=older_than_days)
+    try:
+        # Find events that have a start_at or date and are older than cutoff
+        old_event_ids = set()
+        async for ev in db_mod.db.events.find({}, {'_id': 1, 'start_at': 1, 'date': 1}):
+            start = ev.get('start_at')
+            date_field = ev.get('date')
+            event_dt = None
+            if isinstance(start, datetime.datetime):
+                event_dt = start if start.tzinfo is not None else start.replace(tzinfo=datetime.timezone.utc)
+            elif isinstance(date_field, str):
+                try:
+                    # date stored as YYYY-MM-DD
+                    event_dt = datetime.datetime.fromisoformat(date_field)
+                    # treat as midnight UTC
+                    event_dt = event_dt.replace(tzinfo=datetime.timezone.utc)
+                except Exception:
+                    event_dt = None
+            elif isinstance(date_field, datetime.date):
+                event_dt = datetime.datetime.combine(date_field, datetime.time(0, 0), datetime.timezone.utc)
+
+            if event_dt and event_dt <= cutoff:
+                old_event_ids.add(str(ev.get('_id')))
+
+        if not old_event_ids:
+            return {'events_considered': 0, 'groups_deleted': 0, 'messages_deleted': 0}
+
+        # Collect group ids to be removed so we can delete messages belonging to them
+        group_oids = []
+        group_id_strs = []
+        async for g in db_mod.db.chat_groups.find({'event_id': {'$in': list(old_event_ids)}}, {'_id': 1}):
+            try:
+                oid = ObjectId(g.get('_id')) if not isinstance(g.get('_id'), ObjectId) else g.get('_id')
+            except Exception:
+                oid = g.get('_id')
+            if oid:
+                group_oids.append(oid)
+                group_id_strs.append(str(oid))
+
+        messages_deleted = 0
+        if group_id_strs:
+            try:
+                msg_res = await db_mod.db.chat_messages.delete_many({'group_id': {'$in': group_id_strs}})
+                messages_deleted = getattr(msg_res, 'deleted_count', 0)
+            except Exception:
+                messages_deleted = 0
+
+        # delete groups themselves
+        try:
+            if group_oids:
+                del_res = await db_mod.db.chat_groups.delete_many({'_id': {'$in': group_oids}})
+                groups_deleted = getattr(del_res, 'deleted_count', 0)
+            else:
+                groups_deleted = 0
+        except Exception:
+            groups_deleted = 0
+
+        return {'events_considered': len(old_event_ids), 'groups_deleted': groups_deleted, 'messages_deleted': messages_deleted}
+    except Exception:
+        return {'events_considered': 0, 'groups_deleted': 0}
+
 # Simple approach: quantize lat/lon to ~500m grid using Haversine-based degrees approximation
 # For typical latitudes, 0.0045 deg ~ 500m (varies). We'll use 0.0045 to approximate 500m.
 

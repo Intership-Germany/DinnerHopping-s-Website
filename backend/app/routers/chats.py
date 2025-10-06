@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
-from ..auth import get_current_user
+from ..auth import get_current_user, require_admin
 from bson import ObjectId
 from .. import db as db_mod
 from pydantic import BaseModel
 from typing import List
 import datetime
 from ..utils import require_event_published, require_user_registered_or_organizer
+from .. import utils
 
 ######### Router / Endpoints #########
 
@@ -50,6 +51,16 @@ async def create_group(payload: CreateGroupIn, current_user=Depends(get_current_
         u = await db_mod.db.users.find_one({'email': e})
         participants_out.append({'email': e, 'name': u.get('name') if u else None, 'address_public': u.get('address_public') if u else None})
     return {'group_id': str(res.inserted_id), 'event_id': payload.event_id, 'section_ref': payload.section_ref, 'participants': participants_out, 'created_at': now.isoformat(), 'created_by': creator_email}
+
+@router.post('/cleanup')
+async def cleanup_chat_groups(days: int = 7, user=Depends(require_admin)):
+    """Admin endpoint to clean up chat groups for events older than `days` days.
+
+    This calls a best-effort helper that deletes chat_groups for events whose
+    start date is older than `days`.
+    """
+    res = await utils.cleanup_old_chat_groups(older_than_days=days)
+    return res
 
 
 @router.get('/groups/{group_id}/messages')
