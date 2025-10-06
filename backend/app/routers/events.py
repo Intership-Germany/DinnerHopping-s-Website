@@ -406,6 +406,11 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         valid_zip_codes=doc.get('valid_zip_codes', []),
     )
 
+# Alias without trailing slash for clients/tests calling '/events' exactly when redirect_slashes=False
+@router.post('', response_model=EventOut)
+async def create_event_no_trailing(payload: EventCreate, current_user=Depends(require_admin)):
+    return await create_event(payload, current_user)
+
 
 @router.get('/{event_id}')
 async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(get_current_user)):

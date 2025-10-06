@@ -1087,6 +1087,13 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
 async def finalize_and_generate_plans(event_id: str, version: int, finalized_by: Optional[str]) -> dict:
     rec = await mark_finalized(event_id, version, finalized_by)
     count = await generate_plans_from_matches(event_id, version)
+    # create chats: per-dinner groups and ensure general chat has all participants
+    try:
+        from ..utils import ensure_chats_from_matches, ensure_general_chat_full
+        _ = await ensure_chats_from_matches(event_id, version)
+        await ensure_general_chat_full(event_id)
+    except Exception:
+        pass
     # notify participants (best-effort)
     sent = 0
     async for p in db_mod.db.plans.find({'event_id': ObjectId(event_id)}):

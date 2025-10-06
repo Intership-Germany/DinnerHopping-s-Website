@@ -150,14 +150,18 @@ async def get_or_create_order_for_registration(
     idempotency_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     existing = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
-    if existing and existing.get('provider_payment_id'):
-        logger.debug(
-            'payment.create.paypal_order.idempotent registration_id=%s payment_id=%s order_id=%s',
-            registration_oid,
-            existing.get('_id'),
-            existing.get('provider_payment_id'),
-        )
-        return {"payment": existing, "order_id": existing.get('provider_payment_id')}
+    expired_states = {"refunded", "failed", "cancelled", "cancelled_by_user", "cancelled_admin", "expired"}
+    if existing:
+        status = (existing.get('status') or '').lower()
+        has_valid_link = bool(existing.get('provider_payment_id') and existing.get('payment_link'))
+        if has_valid_link and status not in expired_states:
+            logger.debug(
+                'payment.create.paypal_order.idempotent registration_id=%s payment_id=%s order_id=%s',
+                registration_oid,
+                existing.get('_id'),
+                existing.get('provider_payment_id'),
+            )
+            return {"payment": existing, "order_id": existing.get('provider_payment_id')}
 
     initial_doc = {
         "registration_id": registration_oid,
@@ -176,12 +180,21 @@ async def get_or_create_order_for_registration(
         return_document=ReturnDocument.AFTER,
     )
     payment_id = doc.get('_id')
-    order = await create_order(amount_cents, currency or 'EUR', payment_id, idempotency_key=idempotency_key)
+    # If we are retrying after a previous failed/expired attempt, alter the PayPal idempotency header
+    # to force a fresh order on PayPal side, while keeping DB idempotency stable.
+    paypal_request_id = idempotency_key
+    if existing and idempotency_key:
+        try:
+            ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+            paypal_request_id = f"{idempotency_key}:{ts}"
+        except Exception:
+            paypal_request_id = idempotency_key
+    order = await create_order(amount_cents, currency or 'EUR', payment_id, idempotency_key=paypal_request_id)
     approval = order.get('approval_link')
     order_id = order.get('id')
     await db_mod.db.payments.update_one(
         {"_id": payment_id},
-        {"$set": {"provider_payment_id": order_id, "payment_link": approval, "meta": {"create_order": order}}},
+        {"$set": {"provider_payment_id": order_id, "payment_link": approval, "status": "pending", "meta": {"create_order": order}}},
     )
     try:
         await db_mod.db.registrations.update_one({"_id": registration_oid}, {"$set": {"payment_id": payment_id}})
@@ -206,14 +219,18 @@ async def ensure_paypal_payment(
     currency: str,
     idempotency_key: Optional[str] = None,
 ) -> Dict[str, Any]:
-    existing = await db_mod.db.payments.find_one({"registration_id": registration_oid})
+    existing = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
+    expired_states = {"refunded", "failed", "cancelled", "cancelled_by_user", "cancelled_admin", "expired"}
     if existing:
-        logger.debug(
-            'payment.create.paypal.existing registration_id=%s payment_id=%s',
-            registration_oid,
-            existing.get('_id'),
-        )
-        return existing
+        status = (existing.get('status') or '').lower()
+        has_valid_link = bool(existing.get('provider_payment_id') and existing.get('payment_link'))
+        if has_valid_link and status not in expired_states:
+            logger.debug(
+                'payment.create.paypal.existing registration_id=%s payment_id=%s',
+                registration_oid,
+                existing.get('_id'),
+            )
+            return existing
 
     initial_doc = {
         "registration_id": registration_oid,
@@ -232,12 +249,19 @@ async def ensure_paypal_payment(
         return_document=ReturnDocument.AFTER,
     )
     payment_id = doc.get('_id')
-    order = await create_order(amount_cents, currency or 'EUR', payment_id, idempotency_key=idempotency_key)
+    paypal_request_id = idempotency_key
+    if existing and idempotency_key:
+        try:
+            ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+            paypal_request_id = f"{idempotency_key}:{ts}"
+        except Exception:
+            paypal_request_id = idempotency_key
+    order = await create_order(amount_cents, currency or 'EUR', payment_id, idempotency_key=paypal_request_id)
     approval = order.get('approval_link')
     order_id = order.get('id')
     await db_mod.db.payments.update_one(
         {"_id": payment_id},
-        {"$set": {"provider_payment_id": order_id, "payment_link": approval, "meta": {"create_order": order}}},
+        {"$set": {"provider_payment_id": order_id, "payment_link": approval, "status": "pending", "meta": {"create_order": order}}},
     )
     try:
         await db_mod.db.registrations.update_one({"_id": registration_oid}, {"$set": {"payment_id": payment_id}})

@@ -243,9 +243,12 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
     canonical_idempotency = _normalize_idempotency_key(payload.idempotency_key, reg_obj, provider, flow)
 
     existing = await db_mod.db.payments.find_one({"idempotency_key": canonical_idempotency})
-    # If an idempotent payment exists but it was already refunded, treat it as expired
-    # and proceed to create a fresh payment instead of returning the refunded record.
-    if existing and (existing.get('status') or '').lower() == 'refunded':
+    # If an idempotent payment exists but it is no longer payable (refunded/failed/cancelled),
+    # treat it as expired and create a fresh payment instead of reusing stale links/orders.
+    _expired_statuses = {
+        'refunded', 'failed', 'cancelled', 'cancelled_by_user', 'cancelled_admin', 'expired'
+    }
+    if existing and (existing.get('status') or '').lower() in _expired_statuses:
         existing = None
 
     if existing:
@@ -269,9 +272,9 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
         )
 
     existing_for_registration = await db_mod.db.payments.find_one({"registration_id": reg_obj, "provider": provider})
-    # If there is an existing payment for this registration but it was refunded,
-    # ignore it so we create a fresh payment instead.
-    if existing_for_registration and (existing_for_registration.get('status') or '').lower() == 'refunded':
+    # If there is an existing payment for this registration but it is no longer
+    # payable (refunded/failed/cancelled), ignore it and create a fresh one instead.
+    if existing_for_registration and (existing_for_registration.get('status') or '').lower() in _expired_statuses:
         existing_for_registration = None
 
     if existing_for_registration and not existing_for_registration.get('idempotency_key'):
@@ -279,19 +282,23 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
         existing_for_registration['idempotency_key'] = canonical_idempotency
 
     if existing_for_registration and flow == 'order':
-        next_action = {
-            "type": "paypal_order",
-            "order_id": existing_for_registration.get('provider_payment_id'),
-            "approval_link": existing_for_registration.get('payment_link'),
-        }
-        return _build_payment_response(
-            payment_doc=existing_for_registration,
-            provider=provider,
-            amount_cents=canonical_amount_cents,
-            currency=currency,
-            idempotency_key=canonical_idempotency,
-            next_action=next_action,
-        )
+        # Only reuse if we have a valid order/link and payment is still pending
+        if existing_for_registration.get('provider_payment_id') and existing_for_registration.get('payment_link') and (
+            (existing_for_registration.get('status') or 'pending').lower() in ('pending', 'created')
+        ):
+            next_action = {
+                "type": "paypal_order",
+                "order_id": existing_for_registration.get('provider_payment_id'),
+                "approval_link": existing_for_registration.get('payment_link'),
+            }
+            return _build_payment_response(
+                payment_doc=existing_for_registration,
+                provider=provider,
+                amount_cents=canonical_amount_cents,
+                currency=currency,
+                idempotency_key=canonical_idempotency,
+                next_action=next_action,
+            )
 
     # Provider-specific flows
     if provider == 'paypal':

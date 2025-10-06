@@ -77,6 +77,119 @@ async def create_chat_group(event_id: str, participant_emails: list[str], create
         return
 
 
+async def add_participants_to_general_chat(event_id: str, emails: list[str] | None, created_by: str = 'system') -> None:
+    """Upsert the event-level 'general' chat and add provided emails as participants.
+
+    - Ensures lowercase and deduplicated emails
+    - Uses $addToSet to avoid duplicates
+    - Safe best-effort: swallows errors
+    """
+    try:
+        participants = list(dict.fromkeys([str(e).lower() for e in (emails or []) if e]))
+        if not participants:
+            return
+        now = datetime.datetime.now(datetime.timezone.utc)
+        q = {'event_id': str(event_id), 'section_ref': 'general'}
+        update = {
+            '$setOnInsert': {
+                'event_id': str(event_id),
+                'section_ref': 'general',
+                'created_at': now,
+                'created_by': created_by,
+                'participant_emails': [],  # initialized as array
+            },
+            '$addToSet': { 'participant_emails': { '$each': participants } },
+        }
+        await db_mod.db.chat_groups.update_one(q, update, upsert=True)
+    except Exception:
+        return
+
+
+async def ensure_general_chat_full(event_id: str) -> None:
+    """Ensure the 'general' chat contains all active registrants' emails for the event.
+
+    Active means registration status not in cancelled/refunded/expired.
+    """
+    try:
+        from bson.objectid import ObjectId
+        cancelled = {'cancelled_by_user','cancelled_admin','refunded','expired'}
+        emails_set: set[str] = set()
+        async for r in db_mod.db.registrations.find({'event_id': ObjectId(event_id), 'status': {'$nin': list(cancelled)}}):
+            em = (r.get('user_email_snapshot') or r.get('user_email'))
+            if em:
+                emails_set.add(str(em).lower())
+        participants = sorted(emails_set)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        q = {'event_id': str(event_id), 'section_ref': 'general'}
+        update = {
+            '$set': {
+                'participant_emails': participants,
+            },
+            '$setOnInsert': {
+                'event_id': str(event_id),
+                'section_ref': 'general',
+                'created_at': now,
+                'created_by': 'admin@system',
+            }
+        }
+        await db_mod.db.chat_groups.update_one(q, update, upsert=True)
+    except Exception:
+        return
+
+
+async def ensure_chats_from_matches(event_id: str, version: int | None = None) -> int:
+    """Create per-dinner chat groups (max ~6 users) from a match proposal/final version.
+
+    - For each group in each phase (appetizer/main/dessert), gather participant emails
+      (host team + guest teams) via team->emails mapping, up to 6 emails per chat.
+    - Creates chat groups with section_ref set to the phase name.
+    - Idempotent thanks to create_chat_group's exact-set check.
+    - Returns number of groups attempted to create (best-effort; errors swallowed).
+    """
+    try:
+        # find match doc
+        q = {'event_id': str(event_id)}
+        if version is not None:
+            q['version'] = int(version)
+        m = await db_mod.db.matches.find_one(q, sort=[('version', -1)])
+        if not m:
+            return 0
+        # Build team->emails map and include splits/pairs
+        from .services.matching import _team_emails_map, _augment_emails_map_with_splits
+        team_map = await _team_emails_map(str(event_id))
+        team_map = _augment_emails_map_with_splits(team_map, m.get('groups') or [])
+        count = 0
+        for g in (m.get('groups') or []):
+            phase = g.get('phase') or 'group'
+            host = g.get('host_team_id')
+            guests = g.get('guest_team_ids') or []
+            emails: list[str] = []
+            if host is not None:
+                emails.extend(team_map.get(str(host), []))
+            for tid in guests:
+                emails.extend(team_map.get(str(tid), []))
+            # normalize and cap at 6
+            emails_norm = []
+            seen = set()
+            for e in emails:
+                if not e:
+                    continue
+                low = str(e).lower()
+                if low in seen:
+                    continue
+                seen.add(low)
+                emails_norm.append(low)
+                if len(emails_norm) >= 6:
+                    break
+            if not emails_norm:
+                continue
+            await create_chat_group(str(event_id), emails_norm, created_by='admin@system', section_ref=str(phase))
+            count += 1
+        return count
+    except Exception:
+        return 0
+
+
 async def cleanup_old_chat_groups(older_than_days: int = 7) -> dict:
     """Delete chat groups for events that finished more than `older_than_days` ago.
 
