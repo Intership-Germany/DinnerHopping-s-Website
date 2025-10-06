@@ -359,14 +359,18 @@ async def admin_seed_chats(event_id: str = None, _=Depends(require_admin)):
             if member_emails:
                 await utils.create_chat_group(event_id, member_emails, created_by='admin@system', section_ref='team')
 
-        # create a general group for solo registrants
-        solo_emails = []
-        async for r in db_mod.db.registrations.find({'event_id': ObjectId(event_id), 'team_id': None}):
-            email = r.get('user_email_snapshot') or r.get('user_email')
-            if email:
-                solo_emails.append(email.lower())
-        if solo_emails:
-            await utils.create_chat_group(event_id, solo_emails, created_by='admin@system', section_ref='general')
+        # ensure a general group including all active registrants
+        try:
+            from app.utils import ensure_general_chat_full
+            await ensure_general_chat_full(event_id)
+        except Exception:
+            pass
+        # create per-dinner chats if a match exists
+        try:
+            from app.utils import ensure_chats_from_matches
+            await ensure_chats_from_matches(event_id)
+        except Exception:
+            pass
         return {'status': 'seeded'}
     except Exception:
         return {'status': 'error'}

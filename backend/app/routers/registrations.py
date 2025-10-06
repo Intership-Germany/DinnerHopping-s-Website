@@ -399,7 +399,8 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
             # If event has chat enabled, create a default chat group for this solo registrant
             try:
                 if ev.get('chat_enabled'):
-                    await create_chat_group(ev.get('_id'), [creator.get('email')], creator.get('email'), section_ref='general')
+                    from app.utils import add_participants_to_general_chat
+                    await add_participants_to_general_chat(ev.get('_id'), [creator.get('email')], created_by=creator.get('email'))
             except Exception:
                 pass
     except Exception:
@@ -732,6 +733,12 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             else:
                 participants.append(team_doc['members'][1].get('email'))
             await create_chat_group(ev.get('_id'), participants, creator.get('email'), section_ref='team')
+            # also add both to the general chat for the event
+            try:
+                from app.utils import add_participants_to_general_chat
+                await add_participants_to_general_chat(ev.get('_id'), participants, created_by=creator.get('email'))
+            except Exception:
+                pass
     except Exception:
         # ignore chat creation errors
         pass
