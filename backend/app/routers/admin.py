@@ -164,7 +164,7 @@ async def list_email_templates(_=Depends(require_admin)):
                 'subject': "",
                 'html_body': "",
                 'description': 'Invitation email with accept link',
-                'variables': ['invitation_link','email','temp_password']
+                'variables': ['invitation_link','email','set_password_url']
             },
             {
                 'key': 'invitation_accept',

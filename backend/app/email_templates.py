@@ -53,9 +53,9 @@ DEFAULT_TEMPLATES = [
     {
         'key': 'invitation',
         'subject': "You've been invited to an event on DinnerHopping",
-        'html_body': '<p>Hi!</p><p>You have been invited to join an event on DinnerHopping. To accept, click: <a href="{{invitation_link}}">Accept invitation</a></p><p>If you don\'t have an account, register with this email.</p><p>— DinnerHopping Team</p>',
+        'html_body': '<p>Hi!</p><p>You have been invited to join an event on DinnerHopping. To accept, click: <a href="{{invitation_link}}">Accept invitation</a></p><p>If you don\'t have an account, register with this email. If an account was created for you, set your password here: <a href="{{set_password_url}}">Set password</a></p><p>— DinnerHopping Team</p>',
         'description': 'Invitation email with accept link',
-        'variables': ['invitation_link','email','temp_password']
+        'variables': ['invitation_link','email','set_password_url']
     },
     {
         'key': 'invitation_accept',

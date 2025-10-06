@@ -228,15 +228,15 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
     invited_email_lc = payload.invited_email.lower()
     existing_user = await db_mod.db.users.find_one({"email": invited_email_lc})
     user_created = False
-    temp_password = None
+    set_password_link = None
     if not existing_user:
-        # create a provisional user so the invited person has an account
-        # use a randomly generated temporary password and mark email_verified=True
-        temp_password = secrets.token_urlsafe(12)
+        # create a provisional user with a placeholder password hash (random) and mark email_verified=True
+        # user will be required to set a real password via the emailed set-password link
+        placeholder = secrets.token_urlsafe(18)
         user_doc = {
             "email": invited_email_lc,
             "name": invited_email_lc.split('@', 1)[0],
-            "password_hash": hash_password(temp_password),
+            "password_hash": hash_password(placeholder),
             "email_verified": True,
             "roles": ['user'],
             "preferences": {},
@@ -258,6 +258,24 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
         except PyMongoError:
             # best-effort: if user creation fails, continue without blocking invitation
             user_created = False
+        # create a password reset token so the user can set their password securely
+        try:
+            from app.utils import generate_token_pair
+            reset_bytes = int(os.getenv('PASSWORD_RESET_TOKEN_BYTES', os.getenv('TOKEN_BYTES', '32')))
+        except (TypeError, ValueError):
+            reset_bytes = None
+        token, token_hash = generate_token_pair(reset_bytes)
+        now2 = datetime.datetime.now(datetime.timezone.utc)
+        try:
+            ttl_hours = int(os.getenv('PASSWORD_RESET_EXPIRES_HOURS', '4'))
+        except (TypeError, ValueError):
+            ttl_hours = 4
+        expires_at = now2 + datetime.timedelta(hours=ttl_hours)
+        reset_doc = {'email': invited_email_lc, 'token_hash': token_hash, 'created_at': now2, 'expires_at': expires_at}
+        with __import__('contextlib').suppress(Exception):
+            await db_mod.db.password_resets.insert_one(reset_doc)
+        base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+        set_password_link = f"{base}/reset-password?token={token}"
 
     # generate token and insert invitation (retry on token collision)
     try:
@@ -285,9 +303,15 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
             # send invitation email (best-effort)
             if user_created:
                 subject = "You've been invited to an event on DinnerHopping — account created"
+                # Prefer a set-password link rather than sending a plaintext password
+                if set_password_link:
+                    pw_line = f"Set your password here: {set_password_link}\n"
+                else:
+                    pw_line = "You can set your password after first sign-in.\n"
                 body = (
-                    f"Hi,\n\nYou have been invited to join an event on DinnerHopping. An account has been created for you with the following temporary credentials:\n\n"
-                    f"Email: {invited_email_lc}\nTemporary password: {temp_password}\n\nPlease log in and change your password after first sign-in. You can also accept the invitation directly by visiting:\n{link}\n\n"
+                    f"Hi,\n\nYou have been invited to join an event on DinnerHopping. An account has been created for you.\n\n"
+                    f"Email: {invited_email_lc}\n{pw_line}\n"
+                    f"You can also accept the invitation directly by visiting:\n{link}\n\n"
                     "If you didn't expect this, please ignore this email.\n\nThanks,\nDinnerHopping Team"
                 )
             else:
@@ -297,12 +321,15 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
                     "If you don't have an account, you can register using the same email address.\n\nThanks,\nDinnerHopping Team"
                 )
             # fire-and-forget but await to surface SMTP errors in logs (send_email handles its own failures)
+            tmpl_vars = {'invitation_link': link, 'email': invited_email_lc}
+            if set_password_link:
+                tmpl_vars['set_password_url'] = set_password_link
             await send_email(
                 to=invited_email_lc,
                 subject=subject,
                 body=body,
                 category='invitation',
-                template_vars={'invitation_link': link, 'temp_password': temp_password, 'email': invited_email_lc}
+                template_vars=tmpl_vars
             )
 
             return {"id": str(res.inserted_id), "token": token, "link": link}
@@ -489,13 +516,14 @@ async def accept_invitation_via_link(token: str, request: Request):
     user_email = invited_email
     existing = await db_mod.db.users.find_one({"email": invited_email})
     provisional_created = False
-    temp_password = None
+    set_password_link = None
     if not existing:
-        temp_password = secrets.token_urlsafe(12)
+        # create provisional user with placeholder password and issue a password-reset token
+        placeholder = secrets.token_urlsafe(18)
         user_doc = {
             "email": invited_email,
             "name": invited_email.split('@', 1)[0],
-            "password_hash": hash_password(temp_password),
+            "password_hash": hash_password(placeholder),
             "email_verified": True,
             "roles": ['user'],
             "preferences": {},
@@ -514,6 +542,24 @@ async def accept_invitation_via_link(token: str, request: Request):
             provisional_created = False
         except PyMongoError:
             provisional_created = False
+        # create password reset token so the user can set a proper password
+        try:
+            from app.utils import generate_token_pair
+            reset_bytes = int(os.getenv('PASSWORD_RESET_TOKEN_BYTES', os.getenv('TOKEN_BYTES', '32')))
+        except (TypeError, ValueError):
+            reset_bytes = None
+        token, token_hash = generate_token_pair(reset_bytes)
+        now2 = datetime.datetime.now(datetime.timezone.utc)
+        try:
+            ttl_hours = int(os.getenv('PASSWORD_RESET_EXPIRES_HOURS', '4'))
+        except (TypeError, ValueError):
+            ttl_hours = 4
+        expires_at = now2 + datetime.timedelta(hours=ttl_hours)
+        reset_doc = {'email': invited_email, 'token_hash': token_hash, 'created_at': now2, 'expires_at': expires_at}
+        with __import__('contextlib').suppress(Exception):
+            await db_mod.db.password_resets.insert_one(reset_doc)
+        base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+        set_password_link = f"{base}/reset-password?token={token}"
 
     # create registration if missing
     event_id = inv.get('event_id')
@@ -597,19 +643,27 @@ async def accept_invitation_via_link(token: str, request: Request):
     await db_mod.db.invitations.update_one({"_id": inv['_id']}, {"$set": {"status": "accepted", "accepted_by": user_email, "accepted_at": now}})
 
     # notify invited user by email about acceptance and credentials if provisional
-    if provisional_created and temp_password:
+    if provisional_created:
         subject = "Your DinnerHopping account was created and invitation accepted"
+        if set_password_link:
+            pw_line = f"Set your password here: {set_password_link}\n"
+        else:
+            pw_line = "Please set your password after signing in.\n"
         body = (
-            f"Hi,\n\nYour account was created and the invitation was accepted for you. You can log in with:\n\n"
-            f"Email: {user_email}\nTemporary password: {temp_password}\n\nPlease change your password after signing in.\n\nThanks,\nDinnerHopping Team"
+            f"Hi,\n\nYour account was created and the invitation was accepted for you.\n\n"
+            f"Email: {user_email}\n{pw_line}\n"
+            "Please change your password after signing in.\n\nThanks,\nDinnerHopping Team"
         )
         reg_id = str(reg_res.inserted_id) if hasattr(reg_res, 'inserted_id') else str(reg_res.get('_id'))
+        tmpl = {'registration_id': reg_id, 'email': user_email}
+        if set_password_link:
+            tmpl['set_password_url'] = set_password_link
         await send_email(
             to=user_email,
             subject=subject,
             body=body,
             category='invitation_accept',
-            template_vars={'registration_id': reg_id, 'email': user_email, 'temp_password': temp_password}
+            template_vars=tmpl
         )
 
     # redirect to frontend success page when requested by a browser

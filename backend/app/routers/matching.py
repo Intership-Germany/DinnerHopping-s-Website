@@ -44,8 +44,19 @@ async def start_matching(event_id: str, payload: dict | None = None, current_adm
     ev = await require_event_published(event_id)
     # enforce registration deadline passed if set
     ddl = ev.get('registration_deadline')
+    deadline_dt = None
+    if ddl:
+        if isinstance(ddl, datetime.datetime):
+            deadline_dt = ddl if ddl.tzinfo is not None else ddl.replace(tzinfo=datetime.timezone.utc)
+        elif isinstance(ddl, str):
+            try:
+                from app import datetime_utils
+                deadline_dt = datetime_utils.parse_iso(ddl)
+            except Exception:
+                # If parsing fails, be conservative and skip the deadline check
+                deadline_dt = None
     now = datetime.datetime.now(datetime.timezone.utc)
-    if ddl and isinstance(ddl, datetime.datetime) and now < ddl:
+    if deadline_dt and now < deadline_dt:
         raise HTTPException(status_code=400, detail='Registration deadline has not passed yet')
     payload = payload or {}
     algorithms: List[str] = payload.get('algorithms') or ['greedy', 'random']

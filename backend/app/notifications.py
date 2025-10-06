@@ -13,7 +13,9 @@ from . import db as db_mod
 import re
 import html
 
-PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_\.]+)\s*}}")
+# Match literal double-curly placeholders like {{ variable }}.  Curly braces
+# must be escaped in the regex so they are treated as literal characters.
+PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_\.]+)\s*\}\}")
 
 async def _render_template(key: str, fallback_subject: str, fallback_lines: Iterable[str], variables: Mapping[str, Any] | None = None, category: str = "generic") -> tuple[str,str]:
     """Load template by key from DB and render with {{placeholders}}.
@@ -67,11 +69,18 @@ async def _render_template(key: str, fallback_subject: str, fallback_lines: Iter
     return subject, text_body + ("\n" if not text_body.endswith('\n') else '')
 
 async def _send(to: Sequence[str] | str, subject: str, lines: Iterable[str], category: str, template_key: str | None = None, variables: Mapping[str, Any] | None = None) -> bool:
+    # If a `template_key` is provided, delegate rendering to the central
+    # `send_email` helper by passing the template key as the email category and
+    # the caller-provided variables. This ensures a single place performs
+    # DB lookups and rendering (avoids double-rendering or mismatched keys).
     if template_key:
-        subject, body = await _render_template(template_key, subject, lines, variables, category)
+        # Pass the plaintext fallback lines as the body; send_email will use
+        # these as a fallback if the DB template is missing.
+        fallback_body = "\n".join(lines)
+        return await send_email(to=to, subject=subject, body=fallback_body, category=template_key, template_vars=variables)
     else:
         body = "\n".join(lines) + "\n"
-    return await send_email(to=to, subject=subject, body=body, category=category)
+        return await send_email(to=to, subject=subject, body=body, category=category)
 
 
 # Account / Auth
