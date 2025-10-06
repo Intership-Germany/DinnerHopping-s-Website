@@ -262,22 +262,34 @@
 
           const startPayment = async (provider) => {
             try {
-              const payPayload = { registration_id: regId2, provider, amount_cents: amountCents };
+              const payPayload = { registration_id: regId2, provider };
               const { res: createRes, data: created } = await (window.dh?.apiPost
-                ? window.dh.apiPost('/payments/create', payPayload)
+                ? window.dh.apiPost('/payments', payPayload)
                 : { res: { ok: false }, data: {} });
               if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
-              const link =
-                created.payment_link ||
-                (created.instructions &&
-                  (created.instructions.approval_link || created.instructions.link));
-              if (link) {
-                window.location.href = link.startsWith('http')
-                  ? link
-                  : window.BACKEND_BASE_URL + link;
+              if (created.status === 'no_payment_required') {
+                alert('No payment required.');
                 return true;
               }
-              alert('Payment created. Follow the provider instructions.');
+              // Resolve link from next_action or fallback fields
+              let link = null;
+              if (created.next_action) {
+                if (created.next_action.type === 'redirect') link = created.next_action.url;
+                else if (created.next_action.type === 'paypal_order') link = created.next_action.approval_link;
+              }
+              if (!link) link = created.payment_link;
+              if (!link && created.instructions) {
+                link = created.instructions.approval_link || created.instructions.link || null;
+              }
+              if (link) {
+                window.location.href = link.startsWith('http') ? link : window.BACKEND_BASE_URL + link;
+                return true;
+              }
+              if (created.instructions) {
+                alert('Instructions generated. Please follow the bank transfer steps.');
+                return true;
+              }
+              alert('Payment initiated. Follow provider instructions.');
               return true;
             } catch (err) {
               console.error('Create payment failed', err);

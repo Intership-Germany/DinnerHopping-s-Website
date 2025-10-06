@@ -63,10 +63,14 @@
         if (pr.ok){ const provs = await pr.json(); if (provs?.providers) providers = provs.providers; else if (Array.isArray(provs)) providers = provs; if (typeof provs?.default==='string') defaultProvider = provs.default; }
       } catch {}
       const chosen = providers.length===1 ? providers[0] : defaultProvider;
-      const payRes = await api('/payments/create', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ registration_id: data.registration_id, amount_cents: data.amount_cents, provider: chosen }) });
-      const pay = await payRes.json();
-      if (pay.payment_link) window.location.href = pay.payment_link;
-      else alert('Payment created. Please follow provider instructions.');
+  const payRes = await api('/payments', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ registration_id: data.registration_id, provider: chosen }) });
+  const pay = await payRes.json();
+  if (pay.status === 'no_payment_required') { alert('No payment required.'); return; }
+  let link = null;
+  if (pay.next_action){ if (pay.next_action.type==='redirect') link=pay.next_action.url; else if (pay.next_action.type==='paypal_order') link=pay.next_action.approval_link; }
+  if (!link) link = pay.payment_link;
+  if (!link && pay.instructions) link = pay.instructions.approval_link || pay.instructions.link || null;
+  if (link) window.location.href = link.startsWith('http')? link: window.BACKEND_BASE_URL + link; else if (pay.instructions) alert('Instructions generated. Follow the bank transfer steps.'); else alert('Payment created. Please follow provider instructions.');
     } catch (e) {
       alert('Registration failed.');
     }
@@ -104,10 +108,14 @@
         if (pr.ok){ const provs = await pr.json(); if (provs?.providers) providers = provs.providers; else if (Array.isArray(provs)) providers = provs; if (typeof provs?.default==='string') defaultProvider = provs.default; }
       } catch {}
       const chosen = providers.length===1 ? providers[0] : defaultProvider;
-      const payRes = await api('/payments/create', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ registration_id: data.registration_id, amount_cents: data.amount_cents, provider: chosen }) });
-      const pay = await payRes.json();
-      if (pay.payment_link) window.location.href = pay.payment_link;
-      else alert('Team created. Payment pending.');
+  const payRes = await api('/payments', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ registration_id: data.registration_id, provider: chosen }) });
+  const pay = await payRes.json();
+  if (pay.status === 'no_payment_required') { alert('Team created. No payment required.'); return; }
+  let link = null;
+  if (pay.next_action){ if (pay.next_action.type==='redirect') link=pay.next_action.url; else if (pay.next_action.type==='paypal_order') link=pay.next_action.approval_link; }
+  if (!link) link = pay.payment_link;
+  if (!link && pay.instructions) link = pay.instructions.approval_link || pay.instructions.link || null;
+  if (link) window.location.href = link.startsWith('http')? link: window.BACKEND_BASE_URL + link; else if (pay.instructions) alert('Team created. Instructions generated for bank transfer.'); else alert('Team created. Payment pending.');
     } catch (e) {
       alert('Team registration failed.');
     }
