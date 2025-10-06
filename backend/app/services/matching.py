@@ -199,9 +199,57 @@ async def _build_teams(event_oid) -> List[dict]:
                 can_main = bool(members[0].get('main_course_possible'))
             elif len(members) > 1:
                 can_main = bool(members[1].get('main_course_possible'))
+        # Fallback: registration preferences then user profile attributes if team_doc absent or did not yield True
+        if not can_main:
+            try:
+                # Check registration preferences
+                for r in t.get('member_regs') or []:
+                    prefs = (r.get('preferences') or {})
+                    if prefs.get('main_course_possible') is True:
+                        can_main = True
+                        break
+                # Check user documents if still false
+                if not can_main:
+                    for r in t.get('member_regs') or []:
+                        em = r.get('user_email_snapshot')
+                        if not em:
+                            continue
+                        u = await db_mod.db.users.find_one({'email': em})
+                        if u and u.get('main_course_possible') is True:
+                            can_main = True
+                            break
+            except Exception:
+                pass
         t['can_host_main'] = can_main
         # broader kitchen capability (avoid hosting anyone without kitchen for any course)
         has_kitchen = team_doc.get('has_kitchen')
+        # Fallback only if not explicitly set on team_doc
+        if has_kitchen is None:
+            # Start with any explicit member flag
+            try:
+                for m in members:
+                    if m.get('kitchen_available') is True:
+                        has_kitchen = True
+                        break
+                # Registration preferences
+                if has_kitchen is None:
+                    for r in t.get('member_regs') or []:
+                        prefs = (r.get('preferences') or {})
+                        if prefs.get('kitchen_available') is True:
+                            has_kitchen = True
+                            break
+                # User documents
+                if has_kitchen is None:
+                    for r in t.get('member_regs') or []:
+                        em = r.get('user_email_snapshot')
+                        if not em:
+                            continue
+                        u = await db_mod.db.users.find_one({'email': em})
+                        if u and u.get('kitchen_available') is True:
+                            has_kitchen = True
+                            break
+            except Exception:
+                pass
         if has_kitchen is None:
             # Fallback heuristic: if can main, assume kitchen exists
             has_kitchen = bool(can_main)
@@ -952,7 +1000,8 @@ async def list_issues(event_id: str, version: Optional[int] = None) -> dict:
             for r in active:
                 rid = r.get('_id')
                 pr = payments_by_reg.get(str(rid)) if rid is not None else None
-                if pr and pr.get('status') == 'paid':
+                # Consider both legacy 'paid' and current 'succeeded' statuses as fully paid
+                if pr and pr.get('status') in ('paid', 'succeeded'):
                     paid_count += 1
             if paid_count == 0:
                 team_payment_missing.add(tid)
