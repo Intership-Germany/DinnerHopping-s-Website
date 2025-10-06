@@ -220,23 +220,88 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
         'user_id': creator.get('_id'),
         'status': {'$nin': list(cancelled_states)},
     })
-    
-    # Allow re-registration for the same event, but block if active registration for a DIFFERENT event
+
+    # Allow re-registration for the same event. If the user has an active registration
+    # for a DIFFERENT event try to auto-cancel it (if cancellation deadline not passed).
+    # If auto-cancel is not possible, keep previous behaviour and reject with 409.
     if existing_active and str(existing_active.get('event_id')) != str(ev['_id']):
-        event_info = await db_mod.db.events.find_one({'_id': existing_active.get('event_id')})
-        event_title = event_info.get('title') if event_info else 'another event'
-        raise HTTPException(
-            status_code=409,
-            detail={
-                'message': f'You already have an active registration for {event_title}. Please cancel that registration before registering for a new event.',
-                'existing_registration': {
-                    'registration_id': str(existing_active.get('_id')),
-                    'event_id': str(existing_active.get('event_id')),
-                    'event_title': event_title,
-                    'status': existing_active.get('status'),
-                },
-            }
-        )
+        # load previous event to check cancellation deadline
+        prev_ev = await db_mod.db.events.find_one({'_id': existing_active.get('event_id')}) if existing_active.get('event_id') else None
+        # If we can cancel previous registration (deadline not passed), do so automatically
+        if prev_ev and not _cancellation_deadline_passed(prev_ev):
+            now = _now()
+            try:
+                # If previous registration belongs to a team, cancel the whole team
+                if existing_active.get('team_id'):
+                    tid = existing_active.get('team_id')
+                    try:
+                        await db_mod.db.teams.update_one({'_id': tid}, {'$set': {'status': 'cancelled', 'cancelled_by': creator.get('email'), 'cancelled_at': now, 'updated_at': now}})
+                    except Exception:
+                        pass
+                    res = await db_mod.db.registrations.update_many({'team_id': tid, 'status': {'$nin': list(cancelled_states)}}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
+                    try:
+                        if getattr(res, 'modified_count', 0) > 0:
+                            await db_mod.db.events.update_one({'_id': existing_active.get('event_id')}, {'$inc': {'attendee_count': -int(res.modified_count)}})
+                    except Exception:
+                        pass
+                else:
+                    # Solo registration: cancel it
+                    await db_mod.db.registrations.update_one({'_id': existing_active.get('_id')}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
+                    try:
+                        await db_mod.db.events.update_one({'_id': existing_active.get('event_id'), 'attendee_count': {'$gt': 0}}, {'$inc': {'attendee_count': -1}})
+                    except Exception:
+                        pass
+                # Best-effort: mark for refunds if applicable
+                try:
+                    await _mark_refund_if_applicable(existing_active, prev_ev)
+                except Exception:
+                    pass
+                # Audit the automatic cancellation
+                from app.utils import create_audit_log
+                try:
+                    await create_audit_log(
+                        entity_type='registration',
+                        entity_id=existing_active.get('_id'),
+                        action='auto_cancel_for_new_registration',
+                        actor=creator.get('email'),
+                        old_state={'status': existing_active.get('status')},
+                        new_state={'status': 'cancelled_by_user'},
+                        reason='Auto-cancel previous registration when registering for a new event'
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                # If cancellation attempt failed for any reason, fall back to blocking behaviour
+                event_info = await db_mod.db.events.find_one({'_id': existing_active.get('event_id')})
+                event_title = event_info.get('title') if event_info else 'another event'
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        'message': f'You already have an active registration for {event_title}. Please cancel that registration before registering for a new event.',
+                        'existing_registration': {
+                            'registration_id': str(existing_active.get('_id')),
+                            'event_id': str(existing_active.get('event_id')),
+                            'event_title': event_title,
+                            'status': existing_active.get('status'),
+                        },
+                    }
+                )
+        else:
+            # Cannot auto-cancel (deadline passed or no event info) -> block
+            event_info = await db_mod.db.events.find_one({'_id': existing_active.get('event_id')})
+            event_title = event_info.get('title') if event_info else 'another event'
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    'message': f'You already have an active registration for {event_title}. Please cancel that registration before registering for a new event.',
+                    'existing_registration': {
+                        'registration_id': str(existing_active.get('_id')),
+                        'event_id': str(existing_active.get('event_id')),
+                        'event_title': event_title,
+                        'status': existing_active.get('status'),
+                    },
+                }
+            )
     
     diet = (
         _enum_value(DietaryPreference, payload.dietary_preference)
@@ -273,14 +338,20 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
             }
             update_doc = {'$set': update_fields}
             if existing.get('status') in cancelled_states:
+                # Reactivation: move to pending_payment and clear cancelled timestamp and any previous payment pointer
                 update_fields['status'] = 'pending_payment'
                 update_doc = {
                     '$set': update_fields,
-                    '$unset': {'cancelled_at': ''}
+                    '$unset': {'cancelled_at': '', 'payment_id': ''}
                 }
+                # Also best-effort: mark any existing payment records for this registration as failed
+                try:
+                    await db_mod.db.payments.update_many({'registration_id': existing.get('_id'), 'status': {'$nin': ['succeeded', 'paid']}}, {'$set': {'status': 'failed', 'updated_at': now}})
+                except Exception:
+                    pass
             await db_mod.db.registrations.update_one({'_id': existing['_id']}, update_doc)
             reg_id = existing['_id']
-            
+
             # Audit log for status change
             if old_status in cancelled_states and update_fields.get('status') == 'pending_payment':
                 from app.utils import create_audit_log
@@ -308,7 +379,7 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
             }
             res = await db_mod.db.registrations.insert_one(reg_doc)
             reg_id = res.inserted_id
-            
+
             # Audit log for creation
             from app.utils import create_audit_log, send_registration_notification
             await create_audit_log(
@@ -319,7 +390,7 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
                 new_state={'status': 'pending_payment', 'team_size': 1},
                 reason='Solo registration created'
             )
-            
+
             # Send notification (best-effort, don't fail if it doesn't work)
             try:
                 await send_registration_notification(reg_id, 'created')
@@ -365,22 +436,64 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
         'status': {'$nin': list(cancelled_states)},
     })
     
-    # Block if active registration for a DIFFERENT event
+    # If creator has active registration for a different event, attempt to auto-cancel
     if existing_creator_active and str(existing_creator_active.get('event_id')) != str(ev['_id']):
-        event_info = await db_mod.db.events.find_one({'_id': existing_creator_active.get('event_id')})
-        event_title = event_info.get('title') if event_info else 'another event'
-        raise HTTPException(
-            status_code=409,
-            detail={
-                'message': f'You already have an active registration for {event_title}. Please cancel that registration before registering for a new event.',
-                'existing_registration': {
-                    'registration_id': str(existing_creator_active.get('_id')),
-                    'event_id': str(existing_creator_active.get('event_id')),
-                    'event_title': event_title,
-                    'status': existing_creator_active.get('status'),
-                },
-            }
-        )
+        prev_ev = await db_mod.db.events.find_one({'_id': existing_creator_active.get('event_id')}) if existing_creator_active.get('event_id') else None
+        if prev_ev and not _cancellation_deadline_passed(prev_ev):
+            now = _now()
+            try:
+                if existing_creator_active.get('team_id'):
+                    tid = existing_creator_active.get('team_id')
+                    try:
+                        await db_mod.db.teams.update_one({'_id': tid}, {'$set': {'status': 'cancelled', 'cancelled_by': creator.get('email'), 'cancelled_at': now, 'updated_at': now}})
+                    except Exception:
+                        pass
+                    res = await db_mod.db.registrations.update_many({'team_id': tid, 'status': {'$nin': list(cancelled_states)}}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
+                    try:
+                        if getattr(res, 'modified_count', 0) > 0:
+                            await db_mod.db.events.update_one({'_id': existing_creator_active.get('event_id')}, {'$inc': {'attendee_count': -int(res.modified_count)}})
+                    except Exception:
+                        pass
+                else:
+                    await db_mod.db.registrations.update_one({'_id': existing_creator_active.get('_id')}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
+                    try:
+                        await db_mod.db.events.update_one({'_id': existing_creator_active.get('event_id'), 'attendee_count': {'$gt': 0}}, {'$inc': {'attendee_count': -1}})
+                    except Exception:
+                        pass
+                try:
+                    await _mark_refund_if_applicable(existing_creator_active, prev_ev)
+                except Exception:
+                    pass
+            except Exception:
+                event_info = await db_mod.db.events.find_one({'_id': existing_creator_active.get('event_id')})
+                event_title = event_info.get('title') if event_info else 'another event'
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        'message': f'You already have an active registration for {event_title}. Please cancel that registration before registering for a new event.',
+                        'existing_registration': {
+                            'registration_id': str(existing_creator_active.get('_id')),
+                            'event_id': str(existing_creator_active.get('event_id')),
+                            'event_title': event_title,
+                            'status': existing_creator_active.get('status'),
+                        },
+                    }
+                )
+        else:
+            event_info = await db_mod.db.events.find_one({'_id': existing_creator_active.get('event_id')})
+            event_title = event_info.get('title') if event_info else 'another event'
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    'message': f'You already have an active registration for {event_title}. Please cancel that registration before registering for a new event.',
+                    'existing_registration': {
+                        'registration_id': str(existing_creator_active.get('_id')),
+                        'event_id': str(existing_creator_active.get('event_id')),
+                        'event_title': event_title,
+                        'status': existing_creator_active.get('status'),
+                    },
+                }
+            )
 
     active_filter = {'$nin': list(cancelled_states)}
     existing_creator_reg = await db_mod.db.registrations.find_one({
@@ -407,12 +520,46 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             'status': {'$nin': list(cancelled_states)},
         })
         if existing_partner_active and str(existing_partner_active.get('event_id')) != str(ev['_id']):
-            partner_event_info = await db_mod.db.events.find_one({'_id': existing_partner_active.get('event_id')})
-            partner_event_title = partner_event_info.get('title') if partner_event_info else 'another event'
-            raise HTTPException(
-                status_code=409,
-                detail=f'Your partner already has an active registration for {partner_event_title}. They must cancel that registration first.'
-            )
+            partner_prev_ev = await db_mod.db.events.find_one({'_id': existing_partner_active.get('event_id')}) if existing_partner_active.get('event_id') else None
+            if partner_prev_ev and not _cancellation_deadline_passed(partner_prev_ev):
+                now = _now()
+                try:
+                    if existing_partner_active.get('team_id'):
+                        tid = existing_partner_active.get('team_id')
+                        try:
+                            await db_mod.db.teams.update_one({'_id': tid}, {'$set': {'status': 'cancelled', 'cancelled_by': partner_user.get('email'), 'cancelled_at': now, 'updated_at': now}})
+                        except Exception:
+                            pass
+                        res = await db_mod.db.registrations.update_many({'team_id': tid, 'status': {'$nin': list(cancelled_states)}}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
+                        try:
+                            if getattr(res, 'modified_count', 0) > 0:
+                                await db_mod.db.events.update_one({'_id': existing_partner_active.get('event_id')}, {'$inc': {'attendee_count': -int(res.modified_count)}})
+                        except Exception:
+                            pass
+                    else:
+                        await db_mod.db.registrations.update_one({'_id': existing_partner_active.get('_id')}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
+                        try:
+                            await db_mod.db.events.update_one({'_id': existing_partner_active.get('event_id'), 'attendee_count': {'$gt': 0}}, {'$inc': {'attendee_count': -1}})
+                        except Exception:
+                            pass
+                    try:
+                        await _mark_refund_if_applicable(existing_partner_active, partner_prev_ev)
+                    except Exception:
+                        pass
+                except Exception:
+                    partner_event_info = await db_mod.db.events.find_one({'_id': existing_partner_active.get('event_id')})
+                    partner_event_title = partner_event_info.get('title') if partner_event_info else 'another event'
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f'Your partner already has an active registration for {partner_event_title}. They must cancel that registration first.'
+                    )
+            else:
+                partner_event_info = await db_mod.db.events.find_one({'_id': existing_partner_active.get('event_id')})
+                partner_event_title = partner_event_info.get('title') if partner_event_info else 'another event'
+                raise HTTPException(
+                    status_code=409,
+                    detail=f'Your partner already has an active registration for {partner_event_title}. They must cancel that registration first.'
+                )
         
         existing_partner_reg = await db_mod.db.registrations.find_one({
             'event_id': ev['_id'],

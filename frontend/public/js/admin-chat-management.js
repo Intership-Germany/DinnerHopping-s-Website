@@ -22,7 +22,7 @@
   async function loadEvents() {
     evSelect.innerHTML = '';
     try {
-      const { res, data } = await window.dh.apiGet('/admin/events');
+      const { res, data } = await window.dh.apiGet('/events/');
       if (!res.ok) return;
       const events = data;
       events.forEach(ev => {

@@ -1,3 +1,4 @@
+
 /**
  * Chat page logic
  * Responsibilities:
