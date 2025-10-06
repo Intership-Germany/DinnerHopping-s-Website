@@ -3,7 +3,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal
 from app import db as db_mod
 from app.auth import get_current_user
-from app.utils import require_event_published, require_event_registration_open, compute_team_diet, send_email, require_registration_owner_or_admin, get_registration_by_any_id
+from app.utils import require_event_published, require_event_registration_open, compute_team_diet, send_email, require_registration_owner_or_admin, get_registration_by_any_id, get_event
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 import datetime
@@ -675,9 +675,28 @@ async def _load_event_for_registration(reg: dict) -> dict:
 
 def _cancellation_deadline_passed(ev: dict) -> bool:
     ddl = ev.get('registration_deadline') or ev.get('payment_deadline')
-    if ddl and isinstance(ddl, datetime.datetime):
-        return datetime.datetime.now(datetime.timezone.utc) > ddl
-    return False
+    if not ddl:
+        return False
+    deadline_dt = None
+    # If it's already a datetime, ensure it's timezone-aware (assume UTC when naive)
+    if isinstance(ddl, datetime.datetime):
+        deadline_dt = ddl if ddl.tzinfo is not None else ddl.replace(tzinfo=datetime.timezone.utc)
+    elif isinstance(ddl, str):
+        try:
+            from app import datetime_utils
+            deadline_dt = datetime_utils.parse_iso(ddl)
+        except Exception:
+            # If parsing fails, be conservative and treat as no deadline
+            return False
+
+    if not deadline_dt:
+        return False
+
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    # both should be timezone-aware now; compare safely
+    if isinstance(deadline_dt, datetime.datetime) and deadline_dt.tzinfo is None:
+        deadline_dt = deadline_dt.replace(tzinfo=datetime.timezone.utc)
+    return now_utc > deadline_dt
 
 
 async def _mark_refund_if_applicable(reg: dict, ev: dict):

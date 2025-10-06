@@ -249,12 +249,14 @@ async def send_email(
     max_retries = int(os.getenv("SMTP_MAX_RETRIES", "2"))
     from_addr = from_address or os.getenv("SMTP_FROM_ADDRESS", "info@acrevon.fr")
 
-    # Attempt to render a DB template matching the category name. We import
-    # notifications lazily to avoid circular imports between utils and
-    # notifications modules.
+    # Attempt to render a DB template matching the category name.
+    # We first check for the existence of a template document in the DB and
+    # only call the renderer when a template is present. This avoids the
+    # renderer returning the provided fallback when a DB template actually
+    # exists but would otherwise be skipped.
     try:
         from . import notifications as _notifications
-        # prepare fallback lines for the renderer from the provided body
+        # prepare fallback lines for potential renderer usage from the provided body
         fallback_lines = (body or '').splitlines() if body is not None else []
         vars_map = {}
         if recipients:
@@ -262,50 +264,52 @@ async def send_email(
         # merge explicit template_vars (caller-provided) into vars_map (caller overrides)
         if template_vars and isinstance(template_vars, dict):
             vars_map = {**vars_map, **template_vars}
-        try:
-            # Try direct category key first
-            tpl_subject, tpl_body = await _notifications._render_template(
-                key=category,
-                fallback_subject=subject,
-                fallback_lines=fallback_lines,
-                variables=vars_map,
-                category=category,
-            )
-        except Exception:
-            # If direct category not present, try a few common aliases mapping
-            alias_map = {
-                'verification': 'email_verification',
-                'cancellation': 'cancellation_confirmation',
-                'team_cancellation': 'team_partner_cancelled',
-                'team_update': 'team_update',
-                'payment': 'payment_confirmation',
-                'payment_confirmation': 'payment_confirmation',
-            }
-            tried = False
-            if category in alias_map:
-                try:
-                    tpl_subject, tpl_body = await _notifications._render_template(
-                        key=alias_map[category],
-                        fallback_subject=subject,
-                        fallback_lines=fallback_lines,
-                        variables=vars_map,
-                        category=alias_map[category],
-                    )
-                    tried = True
-                except Exception:
-                    tried = False
-            if not tried:
-                # re-raise to outer except to fall back
-                raise
-            # replace subject/body with rendered values
-            subject = tpl_subject
-            body = tpl_body
-        except Exception:
-            # If template rendering fails, ignore and use provided subject/body
-            pass
+
+        # Candidate keys to check in DB: first the direct category, then a few
+        # common aliases mapping to canonical template keys.
+        alias_map = {
+            'verification': 'email_verification',
+            'cancellation': 'cancellation_confirmation',
+            'team_cancellation': 'team_partner_cancelled',
+            'team_update': 'team_update',
+            'payment': 'payment_confirmation',
+            'payment_confirmation': 'payment_confirmation',
+        }
+        candidates: list[str] = [category]
+        if category in alias_map:
+            candidates.append(alias_map[category])
+
+        found_template_key: str | None = None
+        for key in candidates:
+            try:
+                tpl = await db_mod.db.email_templates.find_one({'key': key})
+            except Exception:
+                tpl = None
+            if tpl:
+                found_template_key = key
+                break
+
+        if found_template_key:
+            # We have a DB template — render and use it. If rendering fails we
+            # log the error and fall back to the provided subject/body instead
+            # of silently letting the renderer return a fallback when a
+            # template was expected to be used.
+            try:
+                tpl_subject, tpl_body = await _notifications._render_template(
+                    key=found_template_key,
+                    fallback_subject=subject,
+                    fallback_lines=fallback_lines,
+                    variables=vars_map,
+                    category=found_template_key,
+                )
+                subject = tpl_subject
+                body = tpl_body
+            except Exception:
+                logger.exception("Failed to render email template '%s' — using provided subject/body", found_template_key)
+        # else: no template found in DB for this category or its aliases — keep caller-provided subject/body
     except Exception:
-        # couldn't import notifications - skip template rendering
-        pass
+        # couldn't import notifications or other unexpected error — skip template rendering
+        logger.debug("Template rendering skipped (notifications import or DB error)")
 
     # Build message (text only for now; can extend with HTML alternative)
     def _build_message() -> EmailMessage:
