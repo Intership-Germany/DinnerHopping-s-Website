@@ -79,6 +79,18 @@
     f.chat_enabled.checked = !!ev.chat_enabled;
   }
 
+  // Admin menu toggle (if present on the page)
+  (function bindAdminMenu(){
+    try{
+      const btn = document.getElementById('admin-menu-btn');
+      if (!btn) return;
+      const menu = document.getElementById('admin-menu');
+      if (!menu) return;
+      btn.addEventListener('click', (e)=>{ menu.classList.toggle('hidden'); });
+      document.addEventListener('click', (ev)=>{ if (!btn.contains(ev.target) && !menu.contains(ev.target)){ menu.classList.add('hidden'); } });
+    }catch(e){}
+  })();
+
   function readForm(){
     const f = $('#create-event-form');
     const fd = new FormData(f);

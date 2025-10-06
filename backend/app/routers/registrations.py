@@ -3,7 +3,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal
 from app import db as db_mod
 from app.auth import get_current_user
-from app.utils import require_event_published, require_event_registration_open, compute_team_diet, send_email, require_registration_owner_or_admin, get_registration_by_any_id, get_event
+from app.utils import require_event_published, require_event_registration_open, compute_team_diet, send_email, require_registration_owner_or_admin, get_registration_by_any_id, get_event, create_chat_group
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 import datetime
@@ -325,6 +325,12 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
                 await send_registration_notification(reg_id, 'created')
             except Exception:
                 pass  # Log but don't fail registration if notification fails
+            # If event has chat enabled, create a default chat group for this solo registrant
+            try:
+                if ev.get('chat_enabled'):
+                    await create_chat_group(ev.get('_id'), [creator.get('email')], creator.get('email'), section_ref='general')
+            except Exception:
+                pass
     except Exception:
         if needs_reserve:
             await _release_capacity(ev.get('_id'), 1)
@@ -569,7 +575,21 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
     except Exception:
         await _release_capacity(ev.get('_id'), 2)
         raise
-    
+
+    # best-effort: create chat group for teams if event has chat enabled
+    try:
+        if ev.get('chat_enabled'):
+            participants = [creator.get('email')]
+            if partner_user:
+                participants.append(partner_user.get('email'))
+            else:
+                participants.append(team_doc['members'][1].get('email'))
+            await create_chat_group(ev.get('_id'), participants, creator.get('email'), section_ref='team')
+    except Exception:
+        # ignore chat creation errors
+        pass
+
+
     # increment attendee_count for the newly created registrations
     inc_count = 1 if partner_user else 1  # Always 1 for creator, partner was already counted in try block
     if partner_user and reg_partner_id:
@@ -738,6 +758,18 @@ async def cancel_solo_registration(registration_id: str, current_user=Depends(ge
     old_status = reg.get('status')
     now = datetime.datetime.now(datetime.timezone.utc)
     await db_mod.db.registrations.update_one({'_id': reg['_id']}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
+    # If event supports refunds, mark registration as refundable for admin listing
+    try:
+        if ev.get('refund_on_cancellation'):
+            await db_mod.db.registrations.update_one({'_id': reg['_id']}, {'$set': {'refund_flag': True}})
+    except Exception:
+        pass
+    # If event supports refunds, mark registration as refundable for admin listing
+    try:
+        if ev.get('refund_on_cancellation'):
+            await db_mod.db.registrations.update_one({'_id': reg['_id']}, {'$set': {'refund_flag': True}})
+    except Exception:
+        pass
     await _release_capacity(reg.get('event_id'), 1)
     await _mark_refund_if_applicable(reg, ev)
     
@@ -753,15 +785,15 @@ async def cancel_solo_registration(registration_id: str, current_user=Depends(ge
         reason='User-initiated cancellation'
     )
     
-    # email best-effort
+    # email best-effort (use notification helper which will render template)
     if reg.get('user_email_snapshot'):
-        _ = await send_email(
-            to=reg['user_email_snapshot'],
-            subject=f'Cancellation confirmed for {ev.get("title")}',
-            body='Your registration has been cancelled. If eligible, a refund will be processed later.',
-            category='cancellation',
-            template_vars={'event_title': ev.get('title'), 'refund': False, 'email': reg.get('user_email_snapshot')}
-        )
+        try:
+            from app import notifications
+            refund_flag = bool(ev.get('refund_on_cancellation'))
+            _ = await notifications.send_cancellation_confirmation(reg.get('user_email_snapshot'), ev.get('title'), refund_flag)
+        except Exception:
+            # best-effort: don't fail cancellation on email errors
+            pass
     return {'status': 'cancelled_by_user'}
 
 
@@ -801,6 +833,12 @@ async def cancel_team_member(team_id: str, registration_id: str, current_user=De
         await db_mod.db.events.update_one({'_id': ev.get('_id'), 'attendee_count': {'$gt': 0}}, {'$inc': {'attendee_count': -1}})
     except Exception:
         pass
+    # Attempt to mark payment for refund if applicable (best-effort)
+    try:
+        await _mark_refund_if_applicable(reg, ev)
+    except Exception:
+        pass
+
     # Notify creator
     creator_reg = await db_mod.db.registrations.find_one({'team_id': tid, 'user_id': team.get('created_by_user_id')})
     if creator_reg and creator_reg.get('user_email_snapshot'):
@@ -818,6 +856,14 @@ async def cancel_team_member(team_id: str, registration_id: str, current_user=De
             category='team_cancellation',
             template_vars={'event_title': ev.get('title'), 'email': creator_reg['user_email_snapshot']}
         )
+    # Send cancellation confirmation to the member who cancelled
+    if reg.get('user_email_snapshot'):
+        try:
+            from app import notifications
+            refund_flag = bool(ev.get('refund_on_cancellation'))
+            _ = await notifications.send_cancellation_confirmation(reg.get('user_email_snapshot'), ev.get('title'), refund_flag)
+        except Exception:
+            pass
     return {'status': 'cancelled_by_user', 'team_status': 'incomplete'}
 
 

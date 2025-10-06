@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Literal, List
 from app import db as db_mod
 from app.auth import get_current_user, require_admin
-from app.utils import anonymize_address, encrypt_address, anonymize_public_address, require_event_registration_open
+from app.utils import anonymize_address, encrypt_address, anonymize_public_address, require_event_registration_open, create_chat_group
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 from pymongo.errors import PyMongoError
@@ -469,6 +469,11 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
 @router.put('/{event_id}', response_model=EventOut)
 async def update_event(event_id: str, payload: EventCreate, _=Depends(require_admin)):
     update = payload.model_dump(exclude_unset=True)
+    # load existing event to detect flips (e.g., chat_enabled toggles)
+    try:
+        existing_event = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
+    except Exception:
+        existing_event = None
     # handle after_party_location update (accept legacy 'location')
     loc_in = update.pop('after_party_location', None)
     if loc_in is None:
@@ -518,6 +523,32 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
     # Persist changes (model_dump with exclude_unset ensures we only touch provided fields)
     await db_mod.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": update})
     e = await db_mod.db.events.find_one({"_id": ObjectId(event_id)})
+
+    # If admin just enabled chat (flipped from falsy to True), create best-effort groups
+    try:
+        if 'chat_enabled' in update and update.get('chat_enabled') and not (existing_event and existing_event.get('chat_enabled')):
+            # create team groups
+            try:
+                async for t in db_mod.db.teams.find({'event_id': ObjectId(event_id)}):
+                    members = t.get('members') or []
+                    emails = [m.get('email') for m in members if m.get('email')]
+                    if emails:
+                        await create_chat_group(event_id, emails, str(e.get('created_by') or 'admin'), section_ref='team')
+            except Exception:
+                pass
+            # create a general group for solo regs
+            try:
+                solo_emails = []
+                async for r in db_mod.db.registrations.find({'event_id': ObjectId(event_id), 'team_id': None, 'status': {'$nin': ['cancelled_by_user','cancelled_admin']}}):
+                    em = r.get('user_email_snapshot')
+                    if em:
+                        solo_emails.append(em)
+                if solo_emails:
+                    await create_chat_group(event_id, list(dict.fromkeys(solo_emails)), str(e.get('created_by') or 'admin'), section_ref='general')
+            except Exception:
+                pass
+    except Exception:
+        pass
     return EventOut(
         id=str(e['_id']),
         title=e.get('title') or e.get('name'),

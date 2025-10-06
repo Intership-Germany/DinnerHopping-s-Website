@@ -3,6 +3,10 @@ from .. import db as db_mod
 from ..auth import require_admin
 from pydantic import BaseModel, Field
 from typing import List, Optional
+import datetime
+from bson.objectid import ObjectId
+
+from .. import utils
 
 router = APIRouter()
 
@@ -209,12 +213,11 @@ async def list_email_templates(_=Depends(require_admin)):
                 'variables': ['event_title','amount_eur','email']
             }
         ]
-        from datetime import datetime
         for tpl in DEFAULT_TEMPLATES:
             existing = await db_mod.db.email_templates.find_one({'key': tpl['key']})
             if existing:
                 continue
-            tpl['updated_at'] = datetime.utcnow()
+            tpl['updated_at'] = datetime.datetime.utcnow()
             # Best-effort insert; ignore errors to keep listing functional
             try:
                 await db_mod.db.email_templates.insert_one(tpl)
@@ -313,3 +316,143 @@ async def delete_email_template(key: str, _=Depends(require_admin)):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail='Template not found')
     return {'status': 'deleted', 'key': key}
+
+
+# ---------------- Admin: Chat management ----------------
+@router.get('/chats')
+async def admin_list_chats(event_id: str | None = None, _=Depends(require_admin)):
+    """List chat groups. If event_id provided, filter by that event."""
+    q = {}
+    if event_id:
+        q['event_id'] = event_id
+    out = []
+    async for g in db_mod.db.chat_groups.find(q).sort('created_at', 1):
+        out.append({
+            '_id': str(g.get('_id')),
+            'event_id': g.get('event_id'),
+            'section_ref': g.get('section_ref'),
+            'participant_emails': g.get('participant_emails', []),
+            'created_at': g.get('created_at').isoformat() if g.get('created_at') else None,
+            'created_by': g.get('created_by')
+        })
+    return out
+
+
+@router.post('/chats/seed')
+async def admin_seed_chats(event_id: str = None, _=Depends(require_admin)):
+    """Seed chat groups for an event (create groups for teams and a general group for solo registrants).
+
+    If event_id omitted, seeds for all events.
+    """
+    if not event_id:
+        return {'status': 'event_id required'}
+    # best-effort: create groups per team
+    try:
+        # create per-team groups
+        async for t in db_mod.db.teams.find({'event_id': ObjectId(event_id)}):
+            # collect member emails
+            member_emails = []
+            async for r in db_mod.db.registrations.find({'event_id': ObjectId(event_id), 'team_id': t.get('_id')}):
+                email = r.get('user_email_snapshot') or r.get('user_email')
+                if email:
+                    member_emails.append(email.lower())
+            if member_emails:
+                await utils.create_chat_group(event_id, member_emails, created_by='admin@system', section_ref='team')
+
+        # create a general group for solo registrants
+        solo_emails = []
+        async for r in db_mod.db.registrations.find({'event_id': ObjectId(event_id), 'team_id': None}):
+            email = r.get('user_email_snapshot') or r.get('user_email')
+            if email:
+                solo_emails.append(email.lower())
+        if solo_emails:
+            await utils.create_chat_group(event_id, solo_emails, created_by='admin@system', section_ref='general')
+        return {'status': 'seeded'}
+    except Exception:
+        return {'status': 'error'}
+
+
+@router.post('/chats/clear')
+async def admin_clear_chats(event_id: str = None, _=Depends(require_admin)):
+    """Delete chat groups for an event."""
+    if not event_id:
+        return {'status': 'event_id required'}
+    try:
+        # First find group ids for the event so we can delete messages
+        group_ids = []
+        async for g in db_mod.db.chat_groups.find({'event_id': event_id}, {'_id': 1}):
+            group_ids.append(str(g.get('_id')))
+        msg_deleted = 0
+        if group_ids:
+            try:
+                mr = await db_mod.db.chat_messages.delete_many({'group_id': {'$in': group_ids}})
+                msg_deleted = getattr(mr, 'deleted_count', 0)
+            except Exception:
+                msg_deleted = 0
+        gr = await db_mod.db.chat_groups.delete_many({'event_id': event_id})
+        return {'groups_deleted': getattr(gr, 'deleted_count', 0), 'messages_deleted': msg_deleted}
+    except Exception:
+        return {'groups_deleted': 0, 'messages_deleted': 0}
+
+
+@router.delete('/chats/groups/{group_id}')
+async def admin_delete_group(group_id: str, _=Depends(require_admin)):
+    try:
+        oid = ObjectId(group_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid group id')
+    res = await db_mod.db.chat_groups.delete_one({'_id': oid})
+    if getattr(res, 'deleted_count', 0) == 0:
+        raise HTTPException(status_code=404, detail='Group not found')
+    # also delete messages for the group
+    try:
+        await db_mod.db.chat_messages.delete_many({'group_id': group_id})
+    except Exception:
+        pass
+    return {'status': 'deleted', 'group_id': group_id}
+
+
+@router.get('/chats/groups/{group_id}')
+async def admin_get_group(group_id: str, _=Depends(require_admin)):
+    try:
+        oid = ObjectId(group_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid group id')
+    g = await db_mod.db.chat_groups.find_one({'_id': oid})
+    if not g:
+        raise HTTPException(status_code=404, detail='Group not found')
+    return {
+        '_id': str(g.get('_id')),
+        'event_id': g.get('event_id'),
+        'section_ref': g.get('section_ref'),
+        'participant_emails': g.get('participant_emails', []),
+        'created_at': g.get('created_at').isoformat() if g.get('created_at') else None,
+        'created_by': g.get('created_by')
+    }
+
+
+@router.get('/chats/groups/{group_id}/messages')
+async def admin_list_group_messages(group_id: str, _=Depends(require_admin)):
+    msgs = []
+    async for m in db_mod.db.chat_messages.find({'group_id': group_id}).sort('created_at', 1):
+        msgs.append({
+            'id': str(m.get('_id')),
+            'group_id': m.get('group_id'),
+            'body': m.get('body'),
+            'created_at': m.get('created_at').isoformat() if m.get('created_at') else None,
+            'sender_email': m.get('sender_email')
+        })
+    return msgs
+
+
+@router.post('/chats/groups/{group_id}/messages')
+async def admin_post_group_message(group_id: str, body: str, _=Depends(require_admin)):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    doc = {
+        'group_id': group_id,
+        'sender_email': 'admin@system',
+        'body': body,
+        'created_at': now
+    }
+    res = await db_mod.db.chat_messages.insert_one(doc)
+    return {'id': str(res.inserted_id), 'group_id': group_id, 'body': body, 'created_at': now.isoformat(), 'sender_email': 'admin@system'}
