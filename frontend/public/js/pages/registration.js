@@ -40,32 +40,78 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ event_id: eventId }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        // Handle 409 conflict for existing active registration
-        if (res.status === 409 && data.existing_registration) {
-          const existing = data.existing_registration;
+        // Handle 409 conflict for existing active registration (detail may be object)
+        const detail = data && typeof data.detail === 'object' ? data.detail : data;
+        if (res.status === 409 && detail && detail.existing_registration) {
+          const existing = detail.existing_registration;
           alert(
-            `${data.message || 'You already have an active registration.'}\n\n` +
-            `Event: ${existing.event_title || 'Unknown'}\n` +
-            `Status: ${existing.status || 'Unknown'}\n\n` +
-            `Please cancel that registration first, or wait until it completes.`
+            `${detail.message || 'You already have an active registration.'}\n\n` +
+              `Event: ${existing.event_title || 'Unknown'}\n` +
+              `Status: ${existing.status || 'Unknown'}\n\n` +
+              `Please cancel that registration first, or wait until it completes.`
           );
           return;
         }
-        alert(data.detail || data.message || 'Failed to register');
+        const msg = typeof data.detail === 'string' ? data.detail : (detail && (detail.message || detail.detail)) || data.message;
+        alert(msg || 'Failed to register');
         return;
       }
       // Determine provider(s)
-      let providers = ['paypal','stripe','wero']; let defaultProvider='paypal';
+      let providers = ['paypal', 'stripe', 'wero'];
+      let defaultProvider = 'paypal';
       try {
-        const pr = await api('/payments/providers', { method: 'GET', headers:{'Accept':'application/json'} });
-        if (pr.ok){ const provs = await pr.json(); if (provs?.providers) providers = provs.providers; else if (Array.isArray(provs)) providers = provs; if (typeof provs?.default==='string') defaultProvider = provs.default; }
+        const pr = await api('/payments/providers', {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+        if (pr.ok) {
+          const provs = await pr.json();
+          if (provs?.providers) providers = provs.providers;
+          else if (Array.isArray(provs)) providers = provs;
+          if (typeof provs?.default === 'string') defaultProvider = provs.default;
+        }
       } catch {}
-      const chosen = providers.length===1 ? providers[0] : defaultProvider;
-      const payRes = await api('/payments/create', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ registration_id: data.registration_id, amount_cents: data.amount_cents, provider: chosen }) });
-      const pay = await payRes.json();
-      if (pay.payment_link) window.location.href = pay.payment_link;
+      const chosen = providers.length === 1 ? providers[0] : defaultProvider;
+      // Prefer backend-advertised endpoint if present
+      const payCreatePath = data.payment_create_endpoint || '/payments/create';
+      const payRes = await api(payCreatePath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registration_id: data.registration_id, provider: chosen }),
+      });
+      const pay = await payRes.json().catch(() => ({}));
+      if (pay.status === 'no_payment_required') {
+        alert('No payment required.');
+        return;
+      }
+      let link = null;
+      if (pay.next_action) {
+        if (pay.next_action.type === 'redirect') link = pay.next_action.url;
+        else if (pay.next_action.type === 'paypal_order') link = pay.next_action.approval_link;
+        else if (pay.next_action.type === 'instructions') {
+          // Show bank transfer instructions (Wero)
+          const instr = pay.next_action.instructions || pay.instructions;
+          if (instr) {
+            const summary = [
+              instr.reference && `Reference: ${instr.reference}`,
+              instr.iban && `IBAN: ${instr.iban}`,
+              instr.amount && `Amount: ${instr.amount}`,
+              instr.currency && `Currency: ${instr.currency}`,
+            ]
+              .filter(Boolean)
+              .join('\n');
+            alert('Bank transfer instructions generated.\n\n' + summary);
+          }
+        }
+      }
+      if (!link) link = pay.payment_link;
+      if (!link && pay.instructions)
+        link = pay.instructions.approval_link || pay.instructions.link || null;
+      if (link)
+        window.location.href = link.startsWith('http') ? link : window.BACKEND_BASE_URL + link;
+      else if (pay.instructions) alert('Instructions generated. Follow the bank transfer steps.');
       else alert('Payment created. Please follow provider instructions.');
     } catch (e) {
       alert('Registration failed.');
@@ -77,36 +123,104 @@
         window.dh && window.dh.apiFetch
           ? window.dh.apiFetch
           : (p, opts) => fetch(BASE + p, { ...(opts || {}), credentials: 'include' });
+      // Collect minimal required info for backend: exactly one of partner_existing or partner_external
+      let mode = (prompt('Team registration: type "existing" to invite a registered user by email, or "external" for a partner without account.\nLeave empty to cancel.') || '').trim().toLowerCase();
+      if (!mode) return;
+      if (mode !== 'existing' && mode !== 'external') {
+        alert('Invalid choice. Please type existing or external.');
+        return;
+      }
+      let payload = { event_id: eventId, cooking_location: 'creator' };
+      if (mode === 'existing') {
+        const email = (prompt('Enter partner email (existing user):') || '').trim();
+        if (!email) {
+          alert('Email required.');
+          return;
+        }
+        payload.partner_existing = { email };
+      } else {
+        const name = (prompt('Enter partner name:') || '').trim();
+        const email = (prompt('Enter partner email:') || '').trim();
+        if (!name || !email) {
+          alert('Name and email required for external partner.');
+          return;
+        }
+        payload.partner_external = { name, email };
+      }
       const res = await api('/registrations/team', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event_id: eventId, cooking_location: 'creator' }),
+        body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        // Handle 409 conflict for existing active registration
-        if (res.status === 409 && data.existing_registration) {
-          const existing = data.existing_registration;
+        // Handle 409 conflict for existing active registration (detail may be object)
+        const detail = data && typeof data.detail === 'object' ? data.detail : data;
+        if (res.status === 409 && detail && detail.existing_registration) {
+          const existing = detail.existing_registration;
           alert(
-            `${data.message || 'You already have an active registration.'}\n\n` +
-            `Event: ${existing.event_title || 'Unknown'}\n` +
-            `Status: ${existing.status || 'Unknown'}\n\n` +
-            `Please cancel that registration first, or wait until it completes.`
+            `${detail.message || 'You already have an active registration.'}\n\n` +
+              `Event: ${existing.event_title || 'Unknown'}\n` +
+              `Status: ${existing.status || 'Unknown'}\n\n` +
+              `Please cancel that registration first, or wait until it completes.`
           );
           return;
         }
-        alert(data.detail || data.message || 'Failed to register team');
+        const msg = typeof data.detail === 'string' ? data.detail : (detail && (detail.message || detail.detail)) || data.message;
+        alert(msg || 'Failed to register team');
         return;
       }
-      let providers = ['paypal','stripe','wero']; let defaultProvider='paypal';
+      let providers = ['paypal', 'stripe', 'wero'];
+      let defaultProvider = 'paypal';
       try {
-        const pr = await api('/payments/providers', { method: 'GET', headers:{'Accept':'application/json'} });
-        if (pr.ok){ const provs = await pr.json(); if (provs?.providers) providers = provs.providers; else if (Array.isArray(provs)) providers = provs; if (typeof provs?.default==='string') defaultProvider = provs.default; }
+        const pr = await api('/payments/providers', {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+        if (pr.ok) {
+          const provs = await pr.json();
+          if (provs?.providers) providers = provs.providers;
+          else if (Array.isArray(provs)) providers = provs;
+          if (typeof provs?.default === 'string') defaultProvider = provs.default;
+        }
       } catch {}
-      const chosen = providers.length===1 ? providers[0] : defaultProvider;
-      const payRes = await api('/payments/create', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ registration_id: data.registration_id, amount_cents: data.amount_cents, provider: chosen }) });
-      const pay = await payRes.json();
-      if (pay.payment_link) window.location.href = pay.payment_link;
+      const chosen = providers.length === 1 ? providers[0] : defaultProvider;
+      const payCreatePath = data.payment_create_endpoint || '/payments/create';
+      const payRes = await api(payCreatePath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registration_id: data.registration_id, provider: chosen }),
+      });
+      const pay = await payRes.json().catch(() => ({}));
+      if (pay.status === 'no_payment_required') {
+        alert('Team created. No payment required.');
+        return;
+      }
+      let link = null;
+      if (pay.next_action) {
+        if (pay.next_action.type === 'redirect') link = pay.next_action.url;
+        else if (pay.next_action.type === 'paypal_order') link = pay.next_action.approval_link;
+        else if (pay.next_action.type === 'instructions') {
+          const instr = pay.next_action.instructions || pay.instructions;
+          if (instr) {
+            const summary = [
+              instr.reference && `Reference: ${instr.reference}`,
+              instr.iban && `IBAN: ${instr.iban}`,
+              instr.amount && `Amount: ${instr.amount}`,
+              instr.currency && `Currency: ${instr.currency}`,
+            ]
+              .filter(Boolean)
+              .join('\n');
+            alert('Team created. Bank transfer instructions generated.\n\n' + summary);
+          }
+        }
+      }
+      if (!link) link = pay.payment_link;
+      if (!link && pay.instructions)
+        link = pay.instructions.approval_link || pay.instructions.link || null;
+      if (link)
+        window.location.href = link.startsWith('http') ? link : window.BACKEND_BASE_URL + link;
+      else if (pay.instructions) alert('Team created. Instructions generated for bank transfer.');
       else alert('Team created. Payment pending.');
     } catch (e) {
       alert('Team registration failed.');

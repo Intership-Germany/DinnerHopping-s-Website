@@ -1184,3 +1184,84 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
     except Exception:
         after_party = None
     return {'team_paths': out, 'bounds': bounds, 'after_party': after_party}
+
+
+async def process_refunds(event_id: str, registration_ids: list[str] | None = None) -> dict:
+    """Process refunds for the given event.
+
+    If registration_ids is provided, only those registrations are considered.
+    Otherwise all cancellable registrations with due refund are processed.
+    """
+    ev = await _get_event(event_id)
+    if not ev or not ev.get('refund_on_cancellation'):
+        return {'processed': 0, 'items': [], 'reason': 'refunds_disabled_or_event_missing'}
+    fee = int(ev.get('fee_cents') or 0)
+    if fee <= 0:
+        return {'processed': 0, 'items': [], 'reason': 'no_fee_configured'}
+    q: dict = {'event_id': ev['_id'], 'status': {'$in': ['cancelled_by_user','cancelled_admin']}}
+    if registration_ids:
+        # Lors d'un traitement ciblé inclure aussi les enregistrements déjà marqués 'refunded' pour renvoyer un statut idempotent.
+        if 'refunded' not in q['status']['$in']:
+            q['status']['$in'].append('refunded')
+        from bson.objectid import ObjectId
+        oids = []
+        for rid in registration_ids:
+            try:
+                oids.append(ObjectId(rid))
+            except Exception:
+                continue
+        if not oids:
+            return {'processed': 0, 'items': [], 'reason': 'invalid_registration_ids'}
+        q['_id'] = {'$in': oids}
+    # Collect candidates
+    candidates: list[dict] = []
+    async for r in db_mod.db.registrations.find(q):
+        candidates.append(r)
+    processed_items: list[dict] = []
+    if not candidates:
+        return {'processed': 0, 'items': []}
+    from datetime import datetime, timezone
+    from . import matching as _self  # self import for helpers if needed
+    from ..notifications import send_refund_processed
+    ev_title = ev.get('title') or 'DinnerHopping Event'
+    for reg in candidates:
+        reg_id = reg.get('_id')
+        team_size = int(reg.get('team_size') or 1)
+        amount_cents = fee * team_size
+        # locate payment
+        pay = await db_mod.db.payments.find_one({'registration_id': reg_id})
+        payment_status = (pay or {}).get('status')
+        already_refunded = payment_status == 'refunded' or (pay and pay.get('refunded') is True)
+        if already_refunded:
+            # Ensure registration status is refunded
+            if reg.get('status') != 'refunded':
+                try:
+                    await db_mod.db.registrations.update_one({'_id': reg_id}, {'$set': {'status': 'refunded', 'updated_at': datetime.now(timezone.utc)}})
+                except Exception:
+                    pass
+            processed_items.append({'registration_id': str(reg_id), 'status': 'already_refunded', 'amount_cents': 0})
+            continue
+        # Compute due
+        if not pay:
+            processed_items.append({'registration_id': str(reg_id), 'status': 'no_payment_record', 'amount_cents': 0})
+            continue
+        # Mark payment refunded (simulate provider refund)
+        try:
+            await db_mod.db.payments.update_one({'_id': pay.get('_id')}, {'$set': {'status': 'refunded', 'refunded': True, 'refund_amount_cents': amount_cents, 'refund_at': datetime.now(timezone.utc)}})
+        except Exception:
+            processed_items.append({'registration_id': str(reg_id), 'status': 'payment_update_failed', 'amount_cents': 0})
+            continue
+        # Update registration status
+        try:
+            await db_mod.db.registrations.update_one({'_id': reg_id}, {'$set': {'status': 'refunded', 'updated_at': datetime.now(timezone.utc)}})
+        except Exception:
+            pass
+        # Send email best-effort
+        try:
+            email = reg.get('user_email_snapshot')
+            if email:
+                await send_refund_processed(email, ev_title, amount_cents)
+        except Exception:
+            pass
+        processed_items.append({'registration_id': str(reg_id), 'status': 'refunded', 'amount_cents': amount_cents})
+    return {'processed': sum(1 for it in processed_items if it['status'] == 'refunded'), 'items': processed_items}

@@ -62,6 +62,70 @@
 		div.className = `text-sm border rounded p-3 ${colors[variant] || colors.info}`;
 		div.innerHTML = html;
 		statusMessages.appendChild(div);
+		// Keep only last 5 messages to avoid flooding UI
+		while (statusMessages.children.length > 5){
+			statusMessages.removeChild(statusMessages.firstElementChild);
+		}
+	}
+
+	// Enhanced inline cancellation UI (adapted from provided snippet)
+	function setupStaticCancelBox(regInfo, deadlineIso, refundMeta){
+		const box = document.getElementById('solo-cancel-box');
+		if (!box) return;
+		const statusLower = (regInfo.status||'').toLowerCase();
+		if (['cancelled_by_user','cancelled_admin','refunded','expired'].includes(statusLower)) { box.classList.add('hidden'); return; }
+		if (regInfo.mode !== 'solo') { box.classList.add('hidden'); return; }
+		const intro = box.querySelector('.scb-intro');
+		const refundEl = box.querySelector('.scb-refund');
+		const btnStart = document.getElementById('scb-start');
+		const confirmWrap = document.getElementById('scb-confirm');
+		const btnYes = document.getElementById('scb-yes');
+		const btnNo = document.getElementById('scb-no');
+		const errEl = document.getElementById('scb-error');
+		const okEl = document.getElementById('scb-success');
+		let deadlineStr='the deadline';
+		if (deadlineIso){ try { const d=new Date(deadlineIso); if(!isNaN(d)) deadlineStr = d.toLocaleString(); } catch{} }
+		if (intro){ intro.innerHTML = `<strong>Need to cancel?</strong> You can cancel your solo registration until <span class="font-semibold">${deadlineStr}</span>. This cannot be undone.`; }
+		if (refundEl){
+			refundEl.textContent='';
+			if (refundMeta && typeof refundMeta.feeCents==='number' && refundMeta.feeCents>0){
+				if (refundMeta.refundFlag){
+					refundEl.innerHTML='<span class="font-semibold">Refund:</span> A refund will be initiated automatically after cancellation (processing may take a few days).';
+				} else if (refundMeta.refundableOnCancellation){
+					refundEl.innerHTML='<span class="font-semibold">Refund:</span> Eligible if organizer approves (refund-on-cancellation enabled).';
+				} else {
+					refundEl.innerHTML='<span class="font-semibold">Refund:</span> No refund for this event.';
+				}
+			}
+		}
+		function showError(msg){ if(!errEl)return; errEl.textContent=msg||'Cancellation failed.'; errEl.classList.remove('hidden'); errEl.animate([{transform:'translateX(0)'},{transform:'translateX(-4px)'},{transform:'translateX(4px)'},{transform:'translateX(0)'}],{duration:260}); }
+		function showSuccess(msg){ if(!okEl)return; okEl.textContent=msg||'Cancelled.'; okEl.classList.remove('hidden'); }
+		async function doCancel(){
+			btnYes.disabled=true; btnNo.disabled=true; btnStart.disabled=true; btnYes.textContent='Cancelling…';
+			try {
+				const path = `/registrations/${encodeURIComponent(regInfo.registration_id)}`;
+				const res = await apiFetch(path, { method:'DELETE', headers: authHeaders({ 'Accept':'application/json' }) });
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+				const data = await res.json().catch(()=>({}));
+				regInfo.status = data.status || 'cancelled_by_user';
+				showSuccess('Registration cancelled. If eligible, refund will process automatically.');
+				confirmWrap.classList.add('hidden');
+				btnStart.classList.add('hidden');
+				payNowBtn && payNowBtn.classList.add('hidden');
+				chooseProviderBtn && chooseProviderBtn.classList.add('hidden');
+				renderRegistration();
+			} catch(e){
+				showError(e.message || 'Cancellation failed.');
+				btnYes.disabled=false; btnNo.disabled=false; btnStart.disabled=false; btnYes.textContent='Yes, cancel';
+			}
+		}
+		if (btnStart){
+			btnStart.onclick = () => { btnStart.classList.add('hidden'); confirmWrap && confirmWrap.classList.remove('hidden'); btnYes && btnYes.focus(); };
+		}
+		if (btnNo){ btnNo.onclick = () => { confirmWrap.classList.add('hidden'); btnStart.classList.remove('hidden'); }; }
+		if (btnYes){ btnYes.onclick = doCancel; }
+		box.classList.remove('hidden');
+		cancelRegBtn && cancelRegBtn.classList.add('hidden');
 	}
 
 	// If no event id -> show banner + redirect
@@ -95,6 +159,7 @@
 	let planData = null;
 	let registrationData = null; // placeholder (depends on available endpoint)
 	let profileData = null; // to prefill registration form
+	let registrationStatusLoaded = false; // whether we've enriched registrationData via /registrations/registration-status
 
 	function authHeaders(base = {}) {
 		// If legacy token present, attach Bearer header using cookie value
@@ -271,6 +336,25 @@
 		}
 	}
 
+	async function loadRegistrationPaymentStatus(){
+		if (!registrationData || !registrationData.registration_id) return;
+		try {
+			const data = await fetchJson(`/registrations/registration-status?registration_id=${encodeURIComponent(registrationData.registration_id)}`);
+			if (data && Array.isArray(data.registrations) && data.registrations.length){
+				const reg = data.registrations[0];
+				registrationData.status = reg.status || registrationData.status;
+				if (reg.payment){
+					registrationData.payment_status = reg.payment.status || registrationData.payment_status;
+					registrationData.payment_provider = reg.payment.provider;
+					registrationData.payment_id = reg.payment.payment_id;
+				}
+				registrationStatusLoaded = true;
+			}
+		} catch(e){
+			console.warn('registration-status fetch failed', e);
+		}
+	}
+
 	function maybeShowSoloForm(){
 		// Show form only if user NOT registered yet
 		if (registrationData && (registrationData.mode === 'solo' || registrationData.mode === 'team')){
@@ -377,20 +461,72 @@
 		// Provide summary depending on mode
 		if (registrationData.mode === 'team' && !registrationData.registration_id) {
 			regBody.innerHTML = `<div class="text-sm">You are registered as part of a <strong>team</strong>. Detailed team registration data (and payment initiation) isn't yet available on this page without backend support.<br><br><em>Workaround:</em> The team creator can open the registration modal again or an organizer can assist with payment if required.</div>`;
+			// Registration badge (team)
+			const existingRegBadge = badgesEl.querySelector('[data-badge="registration-mode"]');
+			const teamText = 'Team registered';
+			if (existingRegBadge){
+				existingRegBadge.textContent = teamText;
+				existingRegBadge.className = 'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200';
+			} else {
+				const b = document.createElement('span');
+				b.dataset.badge='registration-mode';
+				b.className='inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200';
+				b.textContent=teamText;
+				badgesEl.appendChild(b);
+			}
 		} else if (registrationData.mode === 'solo' && registrationData.registration_id) {
 			const amount = (eventData?.fee_cents || 0) / 100;
+			const paid = /paid|succeeded/i.test(registrationData.payment_status || '') || /paid|succeeded/i.test(registrationData.status || '');
+			// Move payment info to badges instead of registration body per requirement
 			let payLine = '';
-			if ((eventData?.fee_cents||0) > 0) {
+			if ((eventData?.fee_cents||0) > 0 && !paid) {
 				payLine = `<div class="mt-2 text-xs ${payNowBtn && !payNowBtn.classList.contains('hidden') ? 'text-amber-700':'text-gray-600'}">Event fee: €${amount.toFixed(2)}</div>`;
 			}
-			regBody.innerHTML = `<div class="text-sm">Registered (solo).${payLine}</div>`;
+			regBody.innerHTML = `<div class="text-sm">${payLine || ' '}</div>`;
+			// Registration badge (solo / cancelled etc.)
+			const existingRegBadge = badgesEl.querySelector('[data-badge="registration-mode"]');
+			const statusLower = (registrationData.status||'').toLowerCase();
+			let regText = 'Solo registered';
+			let regCls = 'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-teal-50 text-teal-700 ring-1 ring-teal-200';
+			if (/cancelled|expired|refunded/.test(statusLower)){
+				regText = 'Registration cancelled';
+				regCls = 'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-red-50 text-red-700 ring-1 ring-red-200';
+			}
+			if (existingRegBadge){
+				existingRegBadge.textContent = regText;
+				existingRegBadge.className = regCls;
+			} else {
+				const b = document.createElement('span');
+				b.dataset.badge='registration-mode';
+				b.className=regCls;
+				b.textContent=regText;
+				badgesEl.appendChild(b);
+			}
+			// Update / insert payment badge
+			const existingPaymentBadge = badgesEl.querySelector('[data-badge="payment-status"]');
+			if ((eventData?.fee_cents||0) > 0 && paid){
+				const text = `Paid €${amount.toFixed(2)}${registrationData.payment_provider?` via ${registrationData.payment_provider}`:''}`;
+				if (existingPaymentBadge){
+					existingPaymentBadge.textContent = text;
+					existingPaymentBadge.className = 'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200';
+				} else {
+					const b = document.createElement('span');
+					b.dataset.badge = 'payment-status';
+					b.className = 'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200';
+					b.textContent = text;
+					badgesEl.appendChild(b);
+				}
+			} else if (existingPaymentBadge) {
+				// If not paid yet, remove any previous payment badge (will show fee badge from loadEvent)
+				existingPaymentBadge.remove();
+			}
 		} else {
 			// Fallback generic
 			regBody.innerHTML = `<div class="text-sm">Registration detected.</div>`;
 		}
 		// Future: display status & payment
 		if (registrationData.registration_id){
-			const unpaid = (eventData?.fee_cents||0) > 0 && !(registrationData.payment_status||'').match(/paid|succeeded/i);
+			const unpaid = (eventData?.fee_cents||0) > 0 && !(/paid|succeeded/i.test(registrationData.payment_status||'') || /paid|succeeded/i.test(registrationData.status||''));
 			if (unpaid && payNowBtn){
 				payNowBtn.classList.remove('hidden');
 				payNowBtn.disabled = false;
@@ -400,7 +536,21 @@
 				chooseProviderBtn.classList.remove('hidden');
 				chooseProviderBtn.disabled = false;
 				chooseProviderBtn.onclick = () => startPaymentFlow({ quick:false });
-			} else if (chooseProviderBtn){ chooseProviderBtn.classList.add('hidden'); }
+			} else {
+				// Paid -> hide buttons
+				payNowBtn && payNowBtn.classList.add('hidden');
+				chooseProviderBtn && chooseProviderBtn.classList.add('hidden');
+			}
+			// Inject cancellation UI (solo only, team handling TBD)
+			if (registrationData.mode === 'solo') {
+				const deadline = eventData?.registration_deadline || eventData?.payment_deadline || null;
+				const refundMeta = {
+					feeCents: eventData?.fee_cents || 0,
+					refundFlag: !!registrationData.refund_flag,
+					refundableOnCancellation: !!eventData?.refund_on_cancellation
+				};
+				setupStaticCancelBox(registrationData, deadline, refundMeta);
+			}
 		}
 	}
 
@@ -453,12 +603,43 @@
 				});
 				if (!provider){ return; }
 			}
-			const payPayload = { registration_id: registrationData.registration_id, provider, amount_cents: amount };
-			const { res: createRes, data: payData } = await (window.dh?.apiPost ? window.dh.apiPost('/payments/create', payPayload) : { res:{ ok:false }, data:{} });
+			const payPayload = { registration_id: registrationData.registration_id, provider };
+			// amount_cents optional in new API (validated server-side); omit to accept canonical amount.
+						const { res: createRes, data: payData } = await (window.dh?.apiPost ? window.dh.apiPost('/payments/create', payPayload) : { res:{ ok:false }, data:{} });
 			if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
-			const link = payData.payment_link || (payData.instructions && (payData.instructions.approval_link || payData.instructions.link));
-			if (link) window.location.assign(link.startsWith('http')? link: window.BACKEND_BASE_URL + link);
-			else alert('Payment initiated. Follow provider instructions.');
+			// Normalize next_action / legacy fields
+			let link = null;
+			if (payData.next_action){
+								if (payData.next_action.type === 'redirect') link = payData.next_action.url;
+								else if (payData.next_action.type === 'paypal_order') link = payData.next_action.approval_link;
+								else if (payData.next_action.type === 'instructions') {
+									const instr = payData.next_action.instructions || payData.instructions;
+									if (instr) {
+										const summary = [
+											instr.reference && `Reference: ${instr.reference}`,
+											instr.iban && `IBAN: ${instr.iban}`,
+											instr.amount && `Amount: ${instr.amount}`,
+											instr.currency && `Currency: ${instr.currency}`,
+										].filter(Boolean).join('\n');
+										alert('Payment instructions generated.\n\n' + summary);
+									}
+								}
+			}
+			if (!link) link = payData.payment_link;
+			if (!link && payData.instructions){
+				link = payData.instructions.approval_link || payData.instructions.link || null;
+			}
+			if (payData.status === 'no_payment_required'){
+				alert('No payment required for this registration.');
+				return;
+			}
+			if (link) {
+				window.location.assign(link.startsWith('http')? link: window.BACKEND_BASE_URL + link);
+			} else if (payData.instructions) {
+				alert('Payment instructions generated. Please follow the bank transfer instructions shown after refreshing.');
+			} else {
+				alert('Payment initiated. Follow provider instructions.');
+			}
 		} catch(e){ alert(e.message || 'Payment failed'); }
 		finally { payNowBtn && (payNowBtn.disabled=false); chooseProviderBtn && (chooseProviderBtn.disabled=false); }
 	}
@@ -470,28 +651,64 @@
 		}
 		planSection.classList.remove('hidden');
 		planContainer.innerHTML = '';
+		const chatEnabled = !!(eventData && eventData.chat_enabled);
+		const firstName = (email) => {
+			if (!email || typeof email !== 'string') return '';
+			const local = email.split('@')[0];
+			// Split on common separators
+			const parts = local.split(/[._-]+/).filter(Boolean);
+			if (parts.length) return parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+			return local.charAt(0).toUpperCase() + local.slice(1);
+		};
 		planData.sections.forEach((section, idx) => {
 			const card = document.createElement('div');
-			card.className = 'border rounded-md p-4 bg-white shadow-sm';
+			card.className = 'border rounded-xl p-4 bg-white shadow-sm flex flex-col gap-3';
 			const meal = (section.meal || `Phase ${idx+1}`).replace(/_/g,' ');
-			const host = section.host_email ? `<span class="font-medium">Host:</span> ${section.host_email}` : '<span class="italic text-gray-400">Host TBD</span>';
-			const guests = (section.guests || []).filter(g => g !== section.host_email).map(g => `<li>${g}</li>`).join('');
-			const loc = section.host_location ? `<div class="mt-1 text-xs text-gray-500">Approx. location: ${section.host_location.address_public || 'Area disclosed later'}</div>` : '';
+			const hostName = section.host_email ? firstName(section.host_email) : null;
+			const guestNames = (section.guests || [])
+				.filter(g => g && g !== section.host_email)
+				.map(g => firstName(g))
+				.filter(Boolean);
+			// Cooking responsibility: host cooks this course.
+			const cookingLine = hostName ? `${hostName} hosts & cooks this course.` : 'Host TBD';
+			// Approx location map placeholder
+			let locHtml = '';
+			if (section.host_location && section.host_location.center){
+				locHtml = `<div class="mt-1 text-xs text-gray-600">Approx. location revealed (500m radius). Exact address unlocks shortly before start.</div>
+				<div class="map-preview rounded-md mt-2 flex items-center justify-center text-[10px] uppercase tracking-wide text-gray-500">Map preview</div>`;
+			} else {
+				locHtml = '<div class="mt-1 text-xs text-gray-500">Location not published yet.</div>';
+			}
+			const chatBtn = chatEnabled ? `<button data-chat-course="${section.meal||idx}" class="inline-flex items-center gap-1 px-2 py-1 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-medium">Open chat</button>` : '';
+			const timeBadge = section.time ? `<span class="text-xs rounded bg-gray-100 px-2 py-1 text-gray-600">${section.time}</span>` : '';
+			const guestsList = guestNames.length ? guestNames.map(n=>`<li>${n}</li>`).join('') : '';
 			card.innerHTML = `
 				<div class="flex items-center justify-between gap-2 flex-wrap">
 					<h3 class="text-sm font-semibold tracking-wide uppercase text-gray-700">${meal}</h3>
-					${section.time ? `<span class="text-xs rounded bg-gray-100 px-2 py-1 text-gray-600">${section.time}</span>` : ''}
+					${timeBadge}
 				</div>
-				<div class="mt-2 text-sm space-y-1">
-					<div>${host}</div>
-					${loc}
-					<div class="mt-2">
+				<div class="text-sm space-y-2">
+					<div><span class="font-medium">Host:</span> ${hostName || '<span class="italic text-gray-400">TBD</span>'}</div>
+					<div>${cookingLine}</div>
+					${locHtml}
+					<div>
 						<span class="font-medium">Guests:</span>
-						${(guests ? `<ul class="list-disc ml-5 text-xs mt-1 space-y-0.5">${guests}</ul>` : '<span class="text-xs text-gray-400">No guests listed</span>')}
+						${guestNames.length ? `<ul class="list-disc ml-5 text-xs mt-1 space-y-0.5">${guestsList}</ul>` : '<span class="text-xs text-gray-400">TBD</span>'}
 					</div>
+					${chatBtn ? `<div>${chatBtn}</div>`:''}
 				</div>`;
 			planContainer.appendChild(card);
 		});
+		if (chatEnabled){
+			planContainer.addEventListener('click', (e)=>{
+				const btn = e.target.closest('button[data-chat-course]');
+				if (!btn) return;
+				const course = btn.getAttribute('data-chat-course');
+				// navigate to chat with course context
+				const target = `/chat.html?event_id=${encodeURIComponent(eventId)}&course=${encodeURIComponent(course)}`;
+				window.location.href = target;
+			});
+		}
 	}
 
 	function finalizeUI() {
@@ -520,11 +737,12 @@
 		window.location.href = target;
 	});
 
-	cancelRegBtn.addEventListener('click', () => {
-		pushMessage('Cancellation feature not yet wired to backend endpoint.', 'warn');
-	});
+	// Legacy cancel button listener removed; cancellation handled by inline UI.
 
 	await Promise.all([loadEvent(), loadProfileForPrefill(), loadPlan(), loadRegistration()]);
+	if (registrationData && registrationData.registration_id){
+		await loadRegistrationPaymentStatus();
+	}
 	maybeShowSoloForm();
 	finalizeUI();
 })();

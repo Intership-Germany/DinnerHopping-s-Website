@@ -53,9 +53,9 @@ DEFAULT_TEMPLATES = [
     {
         'key': 'invitation',
         'subject': "You've been invited to an event on DinnerHopping",
-        'html_body': '<p>Hi!</p><p>You have been invited to join an event on DinnerHopping. To accept, click: <a href="{{invitation_link}}">Accept invitation</a></p><p>If you don\'t have an account, register with this email.</p><p>— DinnerHopping Team</p>',
+        'html_body': '<p>Hi!</p><p>You have been invited to join an event on DinnerHopping. To accept, click: <a href="{{invitation_link}}">Accept invitation</a></p><p>If you don\'t have an account, register with this email. If an account was created for you, set your password here: <a href="{{set_password_url}}">Set password</a></p><p>— DinnerHopping Team</p>',
         'description': 'Invitation email with accept link',
-        'variables': ['invitation_link','email','temp_password']
+        'variables': ['invitation_link','email','set_password_url']
     },
     {
         'key': 'invitation_accept',
@@ -84,6 +84,13 @@ DEFAULT_TEMPLATES = [
         'html_body': '<p>Your schedule for {{event_title}} is ready. Log in to view details.</p>',
         'description': 'Final plan release notification',
         'variables': ['event_title','email']
+    },
+    {
+        'key': 'refund_processed',
+        'subject': 'Refund processed for {{event_title}}',
+        'html_body': '<p>Your refund for <strong>{{event_title}}</strong> has been processed.</p><p>Amount: {{amount_eur}} €</p><p>It may take a few days to appear depending on your payment provider.</p>',
+        'description': 'Sent to a participant when a cancellation refund is processed',
+        'variables': ['event_title','amount_eur','email']
     }
 ]
 

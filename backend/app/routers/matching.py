@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any, Tuple, Set
 from ..services.matching import run_algorithms, persist_match_proposal, mark_finalized, list_issues, refunds_overview, finalize_and_generate_plans, _build_teams, _score_group_phase, _travel_time_for_phase, _compute_metrics, _team_emails_map
 from ..services.matching import compute_team_paths  # new for travel map
 from ..services.routing import route_polyline  # use OSRM real route geometry
+from ..services.matching import process_refunds  # ajout pour refunds processing
 import datetime
 
 ######### Router / Endpoints #########
@@ -43,8 +44,19 @@ async def start_matching(event_id: str, payload: dict | None = None, current_adm
     ev = await require_event_published(event_id)
     # enforce registration deadline passed if set
     ddl = ev.get('registration_deadline')
+    deadline_dt = None
+    if ddl:
+        if isinstance(ddl, datetime.datetime):
+            deadline_dt = ddl if ddl.tzinfo is not None else ddl.replace(tzinfo=datetime.timezone.utc)
+        elif isinstance(ddl, str):
+            try:
+                from app import datetime_utils
+                deadline_dt = datetime_utils.parse_iso(ddl)
+            except Exception:
+                # If parsing fails, be conservative and skip the deadline check
+                deadline_dt = None
     now = datetime.datetime.now(datetime.timezone.utc)
-    if ddl and isinstance(ddl, datetime.datetime) and now < ddl:
+    if deadline_dt and now < deadline_dt:
         raise HTTPException(status_code=400, detail='Registration deadline has not passed yet')
     payload = payload or {}
     algorithms: List[str] = payload.get('algorithms') or ['greedy', 'random']
@@ -157,6 +169,18 @@ async def move_team(event_id: str, payload: dict, _=Depends(require_admin)):
 async def refunds(event_id: str, _=Depends(require_admin)):
     await require_event_published(event_id)
     return await refunds_overview(event_id)
+
+
+@router.post('/{event_id}/refunds/process')
+async def process_refunds_endpoint(event_id: str, payload: dict | None = None, _=Depends(require_admin)):
+    await require_event_published(event_id)
+    registration_ids = None
+    if payload and isinstance(payload, dict):
+        val = payload.get('registration_ids')
+        if isinstance(val, list):
+            registration_ids = [str(x) for x in val if isinstance(x, (str, int))]
+    result = await process_refunds(event_id, registration_ids=registration_ids)
+    return result
 
 
 @router.get('/{event_id}/details')

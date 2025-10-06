@@ -3,7 +3,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Literal
 from app import db as db_mod
 from app.auth import get_current_user
-from app.utils import require_event_published, require_event_registration_open, compute_team_diet, send_email, require_registration_owner_or_admin, get_registration_by_any_id
+from app.utils import require_event_published, require_event_registration_open, compute_team_diet, send_email, require_registration_owner_or_admin, get_registration_by_any_id, get_event
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 import datetime
@@ -332,12 +332,13 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
 
     # Create payment (one person fee)
     # Payment amount per person comes from event.fee_cents; keep payments router logic for provider integration
-    # Just return a pointer for client to call /payments
+    # Return a pointer (full URL) for the client to call the payments create endpoint.
+    base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
     return {
         'registration_id': str(reg_id),
         'team_size': 1,
         'amount_cents': int(ev.get('fee_cents') or 0),
-        'payment_create_endpoint': '/payments/create',
+        'payment_create_endpoint': f"{base}/payments/create",
         'registration_status': 'pending_payment',
     }
 
@@ -593,13 +594,14 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
 
     # Return team and payment info (single payment for €10 i.e., 2x fee)
     team_amount = int(ev.get('fee_cents') or 0) * 2
+    base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
     return {
         'team_id': str(team_id),
         'registration_id': str(reg_creator_id),
         'partner_registration_id': str(reg_partner_id) if reg_partner_id else None,
         'team_size': 2,
         'amount_cents': team_amount,
-        'payment_create_endpoint': '/payments/create',
+        'payment_create_endpoint': f"{base}/payments/create",
         'registration_status': 'pending_payment',
     }
 
@@ -675,9 +677,28 @@ async def _load_event_for_registration(reg: dict) -> dict:
 
 def _cancellation_deadline_passed(ev: dict) -> bool:
     ddl = ev.get('registration_deadline') or ev.get('payment_deadline')
-    if ddl and isinstance(ddl, datetime.datetime):
-        return datetime.datetime.now(datetime.timezone.utc) > ddl
-    return False
+    if not ddl:
+        return False
+    deadline_dt = None
+    # If it's already a datetime, ensure it's timezone-aware (assume UTC when naive)
+    if isinstance(ddl, datetime.datetime):
+        deadline_dt = ddl if ddl.tzinfo is not None else ddl.replace(tzinfo=datetime.timezone.utc)
+    elif isinstance(ddl, str):
+        try:
+            from app import datetime_utils
+            deadline_dt = datetime_utils.parse_iso(ddl)
+        except Exception:
+            # If parsing fails, be conservative and treat as no deadline
+            return False
+
+    if not deadline_dt:
+        return False
+
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    # both should be timezone-aware now; compare safely
+    if isinstance(deadline_dt, datetime.datetime) and deadline_dt.tzinfo is None:
+        deadline_dt = deadline_dt.replace(tzinfo=datetime.timezone.utc)
+    return now_utc > deadline_dt
 
 
 async def _mark_refund_if_applicable(reg: dict, ev: dict):
@@ -950,7 +971,16 @@ async def registration_status(registration_id: str | None = None, current_user=D
         # fetch all registrations where the user is owner (by id) or snapshot email
         query = {'$or': [{'user_id': current_user.get('_id')}, {'user_email_snapshot': (current_user.get('email') or '').lower()}]}
         async for r in db_mod.db.registrations.find(query):
-            regs.append(r)
+            if r.get('event_id'):
+                try:
+                    ev = await get_event(r.get('event_id'))
+                    if ev:
+                        r['event_title'] = ev.get('title')
+                        r['event_fee_cents'] = ev.get('fee_cents')
+                except Exception:
+                    r['event_title'] = 'Unknown Event (loading error)'
+                    r['event_fee_cents'] = 'Unknown'
+                regs.append(r)
 
     out = []
     for r in regs:

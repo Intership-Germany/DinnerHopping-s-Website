@@ -1,136 +1,174 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	<title>Dinner Hopping – Event</title>
-	<link rel="icon" type="image/png" href="/favicon.png" />
-	<!-- Tailwind (CDN) -->
+	<title>Event – Dinner Hopping</title>
+	<script src="js/core/auth-guard.js"></script>
 	<script src="https://cdn.tailwindcss.com"></script>
-	<script>
-		// Minimal flash-of-unstyled prevention for dark backgrounds etc.
-		document.documentElement.classList.add('bg-gray-50');
-	</script>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+	<script src="js/config.js"></script>
+	<script src="js/core/client.js"></script>
+	<script src="js/debug-banner.js"></script>
+	<script src="js/core/includes.js" defer></script>
+	<script src="js/components/register-modal.js" defer></script>
+	<script src="js/pages/event.js" defer></script>
+	<style>
+		body {
+			font-family: 'Inter', sans-serif;
+			background: #f1f5f7;
+		}
+
+		.map-preview {
+			height: 140px;
+			background: repeating-linear-gradient(45deg, #e5e7eb, #e5e7eb 10px, #f3f4f6 10px, #f3f4f6 20px);
+		}
+	</style>
 </head>
-<body class="min-h-screen flex flex-col">
-	<!-- Header include -->
+
+<body class="min-h-screen flex flex-col text-[#172a3a]">
 	<div data-include="partials/header.html"></div>
-
-	<main class="flex-1 max-w-5xl w-full mx-auto px-4 py-6" id="eventPageRoot">
-		<div id="missingIdBanner" class="hidden mb-4 p-4 rounded bg-red-100 border border-red-300 text-red-800 text-sm"></div>
-
-		<div class="flex items-start justify-between gap-4 flex-wrap mb-6">
-			<div>
-				<h1 id="eventTitle" class="text-2xl font-semibold text-gray-800">Event</h1>
-				<p id="eventMeta" class="text-sm text-gray-500 mt-1"></p>
-				<div id="eventBadges" class="flex flex-wrap gap-2 mt-2"></div>
-				<div id="capacityBarWrap" class="mt-3 hidden">
-					<div class="w-72 max-w-full h-2 bg-gray-100 rounded overflow-hidden" role="progressbar" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" id="capacityBar"><div class="h-full bg-[#008080]" style="width:0%"></div></div>
-					<div id="capacityLabel" class="mt-1 text-xs text-gray-600"></div>
+	<main class="flex-grow max-w-5xl mx-auto w-full px-4 py-8 space-y-8">
+		<div id="missingIdBanner" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded"></div>
+		<!-- Event Header -->
+		<section class="bg-white rounded-2xl shadow p-6 border-l-4 border-[#008080] relative">
+			<div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+				<div>
+					<h1 id="eventTitle" class="text-2xl font-bold tracking-tight mb-1">Event</h1>
+					<div id="eventMeta" class="text-sm text-gray-600 flex flex-wrap gap-2"></div>
+					<div id="eventBadges" class="mt-3 flex flex-wrap gap-2"></div>
+				</div>
+				<div id="capacityBarWrap" class="hidden w-full md:w-64 mt-4 md:mt-0">
+					<div class="flex items-center justify-between text-xs text-gray-600 mb-1"><span>Capacity</span><span
+							id="capacityLabel"></span></div>
+					<div id="capacityBar" class="w-full h-3 rounded bg-gray-200 overflow-hidden" role="progressbar"
+						aria-valuemin="0" aria-valuenow="0" aria-valuemax="0">
+						<div class="h-full bg-[#008080] transition-all duration-500"></div>
+					</div>
 				</div>
 			</div>
-			<div class="flex gap-2 items-center" id="actionButtons" hidden>
-				<button id="refreshPlanBtn" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" title="Reload your itinerary">Refresh Plan</button>
-				<button id="openChatsBtn" class="px-3 py-1.5 text-sm rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50" title="Open group chats">Group Chats</button>
-				<button id="cancelRegistrationBtn" class="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" title="Cancel your registration">Cancel Registration</button>
-				<button id="payNowBtn" class="px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 hidden" title="Pay event fee">Pay Now</button>
-				<button id="chooseProviderBtn" class="px-3 py-1.5 text-sm rounded bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 hidden" title="Select a different payment provider">Choose Provider</button>
+			<div id="afterPartySection" class="hidden mt-4 pt-4 border-t border-gray-100">
+				<h3 class="text-sm font-semibold text-gray-700 mb-1">After Party</h3>
+				<div id="afterPartyBody" class="text-sm text-gray-600"></div>
 			</div>
-		</div>
+		</section>
+				<!-- Static Cancellation Box (wired dynamically in event.js when eligible) -->
+				<div id="solo-cancel-box" class="hidden mb-6 p-4 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm flex flex-col gap-2">
+					<div class="scb-intro"><strong>Need to cancel?</strong> <span class="scb-deadline-text">You can cancel your solo registration before the deadline.</span></div>
+					<div class="scb-refund text-red-600/90 text-xs"></div>
+					<div class="scb-controls flex flex-col gap-2">
+						<button id="scb-start" type="button" class="self-start px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold shadow focus:outline-none focus:ring-4 focus:ring-red-300">Cancel my participation</button>
+						<div id="scb-confirm" class="hidden mt-1 p-3 rounded-lg border border-red-300 bg-white/70 text-xs flex flex-col gap-2">
+							<div class="text-red-700 font-semibold">Confirm cancellation?</div>
+							<div class="text-red-600">This cannot be undone and your spot might go to someone else.</div>
+							<div class="flex gap-2">
+								<button id="scb-yes" type="button" class="px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow focus:outline-none focus:ring-2 focus:ring-red-300">Yes, cancel</button>
+								<button id="scb-no" type="button" class="px-3 py-1.5 rounded-md bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-gray-300">Keep my spot</button>
+							</div>
+						</div>
+						<div id="scb-error" class="hidden px-3 py-2 rounded-lg bg-red-600/10 border border-red-300 text-red-700 text-xs" role="alert"></div>
+						<div id="scb-success" class="hidden px-3 py-2 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-700 text-xs" role="status"></div>
+					</div>
+				</div>
 
-		<!-- Loading Spinner -->
-		<div id="loadingSpinner" class="flex items-center gap-3 text-gray-600 py-8">
-			<svg class="animate-spin h-6 w-6 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-				<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-				<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-			</svg>
-			<span class="text-sm">Loading event & itinerary…</span>
-		</div>
+		<!-- Status / messages -->
+		<section class="space-y-3" id="statusMessages"></section>
 
-		<!-- Status / Info Messages -->
-		<div id="statusMessages" class="space-y-3"></div>
+		<!-- Registration & Actions -->
+		<section class="bg-white rounded-2xl shadow p-6" id="registrationStatusSection">
+			<h2 class="text-lg font-semibold mb-3">Your Registration</h2>
+			<div id="registrationStatusBody" class="text-sm text-gray-700"></div>
+			<div class="mt-4 flex flex-wrap gap-3" id="actionButtons" hidden>
+				<button id="payNowBtn"
+					class="hidden px-4 py-2 rounded bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-50">Pay
+					now</button>
+				<button id="chooseProviderBtn"
+					class="hidden px-4 py-2 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">Choose
+					provider</button>
+				<button id="refreshPlanBtn"
+					class="px-4 py-2 rounded bg-[#008080] text-white text-sm font-medium hover:bg-[#006d6d]">Refresh
+					plan</button>
+				<button id="openChatsBtn"
+					class="px-4 py-2 rounded bg-gray-800 text-white text-sm font-medium hover:bg-gray-900">Open
+					chats</button>
+				<button id="cancelRegistrationBtn"
+					class="px-4 py-2 rounded bg-red-100 text-red-700 text-sm font-medium hover:bg-red-200">Cancel</button>
+				<!-- Enhanced inline cancellation UI is injected at top of <main> dynamically (solo-cancel-box) -->
+			</div>
+		</section>
 
-		<!-- Registration / Payment status placeholder -->
-		<!-- Solo Registration Form (shown only if not yet registered) -->
-		<section id="soloRegistrationSection" class="hidden border border-teal-200 rounded-lg p-4 bg-white shadow-sm mb-6">
-			<h2 class="font-medium text-gray-700 mb-3 text-sm tracking-wide">Register (Solo)</h2>
+		<!-- Solo Registration Form (progressive) -->
+		<section id="soloRegistrationSection" class="hidden bg-white rounded-2xl shadow p-6">
+			<h2 class="text-lg font-semibold mb-4">Register Solo</h2>
 			<form id="soloRegistrationForm" class="space-y-4">
-				<p class="text-xs text-gray-600 leading-relaxed">Your profile values are pre‑filled. You can adjust them just for this event. After submitting you will be redirected to payment if a fee applies.</p>
-				<div class="grid gap-4 sm:grid-cols-2">
-					<label class="flex flex-col gap-1 text-sm">
-						<span class="font-medium text-gray-700">Dietary Preference</span>
-						<select name="diet" id="srDiet" class="border rounded px-2 py-1 text-sm focus:ring-teal-500 focus:border-teal-500">
+				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+					<label class="flex flex-col text-sm">
+						<span class="font-medium text-gray-600">Dietary Preference</span>
+						<select id="srDiet"
+							class="mt-1 rounded border-gray-300 focus:ring-[#008080] focus:border-[#008080]">
 							<option value="omnivore">Omnivore</option>
 							<option value="vegetarian">Vegetarian</option>
 							<option value="vegan">Vegan</option>
+							<option value="pescatarian">Pescatarian</option>
 						</select>
 					</label>
-					<div class="flex flex-col gap-2">
-						<label class="inline-flex items-center gap-2 text-sm">
-							<input type="checkbox" id="srKitchenAvailable" class="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
-							<span>Kitchen Available</span>
-						</label>
-						<label class="inline-flex items-center gap-2 text-sm">
-							<input type="checkbox" id="srMainPossible" class="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
-							<span>Main Course Possible</span>
-						</label>
-					</div>
+					<label class="flex items-center gap-2 text-sm">
+						<input id="srKitchenAvailable" type="checkbox"
+							class="rounded text-[#008080] focus:ring-[#008080]" />
+						<span>Kitchen available</span>
+					</label>
+					<label id="srMainWrapper" class="flex items-center gap-2 text-sm">
+						<input id="srMainPossible" type="checkbox"
+							class="rounded text-[#008080] focus:ring-[#008080]" />
+						<span>Main course possible</span>
+					</label>
 				</div>
-				<fieldset class="border border-gray-200 rounded-md p-3">
-					<legend class="text-xs font-medium uppercase tracking-wide text-gray-600">Course Preference (optional)</legend>
-					<div class="mt-2 flex flex-wrap gap-4 text-sm" id="srCourseChoices">
-						<label class="inline-flex items-center gap-1">
-							<input type="radio" name="course" value="" class="text-teal-600 focus:ring-teal-500" checked />
-							<span class="text-xs text-gray-500">No preference</span>
-						</label>
-						<label class="inline-flex items-center gap-1">
-							<input type="radio" name="course" value="appetizer" class="text-teal-600 focus:ring-teal-500" />
-							<span>Appetizer</span>
-						</label>
-						<label class="inline-flex items-center gap-1" id="srMainWrapper">
-							<input type="radio" name="course" value="main" class="text-teal-600 focus:ring-teal-500" />
-							<span>Main Course</span>
-						</label>
-						<label class="inline-flex items-center gap-1">
-							<input type="radio" name="course" value="dessert" class="text-teal-600 focus:ring-teal-500" />
-							<span>Dessert</span>
-						</label>
+				<fieldset class="border rounded-lg p-4" id="srCourseChoices">
+					<legend class="text-xs font-semibold uppercase text-gray-500 tracking-wide">Course preference
+						(optional)</legend>
+					<div class="flex flex-wrap gap-4 mt-2 text-sm">
+						<label class="flex items-center gap-1"><input type="radio" name="coursePref" value="" checked />
+							<span>No preference</span></label>
+						<label class="flex items-center gap-1"><input type="radio" value="starter" name="coursePref" />
+							<span>Starter</span></label>
+						<label class="flex items-center gap-1"><input type="radio" value="main" name="coursePref" />
+							<span>Main</span></label>
+						<label class="flex items-center gap-1"><input type="radio" value="dessert" name="coursePref" />
+							<span>Dessert</span></label>
 					</div>
-					<p class="mt-2 text-[11px] text-gray-500" id="srMainHint">Select "Main Course" only if you can host a main course in your kitchen.</p>
+					<p id="srMainHint" class="mt-2 text-xs text-gray-500">Select "Main" only if you can host a main
+						course.</p>
 				</fieldset>
-				<div class="flex items-center gap-3">
-					<button type="submit" id="srSubmit" class="px-4 py-2 rounded bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50">Register</button>
-					<button type="button" id="srCancel" class="px-4 py-2 rounded border text-sm font-medium bg-white text-gray-700 hover:bg-gray-50 hidden">Cancel</button>
-					<span id="srStatus" class="text-xs text-gray-500"></span>
+				<div class="flex items-center gap-4">
+					<button id="srSubmit" type="submit"
+						class="px-5 py-2.5 rounded bg-[#008080] text-white text-sm font-medium hover:bg-[#006d6d]">Register</button>
+					<span id="srStatus" class="text-sm text-gray-500"></span>
 				</div>
 			</form>
 		</section>
-		<section id="registrationStatusSection" class="hidden border border-gray-200 rounded-lg p-4 bg-white shadow-sm mb-6">
-			<h2 class="font-medium text-gray-700 mb-2 text-sm tracking-wide">Registration</h2>
-			<div id="registrationStatusBody" class="text-sm text-gray-600"></div>
+
+		<!-- Plan / Schedule -->
+		<section id="planSection" class="hidden bg-white rounded-2xl shadow p-6">
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Your Schedule</h2>
+				<span class="text-xs text-gray-500" id="planLegend">Times & approximate locations. Exact addresses
+					unlock later.</span>
+			</div>
+			<div id="planContainer" class="grid gap-4 md:grid-cols-2"></div>
 		</section>
 
-		<!-- Plan / Itinerary -->
-		<section id="planSection" class="hidden border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
-			<h2 class="font-medium text-gray-700 mb-4 text-sm tracking-wide">Your Dinner Hopping Itinerary</h2>
-			<div id="planContainer" class="space-y-4"></div>
-		</section>
-
-		<!-- After Party (if any) -->
-		<section id="afterPartySection" class="hidden mt-8 border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
-			<h2 class="font-medium text-gray-700 mb-2 text-sm tracking-wide">After Party</h2>
-			<div id="afterPartyBody" class="text-sm text-gray-600"></div>
-		</section>
+		<div id="loadingSpinner" class="flex items-center gap-3 text-sm text-gray-600">
+			<svg class="animate-spin h-5 w-5 text-[#008080]" xmlns="http://www.w3.org/2000/svg" fill="none"
+				viewBox="0 0 24 24">
+				<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+				<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+			</svg>
+			Loading event & plan…
+		</div>
 	</main>
-
-	<!-- Footer include -->
-	<div data-include="partials/footer.html"></div>
-
-	<!-- Global config & helpers (order matters) -->
-	<script src="/js/config.js"></script>
-	<script src="/js/client.js"></script>
-	<script src="/js/includes.js"></script>
-	<!-- Page script -->
-	<script src="/js/pages/event.js" type="module"></script>
 </body>
+
 </html>

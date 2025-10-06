@@ -236,6 +236,7 @@
           (Array.isArray(body.registrationIds) && body.registrationIds[0]);
         const amountCents = typeof eventObj?.fee_cents === 'number' ? eventObj.fee_cents : 0;
         if (amountCents > 0 && regId2) {
+          const payCreatePath = body.payment_create_endpoint || '/payments/create';
           // Requirement: user must be able to choose among all available providers.
           // Fallback: if we cannot retrieve providers, auto-start defaultProvider.
           let providers = [];
@@ -262,22 +263,46 @@
 
           const startPayment = async (provider) => {
             try {
-              const payPayload = { registration_id: regId2, provider, amount_cents: amountCents };
+              const payPayload = { registration_id: regId2, provider };
               const { res: createRes, data: created } = await (window.dh?.apiPost
-                ? window.dh.apiPost('/payments/create', payPayload)
+                ? window.dh.apiPost(payCreatePath, payPayload)
                 : { res: { ok: false }, data: {} });
               if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
-              const link =
-                created.payment_link ||
-                (created.instructions &&
-                  (created.instructions.approval_link || created.instructions.link));
-              if (link) {
-                window.location.href = link.startsWith('http')
-                  ? link
-                  : window.BACKEND_BASE_URL + link;
+              if (created.status === 'no_payment_required') {
+                alert('No payment required.');
                 return true;
               }
-              alert('Payment created. Follow the provider instructions.');
+              // Resolve link from next_action or fallback fields
+              let link = null;
+              if (created.next_action) {
+                if (created.next_action.type === 'redirect') link = created.next_action.url;
+                else if (created.next_action.type === 'paypal_order') link = created.next_action.approval_link;
+                else if (created.next_action.type === 'instructions') {
+                  const instr = created.next_action.instructions || created.instructions;
+                  if (instr) {
+                    const summary = [
+                      instr.reference && `Reference: ${instr.reference}`,
+                      instr.iban && `IBAN: ${instr.iban}`,
+                      instr.amount && `Amount: ${instr.amount}`,
+                      instr.currency && `Currency: ${instr.currency}`,
+                    ].filter(Boolean).join('\n');
+                    alert('Bank transfer instructions generated.\n\n' + summary);
+                  }
+                }
+              }
+              if (!link) link = created.payment_link;
+              if (!link && created.instructions) {
+                link = created.instructions.approval_link || created.instructions.link || null;
+              }
+              if (link) {
+                window.location.href = link.startsWith('http') ? link : window.BACKEND_BASE_URL + link;
+                return true;
+              }
+              if (created.instructions) {
+                alert('Instructions generated. Please follow the bank transfer steps.');
+                return true;
+              }
+              alert('Payment initiated. Follow provider instructions.');
               return true;
             } catch (err) {
               console.error('Create payment failed', err);

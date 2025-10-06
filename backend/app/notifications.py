@@ -13,7 +13,9 @@ from . import db as db_mod
 import re
 import html
 
-PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_\.]+)\s*}}")
+# Match literal double-curly placeholders like {{ variable }}.  Curly braces
+# must be escaped in the regex so they are treated as literal characters.
+PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_\.]+)\s*\}\}")
 
 async def _render_template(key: str, fallback_subject: str, fallback_lines: Iterable[str], variables: Mapping[str, Any] | None = None, category: str = "generic") -> tuple[str,str]:
     """Load template by key from DB and render with {{placeholders}}.
@@ -67,11 +69,18 @@ async def _render_template(key: str, fallback_subject: str, fallback_lines: Iter
     return subject, text_body + ("\n" if not text_body.endswith('\n') else '')
 
 async def _send(to: Sequence[str] | str, subject: str, lines: Iterable[str], category: str, template_key: str | None = None, variables: Mapping[str, Any] | None = None) -> bool:
+    # If a `template_key` is provided, delegate rendering to the central
+    # `send_email` helper by passing the template key as the email category and
+    # the caller-provided variables. This ensures a single place performs
+    # DB lookups and rendering (avoids double-rendering or mismatched keys).
     if template_key:
-        subject, body = await _render_template(template_key, subject, lines, variables, category)
+        # Pass the plaintext fallback lines as the body; send_email will use
+        # these as a fallback if the DB template is missing.
+        fallback_body = "\n".join(lines)
+        return await send_email(to=to, subject=subject, body=fallback_body, category=template_key, template_vars=variables)
     else:
         body = "\n".join(lines) + "\n"
-    return await send_email(to=to, subject=subject, body=body, category=category)
+        return await send_email(to=to, subject=subject, body=body, category=category)
 
 
 # Account / Auth
@@ -128,7 +137,14 @@ async def send_partner_replaced_notice(old_partner_email: str | None, new_partne
         ok_any = await _send(r, "Team update", lines, "team_update", template_key="team_update", variables={'event_title': event_title, 'email': r, 'old_partner_email': old_partner_email, 'new_partner_email': new_partner_email}) or ok_any
     return ok_any
 
-# Future notifications placeholder: plan release, reminders, refund processed, etc.
+async def send_refund_processed(email: str, event_title: str, amount_cents: int) -> bool:
+    amount_eur = f"{amount_cents/100:.2f}"
+    lines = [
+        f"Your refund for '{event_title}' has been processed.",
+        f"Amount: {amount_eur} €",
+        "It may take a few days to appear depending on your payment provider.",
+    ]
+    return await _send(email, f"Refund processed for {event_title}", lines, "refund_processed", template_key="refund_processed", variables={'event_title': event_title, 'amount_eur': amount_eur, 'email': email})
 
 __all__ = [
     "send_payment_confirmation_emails",
@@ -136,4 +152,5 @@ __all__ = [
     "send_team_partner_cancelled",
     "send_partner_replaced_notice",
     "send_verification_reminder",
+    "send_refund_processed",
 ]

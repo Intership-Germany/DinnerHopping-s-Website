@@ -175,9 +175,11 @@
     <!-- Cancellations / Refunds -->
     <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
       <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Cancellations & Refunds</h2>
-      <div class="flex gap-3 items-end">
+      <div class="flex flex-wrap gap-3 items-end">
         <select id="refunds-event-select" class="border border-[#f0f4f7] rounded-xl p-3"></select>
         <button id="btn-load-refunds" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Load Overview</button>
+        <button id="btn-process-refunds" class="hidden bg-[#1b5e20] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#2f7f33] transition">Process All</button>
+        <span id="refunds-msg" class="text-sm text-[#4a5568]"></span>
       </div>
       <div id="refunds-overview" class="mt-4 text-sm"></div>
     </section>
