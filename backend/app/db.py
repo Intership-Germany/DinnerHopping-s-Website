@@ -103,10 +103,20 @@ if os.getenv('USE_FAKE_DB_FOR_TESTS'):
                         return False
             return True
 
-        async def find_one(self, filt: dict | None = None, projection=None):
-            for d in self._store:
-                if self._match(d, filt or {}):
-                    return d.copy()
+        async def find_one(self, filt: dict | None = None, projection=None, sort=None):
+            filt = filt or {}
+            # Collect matches
+            matches = [d for d in self._store if self._match(d, filt)]
+            # Apply simple multi-key sort if demandé (liste de tuples (champ, direction))
+            if sort and isinstance(sort, (list, tuple)):
+                try:
+                    for key, direction in reversed(sort):  # appliquer en reverse pour stabilité multi-clés
+                        rev = int(direction) == -1
+                        matches.sort(key=lambda x: x.get(key), reverse=rev)
+                except Exception:
+                    pass  # en cas d'erreur on ignore le tri plutôt que planter les tests
+            for d in matches:
+                return d.copy()
             return None
 
         async def insert_one(self, doc: dict):

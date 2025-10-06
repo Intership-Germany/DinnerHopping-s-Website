@@ -237,7 +237,7 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
         paid_count = 0
         for rid in active_ids:
             pr = payments_by_reg.get(str(rid))
-            if pr and pr.get('status') == 'paid':
+            if pr and pr.get('status') in ('paid', 'succeeded'):
                 paid_count += 1
         if not active_ids:
             payment_status = 'n/a'

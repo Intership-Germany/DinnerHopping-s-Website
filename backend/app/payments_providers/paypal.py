@@ -174,7 +174,7 @@ async def get_or_create_order_for_registration(
     "created_at": datetime.datetime.now(datetime.timezone.utc),
     }
     doc = await db_mod.db.payments.find_one_and_update(
-        {"registration_id": registration_oid},
+        {"registration_id": registration_oid, "provider": "paypal"},
         {"$setOnInsert": initial_doc},
         upsert=True,
         return_document=ReturnDocument.AFTER,
@@ -243,7 +243,7 @@ async def ensure_paypal_payment(
     "created_at": datetime.datetime.now(datetime.timezone.utc),
     }
     doc = await db_mod.db.payments.find_one_and_update(
-        {"registration_id": registration_oid},
+        {"registration_id": registration_oid, "provider": "paypal"},
         {"$setOnInsert": initial_doc},
         upsert=True,
         return_document=ReturnDocument.AFTER,
