@@ -332,12 +332,13 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
 
     # Create payment (one person fee)
     # Payment amount per person comes from event.fee_cents; keep payments router logic for provider integration
-    # Just return a pointer for client to call /payments
+    # Return a pointer (full URL) for the client to call the payments create endpoint.
+    base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
     return {
         'registration_id': str(reg_id),
         'team_size': 1,
         'amount_cents': int(ev.get('fee_cents') or 0),
-        'payment_create_endpoint': '/payments/create',
+        'payment_create_endpoint': f"{base}/payments/create",
         'registration_status': 'pending_payment',
     }
 
@@ -593,13 +594,14 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
 
     # Return team and payment info (single payment for €10 i.e., 2x fee)
     team_amount = int(ev.get('fee_cents') or 0) * 2
+    base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
     return {
         'team_id': str(team_id),
         'registration_id': str(reg_creator_id),
         'partner_registration_id': str(reg_partner_id) if reg_partner_id else None,
         'team_size': 2,
         'amount_cents': team_amount,
-        'payment_create_endpoint': '/payments/create',
+        'payment_create_endpoint': f"{base}/payments/create",
         'registration_status': 'pending_payment',
     }
 
@@ -969,7 +971,16 @@ async def registration_status(registration_id: str | None = None, current_user=D
         # fetch all registrations where the user is owner (by id) or snapshot email
         query = {'$or': [{'user_id': current_user.get('_id')}, {'user_email_snapshot': (current_user.get('email') or '').lower()}]}
         async for r in db_mod.db.registrations.find(query):
-            regs.append(r)
+            if r.get('event_id'):
+                try:
+                    ev = await get_event(r.get('event_id'))
+                    if ev:
+                        r['event_title'] = ev.get('title')
+                        r['event_fee_cents'] = ev.get('fee_cents')
+                except Exception:
+                    r['event_title'] = 'Unknown Event (loading error)'
+                    r['event_fee_cents'] = 'Unknown'
+                regs.append(r)
 
     out = []
     for r in regs:
