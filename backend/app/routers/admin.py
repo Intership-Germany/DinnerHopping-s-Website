@@ -140,57 +140,57 @@ async def list_email_templates(_=Depends(require_admin)):
         DEFAULT_TEMPLATES = [
             {
                 'key': 'verification_reminder',
-                'subject': 'Reminder: verify your DinnerHopping account',
-                'html_body': "<p>Hi!</p><p>You still need to verify your email to activate your account.</p><p>If you've already verified, you can ignore this message.</p>",
+                'subject': '',
+                'html_body': "",
                 'description': 'Sent to users who have not yet verified their email.',
                 'variables': ['email']
             },
             {
                 'key': 'payment_confirmation',
-                'subject': 'Registration confirmed for {{event_title}}',
-                'html_body': "<p>Your registration for <strong>{{event_title}}</strong> is confirmed.</p><p>Event date: {{event_date}}</p><p>You'll receive your detailed schedule closer to the event.</p><p>Have fun!<br/>— DinnerHopping Team</p>",
+                'subject': '',
+                'html_body': '',
                 'description': 'Payment / registration confirmation',
                 'variables': ['event_title','event_date','email']
             },
             {
                 'key': 'cancellation_confirmation',
-                'subject': 'Cancellation confirmed: {{event_title}}',
-                'html_body': "<p>Your registration for <strong>{{event_title}}</strong> has been cancelled.</p><p>{{refund}}</p>",
+                'subject': '',
+                'html_body': "",
                 'description': 'Registration cancellation notice',
                 'variables': ['event_title','refund','email']
             }
             ,{
                 'key': 'invitation',
-                'subject': "You've been invited to an event on DinnerHopping",
-                'html_body': "<p>Hi!</p><p>You have been invited to join an event on DinnerHopping. To accept, click: <a href=\"{{invitation_link}}\">Accept invitation</a></p><p>If you don't have an account, register with this email.</p><p>— DinnerHopping Team</p>",
+                'subject': "",
+                'html_body': "",
                 'description': 'Invitation email with accept link',
                 'variables': ['invitation_link','email','temp_password']
             },
             {
                 'key': 'invitation_accept',
-                'subject': 'Invitation accepted',
-                'html_body': '<p>The invitation has been accepted.</p><p>Registration id: {{registration_id}}</p>',
+                'subject': '',
+                'html_body': '',
                 'description': 'Notify inviter that invitation was accepted',
                 'variables': ['registration_id','email']
             },
             {
                 'key': 'password_reset',
-                'subject': 'Password reset for your DinnerHopping account',
-                'html_body': "<p>Hi!</p><p>Reset your password by clicking: <a href=\"{{reset_url}}\">Reset password</a></p><p>If you didn't request this, ignore this message.</p>",
+                'subject': '',
+                'html_body': "",
                 'description': 'Password reset email',
                 'variables': ['reset_url','email']
             },
             {
                 'key': 'team_invitation',
-                'subject': 'You have been added to a DinnerHopping team',
-                'html_body': "<p>Hi!</p><p>You were added to a team for event \"{{event_title}}\". If you cannot participate, decline here: <a href=\"{{decline_link}}\">Decline</a></p><p>— DinnerHopping Team</p>",
+                'subject': '',
+                'html_body': "",
                 'description': 'Team invitation email (partner)',
                 'variables': ['event_title','decline_link','email']
             }
             ,{
                 'key': 'email_verification',
-                'subject': 'Please verify your DinnerHopping account',
-                'html_body': "<p>Hi!</p><p>Please verify your email by clicking the link below:</p><p><a href=\"{{verification_url}}\">Verify my email</a></p><p>If you didn't request this, ignore this message.</p><p>— DinnerHopping Team</p>",
+                'subject': '',
+                'html_body': "",
                 'description': 'Initial verification email with a link to verify the address.',
                 'variables': ['verification_url','email']
             }
