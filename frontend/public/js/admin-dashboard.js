@@ -787,18 +787,52 @@
   }
 
   async function bindRefunds(){
+    const processBtn = $('#btn-process-refunds');
     $('#btn-load-refunds').addEventListener('click', async ()=>{
       const evId = $('#refunds-event-select').value;
       const res = await apiFetch(`/matching/${evId}/refunds`);
       const data = await res.json().catch(()=>({ enabled:false, items:[], total_refund_cents:0 }));
       const box = $('#refunds-overview');
-      if (!data.enabled){ box.textContent = 'Refund option disabled for this event.'; return; }
-      const rows = data.items.map(it=>`<tr><td class="p-1">${it.user_email||''}</td><td class="p-1">${(it.amount_cents/100).toFixed(2)} €</td><td class="p-1 text-xs">${it.registration_id}</td></tr>`).join('');
-      box.innerHTML = `
-        <div class="font-semibold">Total refunds: ${(data.total_refund_cents/100).toFixed(2)} €</div>
+      const msg = $('#refunds-msg');
+      if (!data.enabled){ box.textContent = 'Refund option disabled for this event.'; processBtn.classList.add('hidden'); msg.textContent=''; return; }
+      const hasItems = Array.isArray(data.items) && data.items.length>0;
+      if (hasItems){ processBtn.classList.remove('hidden'); } else { processBtn.classList.add('hidden'); }
+      const rows = data.items.map(it=>`<tr data-reg="${it.registration_id}"><td class="p-1">${it.user_email||''}</td><td class="p-1">${(it.amount_cents/100).toFixed(2)} €</td><td class="p-1 text-xs">${it.registration_id}</td><td class="p-1"><button class="btn-refund-one bg-[#008080] text-white rounded px-2 py-1 text-xs">Refund</button></td></tr>`).join('');
+      box.innerHTML = hasItems ? `
+        <div class="font-semibold mb-2">Total refunds: ${(data.total_refund_cents/100).toFixed(2)} €</div>
         <div class="overflow-x-auto mt-2">
-          <table class="min-w-full text-sm"><thead><tr class="bg-[#f0f4f7]"><th class="p-1 text-left">User</th><th class="p-1 text-left">Amount</th><th class="p-1 text-left">Registration</th></tr></thead><tbody>${rows}</tbody></table>
-        </div>`;
+          <table class="min-w-full text-sm"><thead><tr class="bg-[#f0f4f7]"><th class="p-1 text-left">User</th><th class="p-1 text-left">Amount</th><th class="p-1 text-left">Registration</th><th class="p-1 text-left">Action</th></tr></thead><tbody>${rows}</tbody></table>
+        </div>` : '<div class="text-sm">No refunds due.</div>';
+      msg.textContent = hasItems ? '' : 'No pending refunds.';
+    });
+    if (processBtn){
+      processBtn.addEventListener('click', async ()=>{
+        const evId = $('#refunds-event-select').value; if (!evId) return;
+        const t = toastLoading('Processing refunds...');
+        const r = await apiFetch(`/matching/${evId}/refunds/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+        const data = await r.json().catch(()=>({}));
+        if (r.ok){ t.update(`Processed ${data.processed||0}`); toast(`Refunds processed: ${data.processed||0}`, { type: 'success' }); }
+        else { t.update('Error'); toast('Refund processing failed', { type: 'error' }); }
+        t.close();
+        // reload overview
+        try { $('#btn-load-refunds').click(); } catch(e){}
+      });
+    }
+    // delegated per-row refund
+    document.addEventListener('click', async (e)=>{
+      const btn = e.target && e.target.closest && e.target.closest('.btn-refund-one');
+      if (!btn) return;
+      const tr = btn.closest('tr[data-reg]'); if (!tr) return;
+      const regId = tr.getAttribute('data-reg');
+      const evId = $('#refunds-event-select').value; if (!evId || !regId) return;
+      const t = toastLoading('Refunding...');
+      btn.disabled = true; btn.classList.add('opacity-70');
+      const r = await apiFetch(`/matching/${evId}/refunds/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registration_ids: [regId] }) });
+      const data = await r.json().catch(()=>({}));
+      if (r.ok){ t.update('Done'); toast('Refund processed', { type: 'success' }); }
+      else { t.update('Error'); toast('Refund failed', { type: 'error' }); }
+      t.close();
+      try { $('#btn-load-refunds').click(); } catch(e){}
     });
   }
 

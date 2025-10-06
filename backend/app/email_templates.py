@@ -84,6 +84,13 @@ DEFAULT_TEMPLATES = [
         'html_body': '<p>Your schedule for {{event_title}} is ready. Log in to view details.</p>',
         'description': 'Final plan release notification',
         'variables': ['event_title','email']
+    },
+    {
+        'key': 'refund_processed',
+        'subject': 'Refund processed for {{event_title}}',
+        'html_body': '<p>Your refund for <strong>{{event_title}}</strong> has been processed.</p><p>Amount: {{amount_eur}} €</p><p>It may take a few days to appear depending on your payment provider.</p>',
+        'description': 'Sent to a participant when a cancellation refund is processed',
+        'variables': ['event_title','amount_eur','email']
     }
 ]
 

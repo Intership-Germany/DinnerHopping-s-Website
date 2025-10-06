@@ -158,8 +158,8 @@ async def list_email_templates(_=Depends(require_admin)):
                 'html_body': "",
                 'description': 'Registration cancellation notice',
                 'variables': ['event_title','refund','email']
-            }
-            ,{
+            },
+            {
                 'key': 'invitation',
                 'subject': "",
                 'html_body': "",
@@ -186,13 +186,27 @@ async def list_email_templates(_=Depends(require_admin)):
                 'html_body': "",
                 'description': 'Team invitation email (partner)',
                 'variables': ['event_title','decline_link','email']
-            }
-            ,{
+            },
+            {
                 'key': 'email_verification',
                 'subject': '',
                 'html_body': "",
                 'description': 'Initial verification email with a link to verify the address.',
                 'variables': ['verification_url','email']
+            },
+            {
+                'key': 'final_plan',
+                'subject': '',
+                'html_body': '',
+                'description': 'Final plan release notification',
+                'variables': ['event_title','email']
+            },
+            {
+                'key': 'refund_processed',
+                'subject': '',
+                'html_body': '',
+                'description': 'Sent to a participant when a cancellation refund is processed',
+                'variables': ['event_title','amount_eur','email']
             }
         ]
         from datetime import datetime
