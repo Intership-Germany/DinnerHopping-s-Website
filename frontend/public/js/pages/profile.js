@@ -1006,21 +1006,19 @@
         }
       });
 
-      // Logout (supports cookie+CSRF or Bearer)
+      // Logout (use centralized auth util to clear cookies/tokens)
       el.logoutBtn &&
         el.logoutBtn.addEventListener('click', async () => {
           try {
-            const bearer = getDhToken();
-            const headers = bearer ? { Authorization: `Bearer ${bearer}` } : {};
-            await window.apiFetch('/logout', {
-              method: 'POST',
-              headers,
-              credentials: bearer ? 'omit' : undefined,
-            });
-          } catch {}
-          // Clear legacy guard cookie
-          try {
-            if (window.auth && window.auth.deleteCookie) window.auth.deleteCookie('dh_token');
+            if (window.auth && typeof window.auth.logout === 'function') {
+              await window.auth.logout();
+            } else {
+              // Fallback: call API and clear local token
+              await window.apiFetch('/logout', { method: 'POST', credentials: 'include' });
+              if (window.auth && typeof window.auth.clearToken === 'function') {
+                window.auth.clearToken();
+              }
+            }
           } catch {}
           window.location.href = 'login.html';
         });
