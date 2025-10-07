@@ -77,6 +77,8 @@
     f.extra_info.value = ev.extra_info || '';
     f.refund_on_cancellation.checked = !!ev.refund_on_cancellation;
     f.chat_enabled.checked = !!ev.chat_enabled;
+    // Inform zip autocomplete script that form values have been populated
+    document.dispatchEvent(new CustomEvent('dh:event_form_loaded'));
   }
 
   // Admin menu toggle (if present on the page)
@@ -120,6 +122,8 @@
     btn.textContent = 'Create Event (Draft)';
     $('#btn-cancel-edit').classList.add('hidden');
     $('#create-event-form').reset();
+    // Dispatch so that zip script can attempt enrichment if needed
+    document.dispatchEvent(new CustomEvent('dh:event_form_loaded'));
   }
 
   function enterEditMode(ev){
