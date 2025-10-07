@@ -37,7 +37,7 @@ from .logging_config import configure_logging
 from .middleware.rate_limit import RateLimit
 from .middleware.security import CSRFMiddleware, SecurityHeadersMiddleware
 from .routers import (admin, chats, events, invitations, matching, payments,
-                      registrations, users)
+                      registrations, users, geo)
 from .settings import get_settings
 
 # Context variables for request-scoped logging
@@ -261,6 +261,7 @@ app.include_router(payments.router, prefix="/payments", tags=["payments"])
 app.include_router(matching.router, prefix="/matching", tags=["matching"])
 app.include_router(chats.router, prefix="/chats", tags=["chats"])
 app.include_router(registrations.router, prefix="/registrations", tags=["registrations"])
+app.include_router(geo.router, prefix="/geo", tags=["geo"])
 
 api_router = APIRouter()
 
