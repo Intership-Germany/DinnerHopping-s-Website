@@ -683,9 +683,29 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
 
     await _reserve_capacity(ev, 2)
 
+    # Attempt to run team + registrations in a DB transaction when available
     try:
+        client = getattr(db_mod, 'mongo_db', None)
+        session = None
+        use_tx = False
+        if client and getattr(client, 'client', None):
+            try:
+                # start a session; if server doesn't support transactions this may raise
+                session = client.client.start_session()
+                session.start_transaction()
+                use_tx = True
+            except Exception:
+                session = None
+                use_tx = False
+
+        # Helper to run collection operations with or without session
+        async def coll_insert_one(coll, doc):
+            if session:
+                return await getattr(db_mod.db, coll).insert_one(doc, session=session)
+            return await getattr(db_mod.db, coll).insert_one(doc)
+
         # Insert team
-        team_res = await db_mod.db.teams.insert_one(team_doc)
+        team_res = await coll_insert_one('teams', team_doc)
         team_id = team_res.inserted_id
 
         # Create registrations for creator and partner (auto-register partner if existing user)
@@ -704,9 +724,9 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
         }
         # creator registration (owner)
         reg_creator = reg_common | {'user_id': creator.get('_id'), 'user_email_snapshot': creator.get('email')}
-        reg_creator_res = await db_mod.db.registrations.insert_one(reg_creator)
+        reg_creator_res = await coll_insert_one('registrations', reg_creator)
         reg_creator_id = reg_creator_res.inserted_id
-        
+
         # Audit log for creator registration
         from app.utils import create_audit_log
         await create_audit_log(
@@ -720,7 +740,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
 
         if partner_user:
             reg_partner = reg_common | {'user_id': partner_user.get('_id'), 'user_email_snapshot': partner_user.get('email'), 'status': 'invited'}
-            reg_partner_res = await db_mod.db.registrations.insert_one(reg_partner)
+            reg_partner_res = await coll_insert_one('registrations', reg_partner)
             reg_partner_id = reg_partner_res.inserted_id
             # Notify partner via email with decline link
             base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
@@ -740,9 +760,32 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
         else:
             # External partner: no user account, no auto-registration. Store snapshot only.
             reg_partner_id = None
+
+        # commit transaction if used
+        if session and use_tx:
+            try:
+                await session.commit_transaction()
+            except Exception:
+                try:
+                    await session.abort_transaction()
+                except Exception:
+                    pass
+                raise
     except Exception:
+        # rollback and cleanup
+        try:
+            if session and use_tx:
+                await session.abort_transaction()
+        except Exception:
+            pass
         await _release_capacity(ev.get('_id'), 2)
         raise
+    finally:
+        try:
+            if session:
+                session.end_session()
+        except Exception:
+            pass
 
     # best-effort: create chat group for teams if event has chat enabled
     try:

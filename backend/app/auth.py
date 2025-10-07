@@ -14,7 +14,7 @@ from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
 
 from . import db as db_mod
-from .datetime_utils import now_iso, to_iso, parse_iso
+from .datetime_utils import to_iso, parse_iso
 
 pwd_context = CryptContext(
     schemes=["argon2", "bcrypt_sha256"],
@@ -32,7 +32,10 @@ auth_logger = logging.getLogger('auth')
 # code can still fall back to cookie-based auth.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login", auto_error=False)
 
-JWT_SECRET = os.getenv('JWT_SECRET', 'change-me')
+from .settings import get_settings
+
+settings = get_settings()
+JWT_SECRET = settings.jwt_secret
 JWT_ALGO = 'HS256'
 JWT_ISSUER = os.getenv('JWT_ISSUER')
 
@@ -150,20 +153,31 @@ async def authenticate_user(email: str, password: str):
     # Guard against missing/invalid stored hash
     try:
         ok = bool(stored_hash) and verify_password(password, stored_hash)
-    except (UnknownHashError, ValueError):
-        # If the stored value is actually plaintext from older records, compare directly
-        ok = stored_hash == password
+    except (UnknownHashError, ValueError) as exc:
+        # Legacy or unsupported hash detected. We do NOT accept plaintext fallback.
+        # Force a password reset path instead of silently accepting insecure storage.
+        auth_logger.warning('auth.login.legacy_hash_or_error email=%s', email)
+        raise HTTPException(status_code=400, detail='Account requires password reset. Please use forgot password to set a new password') from exc
     if not ok:
-        # increment failed attempts
-        user = await get_user_by_email(email)
+        # increment failed attempts atomically
+        try:
+            res = await db_mod.db.users.find_one_and_update({"email": email}, {"$inc": {"failed_login_attempts": 1}}, return_document=True)
+        except Exception:
+            res = await get_user_by_email(email)
+
+        attempts = (res.get('failed_login_attempts') or 0) if res else 0
         # lock the account for 15 minutes if too many attempts
-        if user.get('failed_login_attempts', 0) >= 5:
-            # compute timezone-aware lock_until
+        if attempts >= 5:
             lock_until_iso = to_iso(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=15))
-            await db_mod.db.users.update_one({"email": email}, {"$set": {"lockout_until": lock_until_iso}})
-            auth_logger.warning('auth.login.lockout email=%s attempts=%s', email, user.get('failed_login_attempts'))
+            try:
+                await db_mod.db.users.update_one({"email": email}, {"$set": {"lockout_until": lock_until_iso}})
+            except Exception:
+                pass
+            auth_logger.warning('auth.login.lockout email=%s attempts=%s', email, attempts)
+            # Emit high-level security log for monitoring systems
+            logging.getLogger('auth.security').warning('multiple_failed_logins email=%s attempts=%s', email, attempts)
         else:
-            auth_logger.info('auth.login.failed reason=bad_credentials email=%s attempts=%s', email, user.get('failed_login_attempts'))
+            auth_logger.info('auth.login.failed reason=bad_credentials email=%s attempts=%s', email, attempts)
         return None
 
     # successful login: reset failed attempts and remove lockout

@@ -33,7 +33,7 @@ from .auth import get_current_user
 from .db import close as close_mongo
 from .db import connect as connect_to_mongo
 from .logging_config import configure_logging
-from .middleware.rate_limit import RateLimit
+from .middleware.rate_limit import RedisRateLimit as RateLimit
 from .middleware.security import CSRFMiddleware, SecurityHeadersMiddleware
 from .routers import (admin, chats, events, invitations, matching, payments,
                       registrations, users)
@@ -249,7 +249,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 # CSRF double-submit protection for cookie-auth clients
 app.add_middleware(CSRFMiddleware)
 # simple in-memory rate limiter (dev)
-app.add_middleware(RateLimit, max_requests=300, window_sec=60)
+app.add_middleware(RateLimit, max_requests=int(os.getenv('RATE_LIMIT_MAX_REQUESTS', '300')), window_sec=int(os.getenv('RATE_LIMIT_WINDOW', '60')), redis_url=os.getenv('REDIS_URL'))
 
 # Lifespan provided above via asynccontextmanager (_lifespan)
 
