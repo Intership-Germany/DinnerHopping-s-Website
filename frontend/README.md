@@ -73,6 +73,25 @@ docker run -p 80:80 dinnerhopping-frontend
 
 The frontend will be available at <http://localhost>
 
+### Local dev server (npm)
+
+If you prefer a lightweight local dev server without Docker, we've added a convenience npm script that serves the `public/` directory on port 3000:
+
+1. Install dependencies (only needed once for linting/dev tools):
+
+```bash
+cd frontend
+npm install
+```
+
+2. Start the static server:
+
+```bash
+npm run start
+```
+
+Open http://localhost:3000 to view the frontend.
+
 ## Project structure (post-refactor)
 
 ```text

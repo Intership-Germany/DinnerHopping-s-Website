@@ -324,6 +324,26 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
     if existing and (existing.get('team_id') or existing.get('team_size', 1) != 1):
         raise HTTPException(status_code=400, detail='Already registered with a team for this event')
 
+    # If existing registration is cancelled, create a new one instead of updating
+    if existing and existing.get('status') in cancelled_states:
+        # Mark any pending payments for the old registration as failed (but leave succeeded/paid payments alone for refund tracking)
+        try:
+            await db_mod.db.payments.update_many(
+                {'registration_id': existing.get('_id'), 'status': {'$nin': ['succeeded', 'paid', 'refunded']}}, 
+                {'$set': {'status': 'failed', 'updated_at': now}}
+            )
+        except Exception:
+            pass
+        # Clear refund_flag from old cancelled registration to prevent duplicate refund listing
+        try:
+            await db_mod.db.registrations.update_one(
+                {'_id': existing.get('_id')}, 
+                {'$unset': {'refund_flag': ''}}
+            )
+        except Exception:
+            pass
+        existing = None
+
     needs_reserve = existing is None or (existing.get('status') in cancelled_states if existing else False)
     if needs_reserve:
         await _reserve_capacity(ev, 1)
@@ -888,6 +908,9 @@ async def _mark_refund_if_applicable(reg: dict, ev: dict):
         return
     pay = await db_mod.db.payments.find_one({'_id': pay_oid})
     if not pay or pay.get('status') not in ('succeeded', 'paid'):
+        return
+    # Prevent double refund: only mark if not already requested/processed
+    if pay.get('refund_requested') or pay.get('status') == 'refunded':
         return
     await db_mod.db.payments.update_one({'_id': pay_oid}, {'$set': {'refund_requested': True, 'refund_requested_at': datetime.datetime.now(datetime.timezone.utc)}})
 

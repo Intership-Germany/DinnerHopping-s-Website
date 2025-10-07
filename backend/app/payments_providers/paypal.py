@@ -173,20 +173,40 @@ async def get_or_create_order_for_registration(
         "meta": {},
     "created_at": datetime.datetime.now(datetime.timezone.utc),
     }
-    try:
-        doc = await db_mod.db.payments.find_one_and_update(
-            {"registration_id": registration_oid, "provider": "paypal"},
-            {"$setOnInsert": initial_doc},
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
-    except DuplicateKeyError:
-        # Concurrent upsert inserted the document first. Read the existing doc and continue.
-        logger.info('paypal.get_or_create_order_for_registration.duplicate registration_id=%s', registration_oid)
-        doc = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
-        if not doc:
-            # Unexpected: re-raise to surface the error
-            raise
+    # Use insert-then-fallback approach to avoid a findAndModify duplicate-key race
+    doc = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
+    if not doc:
+        try:
+            insert_result = await db_mod.db.payments.insert_one(initial_doc)
+            doc = await db_mod.db.payments.find_one({"_id": insert_result.inserted_id})
+        except Exception as exc:
+            # Be defensive: duplicate key errors can be raised/wrapped in different shapes
+            is_dup = False
+            try:
+                if isinstance(exc, DuplicateKeyError):
+                    is_dup = True
+            except Exception:
+                pass
+            if not is_dup:
+                try:
+                    if getattr(exc, 'code', None) == 11000:
+                        is_dup = True
+                except Exception:
+                    pass
+            if not is_dup:
+                try:
+                    if 'duplicate key' in str(exc).lower():
+                        is_dup = True
+                except Exception:
+                    pass
+            if not is_dup:
+                raise
+            # Another concurrent writer created the payment. Load and continue.
+            logger.info('paypal.get_or_create_order_for_registration.duplicate registration_id=%s exc=%s', registration_oid, str(exc))
+            doc = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
+            if not doc:
+                # Unexpected: re-raise to surface the error
+                raise
     payment_id = doc.get('_id')
     # If we are retrying after a previous failed/expired attempt, alter the PayPal idempotency header
     # to force a fresh order on PayPal side, while keeping DB idempotency stable.
@@ -250,20 +270,38 @@ async def ensure_paypal_payment(
         "meta": {},
     "created_at": datetime.datetime.now(datetime.timezone.utc),
     }
-    try:
-        doc = await db_mod.db.payments.find_one_and_update(
-            {"registration_id": registration_oid, "provider": "paypal"},
-            {"$setOnInsert": initial_doc},
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
-    except DuplicateKeyError:
-        # Concurrent upsert inserted the document first. Read the existing doc and continue.
-        logger.info('paypal.ensure_paypal_payment.duplicate registration_id=%s', registration_oid)
-        doc = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
-        if not doc:
-            # Unexpected: re-raise to surface the error
-            raise
+    # Use insert-then-fallback approach to avoid a findAndModify duplicate-key race
+    doc = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
+    if not doc:
+        try:
+            insert_result = await db_mod.db.payments.insert_one(initial_doc)
+            doc = await db_mod.db.payments.find_one({"_id": insert_result.inserted_id})
+        except Exception as exc:
+            is_dup = False
+            try:
+                if isinstance(exc, DuplicateKeyError):
+                    is_dup = True
+            except Exception:
+                pass
+            if not is_dup:
+                try:
+                    if getattr(exc, 'code', None) == 11000:
+                        is_dup = True
+                except Exception:
+                    pass
+            if not is_dup:
+                try:
+                    if 'duplicate key' in str(exc).lower():
+                        is_dup = True
+                except Exception:
+                    pass
+            if not is_dup:
+                raise
+            logger.info('paypal.ensure_paypal_payment.duplicate registration_id=%s exc=%s', registration_oid, str(exc))
+            doc = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
+            if not doc:
+                # Unexpected: re-raise to surface the error
+                raise
     payment_id = doc.get('_id')
     paypal_request_id = idempotency_key
     if existing and idempotency_key:

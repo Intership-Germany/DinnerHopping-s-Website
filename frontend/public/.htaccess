@@ -4,6 +4,10 @@
 # Enable URL rewriting
 <IfModule mod_rewrite.c>
   RewriteEngine On
+
+  # Serve event.html for /event requests
+  RewriteRule ^event$ event.html [L]
+
   # Redirect all requests to index.html except for existing files/folders
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d

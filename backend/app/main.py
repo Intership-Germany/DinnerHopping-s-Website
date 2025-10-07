@@ -25,12 +25,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-
 from .auth import get_current_user
 from .db import close as close_mongo
 from .db import connect as connect_to_mongo
@@ -227,7 +225,7 @@ ALLOWED_ORIGINS = settings.allowed_origins
 if ALLOWED_ORIGINS == '*':
     origins = ["*"]
 else:
-    origins = [o.strip() for o in ALLOWED_ORIGINS.split(',') if o.strip()]
+    origins = [o.strip() for o in str(ALLOWED_ORIGINS).split(',') if o.strip()]
 
 # If using cookies for auth (frontend + backend on different domains), you must
 # set specific origins and allow_credentials=True. Browsers reject wildcard
@@ -247,8 +245,6 @@ if settings.enforce_https:
     # Redirect HTTP to HTTPS (behind a proxy, ensure X-Forwarded-Proto is set)
     app.add_middleware(HTTPSRedirectMiddleware)
 # Honor X-Forwarded-* headers from nginx so scheme/host are correct behind the proxy
-# Trust all proxy headers (dev/local env behind nginx)
-app.add_middleware(ProxyHeadersMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 # CSRF double-submit protection for cookie-auth clients
 app.add_middleware(CSRFMiddleware)

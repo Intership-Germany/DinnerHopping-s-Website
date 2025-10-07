@@ -366,8 +366,11 @@
         // ignore and try fallback
       }
       if (Array.isArray(regs)) {
-        const match = regs.find((r) => String(r.event_id || r.eventId) === String(eventId));
-        if (match) {
+        const matches = regs.filter((r) => String(r.event_id || r.eventId) === String(eventId));
+        if (matches.length > 0) {
+          // Sort by created_at descending (newest first)
+          matches.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          const match = matches[0];
           registrationData = {
             registration_id: match.registration_id || match.id || match.registrationId,
             status: match.status,

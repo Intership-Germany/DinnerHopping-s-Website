@@ -251,6 +251,10 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
     if existing and (existing.get('status') or '').lower() in _expired_statuses:
         existing = None
 
+    # For re-registration (status pending_payment), always create a new payment
+    if existing and reg.get('status') == 'pending_payment':
+        existing = None
+
     if existing:
         log.debug('payment.create.idempotent key=%s payment_id=%s', canonical_idempotency, existing.get('_id'))
         next_action = None
@@ -275,6 +279,10 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
     # If there is an existing payment for this registration but it is no longer
     # payable (refunded/failed/cancelled), ignore it and create a fresh one instead.
     if existing_for_registration and (existing_for_registration.get('status') or '').lower() in _expired_statuses:
+        existing_for_registration = None
+
+    # For re-registration (status pending_payment), always create a new payment
+    if existing_for_registration and reg.get('status') == 'pending_payment':
         existing_for_registration = None
 
     if existing_for_registration and not existing_for_registration.get('idempotency_key'):
@@ -781,11 +789,28 @@ async def list_refunds(event_id: str):
     items = []
     total = 0
     async for reg in db_mod.db.registrations.find({'event_id': ev_id, 'refund_flag': True}):
+        # Only include registrations with valid paid payments that haven't been refunded yet
+        pay_id = reg.get('payment_id')
+        if pay_id:
+            try:
+                pay_oid = pay_id if isinstance(pay_id, ObjectId) else ObjectId(pay_id)
+                pay = await db_mod.db.payments.find_one({'_id': pay_oid})
+                # Skip if payment doesn't exist, wasn't successful, or already refunded
+                if not pay or pay.get('status') not in ('succeeded', 'paid') or pay.get('status') == 'refunded':
+                    continue
+            except Exception:
+                continue
+        else:
+            # No payment linked, skip this registration
+            continue
+        
         amount = fee_cents * int(reg.get('team_size') or 1)
         items.append({
             'registration_id': str(reg.get('_id')),
             'user_email': reg.get('user_email_snapshot'),
             'amount_cents': amount,
+            'payment_id': str(pay_id),
+            'payment_status': pay.get('status') if pay else None,
         })
         total += amount
     return {"event_id": event_id, "currency": (ev.get('currency') or 'EUR'), "items": items, "total_cents": total}

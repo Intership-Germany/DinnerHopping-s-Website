@@ -261,7 +261,7 @@
       const spanPaymentId = node.querySelector('.reg-payment-id');
       const aGo = node.querySelector('.reg-go');
       const eventId = ev.id || ev._id || ev.eventId;
-      if (aGo) aGo.href = `/event.html?id=${encodeURIComponent(eventId)}`;
+      if (aGo) aGo.href = `/event?id=${encodeURIComponent(eventId)}`;
       if (titleEl)
         titleEl.textContent = ev.title || ev.name || (regInfo && regInfo.event_title) || 'Event';
       if (dateEl) {
