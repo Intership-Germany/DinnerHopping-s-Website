@@ -18,7 +18,21 @@ DEFAULT_TEMPLATES = [
     {
         'key': 'email_verification',
         'subject': 'Please verify your DinnerHopping account',
-        'html_body': '<p>Hi!</p><p>Please verify your email by clicking the link below:</p><p><a href="{{verification_url}}">Verify my email</a></p><p>If you didn\'t request this, ignore this message.</p><p>— DinnerHopping Team</p>',
+        'html_body': (
+            '<div style="font-family: -apple-system, system-ui, Roboto, \"Helvetica Neue\", Arial, ' 
+            'sans-serif; color: #111; line-height:1.4;">'
+            '<p style="font-size:16px; margin:0 0 12px 0;">Hi!</p>'
+            '<p style="margin:0 0 16px 0;">Please verify your email by clicking the button below:</p>'
+            '<p style="margin:0 0 20px 0;"><a href="{{verification_url}}" '
+            'style="display:inline-block; background-color:#2563eb; color:#fff; text-decoration:none; '
+            'padding:10px 16px; border-radius:6px; font-weight:600;">Verify my email</a></p>'
+            '<p style="font-size:13px; color:#6b7280; margin:0 0 8px 0;">If the button above does not work, copy and paste the following link into your browser:</p>'
+            '<p style="font-size:13px; word-break:break-all;"><a href="{{verification_url}}" '
+            'style="color:#2563eb; text-decoration:underline;">{{verification_url}}</a></p>'
+            '<p style="margin-top:18px; color:#374151;">If you didn\'t request this, ignore this message.</p>'
+            '<p style="margin-top:18px; color:#6b7280;">— DinnerHopping Team</p>'
+            '</div>'
+        ),
         'description': 'Initial verification email with a link to verify the address.',
         'variables': ['verification_url','email']
     },
@@ -67,7 +81,21 @@ DEFAULT_TEMPLATES = [
     {
         'key': 'password_reset',
         'subject': 'Password reset for your DinnerHopping account',
-        'html_body': '<p>Hi!</p><p>Reset your password by clicking: <a href="{{reset_url}}">Reset password</a></p><p>If you didn\'t request this, ignore this message.</p>',
+        'html_body': (
+            '<div style="font-family: -apple-system, system-ui, Roboto, \"Helvetica Neue\", Arial, '
+            'sans-serif; color:#111; line-height:1.4;">'
+            '<p style="font-size:16px; margin:0 0 12px 0;">Hi!</p>'
+            '<p style="margin:0 0 16px 0;">Reset your password by clicking the button below:</p>'
+            '<p style="margin:0 0 20px 0;"><a href="{{reset_url}}" '
+            'style="display:inline-block; background-color:#ef4444; color:#fff; text-decoration:none; '
+            'padding:10px 16px; border-radius:6px; font-weight:600;">Reset password</a></p>'
+            '<p style="font-size:13px; color:#6b7280; margin:0 0 8px 0;">If the button above does not work, copy and paste the following link into your browser:</p>'
+            '<p style="font-size:13px; word-break:break-all;"><a href="{{reset_url}}" '
+            'style="color:#2563eb; text-decoration:underline;">{{reset_url}}</a></p>'
+            '<p style="margin-top:18px; color:#374151;">If you didn\'t request this, ignore this message.</p>'
+            '<p style="margin-top:18px; color:#6b7280;">— DinnerHopping Team</p>'
+            '</div>'
+        ),
         'description': 'Password reset email',
         'variables': ['reset_url','email']
     },
@@ -79,15 +107,43 @@ DEFAULT_TEMPLATES = [
         'variables': ['event_title','decline_link','email']
     },
     {
-        'key': 'final_plan',
-        'subject': 'Your DinnerHopping schedule is ready',
+        'subject': "You've been invited to an event on DinnerHopping",
+        'html_body': (
+            '<div style="font-family: -apple-system, system-ui, Roboto, \"Helvetica Neue\", Arial, '
+            'sans-serif; color:#111; line-height:1.4;">'
+            '<p style="font-size:16px; margin:0 0 12px 0;">Hi!</p>'
+            '<p style="margin:0 0 12px 0;">You have been invited to join an event on DinnerHopping.</p>'
+            '<p style="margin:0 0 12px 0;"><a href="{{invitation_link}}" '
+            'style="display:inline-block; background-color:#10b981; color:#fff; text-decoration:none; '
+            'padding:10px 16px; border-radius:6px; font-weight:600;">Accept invitation</a></p>'
+            '<p style="margin:0 0 8px 0; font-size:13px; color:#6b7280;">If the button above does not work, copy and paste the following link into your browser:</p>'
+            '<p style="font-size:13px; word-break:break-all;"><a href="{{invitation_link}}" '
+            'style="color:#2563eb; text-decoration:underline;">{{invitation_link}}</a></p>'
+            '<p style="margin:12px 0 0 0;">If you don\'t have an account, register with this email. If an account was created for you, set your password here: '
+            '<a href="{{set_password_url}}" style="color:#2563eb; text-decoration:underline;">Set password</a></p>'
+            '<p style="margin-top:18px; color:#6b7280;">— DinnerHopping Team</p>'
+            '</div>'
+        ),
         'html_body': '<p>Your schedule for {{event_title}} is ready. Log in to view details.</p>',
         'description': 'Final plan release notification',
         'variables': ['event_title','email']
     },
     {
-        'key': 'refund_processed',
-        'subject': 'Refund processed for {{event_title}}',
+        'subject': 'You have been added to a DinnerHopping team',
+        'html_body': (
+            '<div style="font-family: -apple-system, system-ui, Roboto, \"Helvetica Neue\", Arial, '
+            'sans-serif; color:#111; line-height:1.4;">'
+            '<p style="font-size:16px; margin:0 0 12px 0;">Hi!</p>'
+            '<p style="margin:0 0 12px 0;">You were added to a team for event "{{event_title}}".</p>'
+            '<p style="margin:0 0 12px 0;"><a href="{{decline_link}}" '
+            'style="display:inline-block; background-color:#f59e0b; color:#fff; text-decoration:none; '
+            'padding:10px 16px; border-radius:6px; font-weight:600;">Decline</a></p>'
+            '<p style="margin:0 0 8px 0; font-size:13px; color:#6b7280;">If the button above does not work, copy and paste the following link into your browser:</p>'
+            '<p style="font-size:13px; word-break:break-all;"><a href="{{decline_link}}" '
+            'style="color:#2563eb; text-decoration:underline;">{{decline_link}}</a></p>'
+            '<p style="margin-top:18px; color:#6b7280;">— DinnerHopping Team</p>'
+            '</div>'
+        ),
         'html_body': '<p>Your refund for <strong>{{event_title}}</strong> has been processed.</p><p>Amount: {{amount_eur}} €</p><p>It may take a few days to appear depending on your payment provider.</p>',
         'description': 'Sent to a participant when a cancellation refund is processed',
         'variables': ['event_title','amount_eur','email']
