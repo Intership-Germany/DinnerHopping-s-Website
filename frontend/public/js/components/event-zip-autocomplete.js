@@ -62,23 +62,23 @@
   async function enrichZipCodes(){
     const city = cityInput.value.trim();
     if (!city){ if (statusBox) statusBox.textContent=''; return; }
-    if (statusBox) statusBox.textContent='Recherche des codes postaux…';
+    if (statusBox) statusBox.textContent='Searching for zip codes…';
     try {
       const rootPath = (window.__API_ROOT_PATH__ || '');
       const resp = await fetch(`${rootPath}/geo/zip-codes?city=${encodeURIComponent(city)}`, { credentials: 'include' });
-      if (!resp.ok){ if (statusBox) statusBox.textContent='(zip codes indisponibles)'; return; }
+      if (!resp.ok){ if (statusBox) statusBox.textContent='(zip codes unavailable)'; return; }
       const data = await resp.json();
       if (Array.isArray(data.zip_codes) && data.zip_codes.length){
         // Populate only if user has not changed manually since last auto fill
         if (!userModifiedZipCodes){
           zipsInput.value = data.zip_codes.join(', ');
         }
-        if (statusBox) statusBox.textContent = `Codes postaux trouvés: ${data.zip_codes.length}`;
+        if (statusBox) statusBox.textContent = `Zip codes found: ${data.zip_codes.length}`;
       } else {
-        if (statusBox) statusBox.textContent = 'Aucun code postal trouvé pour cette ville';
+        if (statusBox) statusBox.textContent = 'No zip code found for this city';
       }
     } catch (e){
-      if (statusBox) statusBox.textContent='Erreur lors de la récupération des codes postaux';
+      if (statusBox) statusBox.textContent='Error while retrieving zip codes';
     }
   }
 
