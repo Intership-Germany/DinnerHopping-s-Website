@@ -34,6 +34,15 @@ Data is ephemeral and not shared across processes.
 ### Emails in Dev
 If no SMTP settings are present, verification & notification emails are printed to stdout (`[email dev-fallback]`). Copy verification links directly from logs.
 
+Local SMTP for development
+--------------------------
+If your SMTP account is blocked (for example by OVH) you can run a local SMTP dev server (MailHog) and an HTTPS nginx proxy for other developers on the VPN. See `../deploy/README-mail.md` for full instructions. In short:
+
+- Start MailHog + nginx: `docker compose -f ../deploy/dev-mail.yml up -d`
+- For local backend process use `SMTP_HOST=127.0.0.1` and `SMTP_PORT=1025`
+- Visit MailHog web UI at `http://127.0.0.1:8025` to see sent messages
+
+
 ## Configuration & Settings
 
 Centralized in `app/settings.py` using `pydantic-settings`. All env vars have sane defaults for dev.

@@ -5,7 +5,7 @@ import datetime
 from typing import Dict, Any, Optional
 
 from pymongo import ReturnDocument
-from pymongo.errors import PyMongoError
+from pymongo.errors import PyMongoError, DuplicateKeyError
 
 from app import db as db_mod
 
@@ -173,12 +173,20 @@ async def get_or_create_order_for_registration(
         "meta": {},
     "created_at": datetime.datetime.now(datetime.timezone.utc),
     }
-    doc = await db_mod.db.payments.find_one_and_update(
-        {"registration_id": registration_oid, "provider": "paypal"},
-        {"$setOnInsert": initial_doc},
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
-    )
+    try:
+        doc = await db_mod.db.payments.find_one_and_update(
+            {"registration_id": registration_oid, "provider": "paypal"},
+            {"$setOnInsert": initial_doc},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+    except DuplicateKeyError:
+        # Concurrent upsert inserted the document first. Read the existing doc and continue.
+        logger.info('paypal.get_or_create_order_for_registration.duplicate registration_id=%s', registration_oid)
+        doc = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
+        if not doc:
+            # Unexpected: re-raise to surface the error
+            raise
     payment_id = doc.get('_id')
     # If we are retrying after a previous failed/expired attempt, alter the PayPal idempotency header
     # to force a fresh order on PayPal side, while keeping DB idempotency stable.
@@ -242,12 +250,20 @@ async def ensure_paypal_payment(
         "meta": {},
     "created_at": datetime.datetime.now(datetime.timezone.utc),
     }
-    doc = await db_mod.db.payments.find_one_and_update(
-        {"registration_id": registration_oid, "provider": "paypal"},
-        {"$setOnInsert": initial_doc},
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
-    )
+    try:
+        doc = await db_mod.db.payments.find_one_and_update(
+            {"registration_id": registration_oid, "provider": "paypal"},
+            {"$setOnInsert": initial_doc},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+    except DuplicateKeyError:
+        # Concurrent upsert inserted the document first. Read the existing doc and continue.
+        logger.info('paypal.ensure_paypal_payment.duplicate registration_id=%s', registration_oid)
+        doc = await db_mod.db.payments.find_one({"registration_id": registration_oid, "provider": "paypal"})
+        if not doc:
+            # Unexpected: re-raise to surface the error
+            raise
     payment_id = doc.get('_id')
     paypal_request_id = idempotency_key
     if existing and idempotency_key:

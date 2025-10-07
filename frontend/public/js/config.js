@@ -1,3 +1,3 @@
-window.BACKEND_BASE_URL = "http://10.8.0.2:8000";
+window.BACKEND_BASE_URL = "https://dinnerhopping.com/api";
 window.DEBUG_BANNER = true;
 if (typeof window !== "undefined") { window.FRONTEND_BASE_URL = window.FRONTEND_BASE_URL || window.location.origin; }

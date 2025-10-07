@@ -25,6 +25,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -241,9 +242,13 @@ app.add_middleware(
 )
 
 # security middlewares
+# Add HTTPS redirect first, then ProxyHeaders last so it runs outermost
 if settings.enforce_https:
     # Redirect HTTP to HTTPS (behind a proxy, ensure X-Forwarded-Proto is set)
     app.add_middleware(HTTPSRedirectMiddleware)
+# Honor X-Forwarded-* headers from nginx so scheme/host are correct behind the proxy
+# Trust all proxy headers (dev/local env behind nginx)
+app.add_middleware(ProxyHeadersMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 # CSRF double-submit protection for cookie-auth clients
 app.add_middleware(CSRFMiddleware)
