@@ -68,6 +68,12 @@
   function hasHttpOnlySessionCookies() {
     return ACCESS_COOKIE_RX.test(document.cookie) || REFRESH_COOKIE_RX.test(document.cookie);
   }
+  function hasAuth() {
+    try {
+      if (getStored()) return true;
+    } catch {}
+    return hasHttpOnlySessionCookies();
+  }
   function isBearerFallback() {
     // in fallback if cross-origin OR missing refresh/access cookies while token exists
     const token = getStored();
@@ -127,17 +133,43 @@
     return data;
   }
 
+  // async function deleteCookie(name) {
+  //   try {
+  //     document.cookie =
+  //       name +
+  //       '=; Path=/; SameSite=Strict' +
+  //       (location.protocol === 'https:' ? '; Secure' : '') +
+  //       '; Max-Age=0';
+  //   } catch {}
+  // }
+
+  // async function logout() {
+  //   const base = window.BACKEND_BASE_URL;
+  //   try {
+  //     const headers = {};
+  //     const token = getStored();
+  //     if (token) headers.Authorization = 'Bearer ' + token;
+  //     const opts = { method: 'POST', headers }; // only send credentials where same-origin & cookies exist
+  //   } catch {}
+  // }
+
   async function logout() {
     const base = window.BACKEND_BASE_URL;
     try {
       const headers = {};
       const token = getStored();
       if (token) headers.Authorization = 'Bearer ' + token;
-      const opts = { method: 'POST', headers }; // only send credentials where same-origin & cookies exist
-      if (sameOrigin() && hasHttpOnlySessionCookies()) opts.credentials = 'include';
+      // Always include credentials so the backend can clear HttpOnly cookies even when cross-origin.
+      // CSRF is exempt for /logout on the backend.
+      const opts = { method: 'POST', headers, credentials: 'include' };
       await fetch(base + '/logout', opts);
     } catch {}
     clearStored();
+    // Best-effort: clear non-HttpOnly CSRF cookies client-side too
+    try {
+      setCookie('csrf_token', '', -1);
+      setCookie('__Host-csrf_token', '', -1);
+    } catch {}
     removeBanner();
   }
 
@@ -164,6 +196,8 @@
     getToken: getStored,
     setToken: storeToken,
     clearToken: clearStored,
+    getCookie: readCookie,
+    hasAuth,
     isBearerFallback,
     ensureBanner,
     tokenExpiresIn,
