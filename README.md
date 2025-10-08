@@ -10,14 +10,14 @@ _Work in Progress • Actively developed_
 
 ## 1. Overview
 
-DinnerHopping lets users register, verify their email, browse & join dinner events, invite partners/teammates, and pay participation fees via Stripe, PayPal, or manual SEPA ("Wero") transfer. Admins manage events, review refund eligibility, and (future) launch matching logic to group participants.
+DinnerHopping lets users register, verify their email, browse & join dinner events, invite partners/teammates, and pay participation fees via Stripe Checkout or PayPal Orders. Admins manage events, review refund eligibility, and (future) launch matching logic to group participants.
 
 Current focus: stable core flows (auth → event creation → registration → payment → cancellation/refund listing) with a clean foundation for deferred features (matching, chat, richer travel logic).
 
 ### Key Characteristics
 - FastAPI backend with modular routers & settings
 - MongoDB persistence (with optional in‑memory fake DB for tests / lightweight dev)
-- Payments abstraction (Stripe Checkout, PayPal Orders API, manual bank transfer)
+- Payments abstraction (Stripe Checkout, PayPal Orders API)
 - Structured logging by category (auth, payments, email, request, etc.) + request IDs
 - Simple static frontend (HTML + vanilla JS + Tailwind CDN) consuming the API
 - Extensible notification & email system (stdout fallback in dev)
@@ -51,7 +51,7 @@ Deferred modules (matching, chats) are scaffolded but not active in production f
 | Backend | Python 3.x, FastAPI, Pydantic, HTTPX (tests), Uvicorn |
 | Database | MongoDB (or in‑memory fake implementation) |
 | Auth | JWT access tokens (password auth + email verification) |
-| Payments | Stripe Checkout, PayPal Orders API, manual Wero (SEPA) |
+| Payments | Stripe Checkout, PayPal Orders API |
 | Frontend | Static HTML, Vanilla JS, Tailwind via CDN, Nginx container |
 | Testing | pytest + HTTP client fixtures |
 | Containerization | Docker & docker-compose |
@@ -63,7 +63,7 @@ Deferred modules (matching, chats) are scaffolded but not active in production f
 backend/                # FastAPI application
 	app/
 		routers/            # Modular API routes (users, events, payments, registrations, etc.)
-		payments_providers/ # Stripe / PayPal / Wero integration modules
+		payments_providers/ # Stripe / PayPal integration modules
 		middleware/         # Rate limiting, security headers, request ID
 		notifications.py    # Email + notification helpers
 		settings.py         # Centralized env-driven configuration
@@ -158,7 +158,6 @@ All backend settings centralized in `app/settings.py` (Pydantic). Key variables:
 | Payments | PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET | PayPal Orders API |
 | Payments | PAYPAL_ENV | sandbox or live |
 | Payments | PAYPAL_WEBHOOK_ID | Verify PayPal webhook signatures |
-| Manual Pay | WERO_* | IBAN/BIC, beneficiary, reference prefix |
 | Privacy | ADDRESS_KEY | Base64 AES-GCM key (32 bytes) |
 | Testing | USE_FAKE_DB_FOR_TESTS | 1 = in-memory fake DB |
 | Dev Cookies | ALLOW_INSECURE_COOKIES | Allow non-Secure cookies locally |
@@ -186,8 +185,7 @@ POST /payments/webhooks/paypal
 ```
 Sandbox: set `PAYPAL_ENV=sandbox` and credentials; optional `PAYPAL_WEBHOOK_ID` for signature verification.
 
-### Manual (Wero / Bank Transfer)
-Creates a payment record with bank instructions + EPC QR payload (frontend renders). Admin confirms via `POST /payments/{id}/confirm`.
+> **Note:** The legacy manual bank transfer (“Wero”) provider has been removed. Payments must be processed through Stripe or PayPal. Manual transfers, if needed, should be tracked outside the platform.
 
 ### Integrity & Security
 - Server calculates authoritative amount from event fee * team size.

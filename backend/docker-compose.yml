@@ -1,15 +1,17 @@
+# Compose services for local development: mongo, backend, MailHog (SMTP dev), and nginx HTTPS proxy
 services:
   mongo:
     image: mongodb/mongodb-community-server:6.0-ubi8
     restart: unless-stopped
     ports:
-      - "27017:27017" 
+      - "27017:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
       - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
     volumes:
       # Persist MongoDB data inside the repo under backend/app/data
       - ../../data/mongo:/data/db
+
   backend:
     build: .
     ports:
@@ -19,21 +21,34 @@ services:
     environment:
       - LOG_TO_FILES=true
       - LOG_DIR=/var/log/dinnerhopping
+      # When running the backend as a container in this compose, use MailHog for SMTP by default
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
     depends_on:
       - mongo
+      - mailhog
     volumes:
       # expose logs directory on host for persistence and inspection
       - ./logs:/var/log/dinnerhopping
 
-  mongo-init:
-    build: .
-    # Let the script read env and construct the final URI (supports MONGO_USER/PASSWORD/AUTH_SOURCE)
-    command: ["/bin/sh", "-c", "python3 scripts/mongo_init.py --mongo-uri=mongodb://dinnerhopping:babyschnaps@mongo:27017/dinnerhopping?authSource=admin"]
-    environment:
-      - MONGO_URI=mongodb://dinnerhopping:babyschnaps@mongo:27017/dinnerhopping?authSource=admin
-      - MONGO_USER=dinnerhopping
-      - MONGO_PASSWORD=babyschnaps
+  # Development SMTP capture service (MailHog)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: dh_mailhog
+    ports:
+      - "1025:1025"    # SMTP
+      - "8025:8025"    # Web UI
+
+  # Simple nginx HTTPS front for sharing dev server over VPN (maps host:8443 -> container:443)
+  nginx-https:
+    image: nginx:stable-alpine
+    container_name: dh_dev_nginx
     depends_on:
-      - mongo
-    restart: "no"
+      - backend
+    volumes:
+      - ../deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ../deploy/nginx/certs:/etc/nginx/certs:ro
+    ports:
+      - "443:443"
+    restart: unless-stopped
 # Using host bind mounts for persistent data. No named volumes required.

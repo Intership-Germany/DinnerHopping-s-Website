@@ -1,0 +1,27 @@
+version: '3.8'
+services:
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: dh_mailhog
+    ports:
+      - "1025:1025"    # SMTP
+      - "8025:8025"    # Web UI
+    networks:
+      - dh_dev
+
+  nginx-https:
+    image: nginx:stable-alpine
+    container_name: dh_dev_nginx
+    depends_on:
+      - mailhog
+    volumes:
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
+    ports:
+      - "8443:443"   # HTTPS for dev over VPN
+    networks:
+      - dh_dev
+
+networks:
+  dh_dev:
+    driver: bridge

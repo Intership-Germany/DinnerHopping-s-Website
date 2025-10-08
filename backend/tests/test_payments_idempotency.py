@@ -1,9 +1,28 @@
 import datetime
+import os
 
 import pytest
 from bson.objectid import ObjectId
 
 from app import db as db_mod
+from app.payments_providers import stripe as stripe_provider
+
+
+@pytest.fixture(autouse=True)
+def _configure_stripe(monkeypatch):
+    """Ensure Stripe provider is stubbed for tests."""
+    os.environ['STRIPE_API_KEY'] = os.environ.get('STRIPE_API_KEY', 'sk_test_stubbed')
+
+    def fake_checkout_session(amount_cents: int, payment_id, idempotency_key: str | None = None):
+        session_id = f"cs_test_{payment_id}"
+        return {
+            "id": session_id,
+            "url": f"https://stripe.test/checkout/{payment_id}",
+            "raw": {"id": session_id, "amount_total": amount_cents, "idempotency_key": idempotency_key},
+        }
+
+    monkeypatch.setattr(stripe_provider, 'create_checkout_session', fake_checkout_session)
+    yield
 
 
 async def _login(client, email: str, password: str) -> str:
@@ -44,11 +63,11 @@ async def _setup_registration(email: str, fee_cents: int = 1500):
 
 
 @pytest.mark.asyncio
-async def test_wero_payment_is_idempotent(client, verified_user):
+async def test_stripe_payment_is_idempotent(client, verified_user):
     reg_id = await _setup_registration(verified_user["email"])
     token = await _login(client, verified_user["email"], verified_user["password"])
     headers = {"Authorization": f"Bearer {token}"}
-    payload = {"registration_id": str(reg_id), "provider": "wero"}
+    payload = {"registration_id": str(reg_id), "provider": "stripe"}
 
     first = await client.post("/payments/create", json=payload, headers=headers)
     assert first.status_code == 200, first.text
@@ -70,7 +89,7 @@ async def test_custom_idempotency_key_sanitized(client, verified_user):
     custom_key = "  Custom Key 123\n"
     payload = {
         "registration_id": str(reg_id),
-        "provider": "wero",
+    "provider": "stripe",
         "idempotency_key": custom_key,
     }
 
@@ -92,7 +111,7 @@ async def test_idempotency_key_truncated_to_limit(client, verified_user):
     very_long_key = "x" * 200
     payload = {
         "registration_id": str(reg_id),
-        "provider": "wero",
+    "provider": "stripe",
         "idempotency_key": very_long_key,
     }
 

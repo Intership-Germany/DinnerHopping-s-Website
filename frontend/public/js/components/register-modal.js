@@ -253,7 +253,7 @@
           // Requirement: user must be able to choose among all available providers.
           // Fallback: if we cannot retrieve providers, auto-start defaultProvider.
           let providers = [];
-            let defaultProvider = 'paypal';
+          let defaultProvider = 'paypal';
           let providersLoaded = false;
           try {
             if (window.dh?.apiGet) {
@@ -268,10 +268,10 @@
           } catch (e) {
             console.warn('Provider list failed', e);
           }
-          if (!Array.isArray(providers) || providers.length === 0) {
-            // No provider list: fallback directly
-            providers = [];
-          }
+          if (!Array.isArray(providers)) providers = [];
+          providers = providers
+            .map((p) => (typeof p === 'string' ? p.toLowerCase() : ''))
+            .filter((p) => p && ['paypal', 'stripe'].includes(p));
           if (!providers.includes(defaultProvider) && providers.length) defaultProvider = providers[0];
 
           const startPayment = async (provider) => {
@@ -304,15 +304,8 @@
                 }
               }
               if (!link) link = created.payment_link;
-              if (!link && created.instructions) {
-                link = created.instructions.approval_link || created.instructions.link || null;
-              }
               if (link) {
                 window.location.href = link.startsWith('http') ? link : window.BACKEND_BASE_URL + link;
-                return true;
-              }
-              if (created.instructions) {
-                alert('Instructions generated. Please follow the bank transfer steps.');
                 return true;
               }
               alert('Payment initiated. Follow provider instructions.');
@@ -323,6 +316,11 @@
               return false;
             }
           };
+
+          if (!providers.length) {
+            alert('Online payments are currently unavailable. Please contact support to finalize your registration.');
+            return;
+          }
 
           // If we have exactly one provider, auto-start it.
           if (providers.length === 1) {
@@ -345,13 +343,12 @@
                 if (providers.includes(p)) {
                   const labelSpan = btn.querySelector('span.font-medium');
                   if (labelSpan) {
-                    if (p === 'wero') {
-                      // Show brand name; keep short descriptor for clarity
-                      labelSpan.textContent = 'Pay with Wero (SEPA)';
-                    } else if (p === 'paypal') {
+                    if (p === 'paypal') {
                       labelSpan.textContent = 'Pay with PayPal';
                     } else if (p === 'stripe') {
                       labelSpan.textContent = 'Pay with Stripe';
+                    } else {
+                      labelSpan.textContent = `Pay with ${p.charAt(0).toUpperCase()}${p.slice(1)}`;
                     }
                   }
                 }
@@ -389,7 +386,7 @@
             }
           } else {
             // No providers list (fetch failed or empty) -> fallback to default directly
-            await startPayment(defaultProvider);
+            await startPayment(defaultProvider || providers[0]);
           }
         }
         close();

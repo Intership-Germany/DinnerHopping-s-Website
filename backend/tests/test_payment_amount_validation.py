@@ -8,8 +8,25 @@ os.environ['USE_FAKE_DB_FOR_TESTS'] = '1'
 
 from app import db as db_mod
 from app.routers.payments import create_payment
+from app.payments_providers import stripe as stripe_provider
 from bson.objectid import ObjectId
 import datetime
+
+
+@pytest.fixture(autouse=True)
+def _stub_stripe_checkout(monkeypatch):
+    os.environ['STRIPE_API_KEY'] = os.environ.get('STRIPE_API_KEY', 'sk_test_stubbed')
+
+    def fake_session(amount_cents: int, payment_id, idempotency_key: str | None = None):
+        session_id = f"cs_test_{payment_id}"
+        return {
+            "id": session_id,
+            "url": f"https://stripe.test/checkout/{payment_id}",
+            "raw": {"id": session_id, "amount_total": amount_cents, "idempotency_key": idempotency_key},
+        }
+
+    monkeypatch.setattr(stripe_provider, 'create_checkout_session', fake_session)
+    yield
 
 
 @pytest.fixture
@@ -78,7 +95,7 @@ async def test_payment_amount_must_match_event_fee(test_payment_data):
             self.registration_id = str(reg_id)
             self.amount_cents = amount_cents
             self.idempotency_key = None
-            self.provider = 'wero'  # Use wero since it doesn't require external API
+            self.provider = 'stripe'
             self.flow = 'redirect'
             self.currency = 'EUR'
     
@@ -122,7 +139,7 @@ async def test_payment_amount_calculated_for_team(test_payment_data):
             self.registration_id = str(reg_id)
             self.amount_cents = amount_cents
             self.idempotency_key = None
-            self.provider = 'wero'
+            self.provider = 'stripe'
             self.flow = 'redirect'
             self.currency = 'EUR'
     

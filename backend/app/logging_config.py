@@ -135,6 +135,35 @@ def configure_logging(level: Optional[str] = None) -> None:
             root.removeHandler(h)
 
     handler = logging.StreamHandler(stream=sys.stdout)
+    # Attach a PII-masking filter to handler
+    class PiiMaskFilter(logging.Filter):
+        import re
+        _email_re = re.compile(r"([a-zA-Z0-9_.+-]{1,3})[a-zA-Z0-9_.+-]*@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)")
+        _phone_re = re.compile(r"(?<!\d)(\+?[0-9][0-9\-\s]{4,}[0-9])(?!\d)")
+
+        def mask_email(self, s: str) -> str:
+            return self._email_re.sub(lambda m: f"{m.group(1)}***@{m.group(2)}", s)
+
+        def mask_phone(self, s: str) -> str:
+            return self._phone_re.sub(lambda m: f"***REDACTED_PHONE***", s)
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            try:
+                if record.msg and isinstance(record.msg, str):
+                    s = record.msg
+                    s = self.mask_email(s)
+                    s = self.mask_phone(s)
+                    record.msg = s
+                # also mask any extra attributes that are strings
+                for k, v in list(record.__dict__.items()):
+                    if isinstance(v, str):
+                        v2 = self.mask_email(v)
+                        v2 = self.mask_phone(v2)
+                        record.__dict__[k] = v2
+            except Exception:
+                # never fail logging because of the filter
+                pass
+            return True
     if json_mode:
         try:
             import json  # noqa: WPS433
@@ -173,6 +202,7 @@ def configure_logging(level: Optional[str] = None) -> None:
     else:
         formatter = KeyValueFormatter("%(message)s")
     handler.setFormatter(formatter)
+    handler.addFilter(PiiMaskFilter())
     root.addHandler(handler)
     root._dh_custom = True  # type: ignore[attr-defined]
 
@@ -181,7 +211,7 @@ def configure_logging(level: Optional[str] = None) -> None:
         logging.getLogger(noisy).setLevel(os.getenv("NOISY_LOG_LEVEL", "WARNING").upper())
 
     # Convenience domain-specific loggers to ensure they exist
-    domain_loggers = ["auth", "payments", "payments.paypal", "payments.stripe", "payments.wero", "webhook", "request", "email"]
+    domain_loggers = ["auth", "payments", "payments.paypal", "payments.stripe", "webhook", "request", "email"]
     for name in domain_loggers:
         lg = logging.getLogger(name)
         if to_files:
