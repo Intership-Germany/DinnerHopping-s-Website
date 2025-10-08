@@ -75,7 +75,7 @@
         const latest = Array.isArray(data) && data.length ? data[0] : null;
         if (latest && latest.id) {
           const a = document.getElementById('go-dashboard');
-          if (a) { a.href = `/event.html?id=${encodeURIComponent(latest.id)}`; }
+          if (a) { a.href = `/event?id=${encodeURIComponent(latest.id)}`; }
         }
       }
     } catch {}

@@ -23,21 +23,20 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import APIRouter, Depends, FastAPI, Request
-from fastapi.exceptions import RequestValidationError
+from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-
 from .auth import get_current_user
 from .db import close as close_mongo
 from .db import connect as connect_to_mongo
 from .logging_config import configure_logging
-from .middleware.rate_limit import RateLimit
+from .middleware.rate_limit import RedisRateLimit as RateLimit
 from .middleware.security import CSRFMiddleware, SecurityHeadersMiddleware
 from .routers import (admin, chats, events, invitations, matching, payments,
-                      registrations, users)
+                      registrations, users, geo)
 from .settings import get_settings
 
 # Context variables for request-scoped logging
@@ -162,6 +161,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        raise exc  # Let FastAPI handle HTTPException normally
+
     logging.getLogger('app').exception('unhandled exception rid=%s', getattr(request.state, 'request_id', None))
     return JSONResponse(status_code=500, content={
         'error': 'internal_server_error',
@@ -226,7 +228,7 @@ ALLOWED_ORIGINS = settings.allowed_origins
 if ALLOWED_ORIGINS == '*':
     origins = ["*"]
 else:
-    origins = [o.strip() for o in ALLOWED_ORIGINS.split(',') if o.strip()]
+    origins = [o.strip() for o in str(ALLOWED_ORIGINS).split(',') if o.strip()]
 
 # If using cookies for auth (frontend + backend on different domains), you must
 # set specific origins and allow_credentials=True. Browsers reject wildcard
@@ -241,14 +243,16 @@ app.add_middleware(
 )
 
 # security middlewares
+# Add HTTPS redirect first, then ProxyHeaders last so it runs outermost
 if settings.enforce_https:
     # Redirect HTTP to HTTPS (behind a proxy, ensure X-Forwarded-Proto is set)
     app.add_middleware(HTTPSRedirectMiddleware)
+# Honor X-Forwarded-* headers from nginx so scheme/host are correct behind the proxy
 app.add_middleware(SecurityHeadersMiddleware)
 # CSRF double-submit protection for cookie-auth clients
 app.add_middleware(CSRFMiddleware)
 # simple in-memory rate limiter (dev)
-app.add_middleware(RateLimit, max_requests=300, window_sec=60)
+app.add_middleware(RateLimit, max_requests=int(os.getenv('RATE_LIMIT_MAX_REQUESTS', '300')), window_sec=int(os.getenv('RATE_LIMIT_WINDOW', '60')), redis_url=os.getenv('REDIS_URL'))
 
 # Lifespan provided above via asynccontextmanager (_lifespan)
 
@@ -261,6 +265,7 @@ app.include_router(payments.router, prefix="/payments", tags=["payments"])
 app.include_router(matching.router, prefix="/matching", tags=["matching"])
 app.include_router(chats.router, prefix="/chats", tags=["chats"])
 app.include_router(registrations.router, prefix="/registrations", tags=["registrations"])
+app.include_router(geo.router, prefix="/geo", tags=["geo"])
 
 api_router = APIRouter()
 
