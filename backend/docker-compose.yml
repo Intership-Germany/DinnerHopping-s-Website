@@ -48,6 +48,8 @@ services:
     volumes:
       - ../deploy/nginx/conf.d:/etc/nginx/conf.d:ro
       - ../deploy/nginx/certs:/etc/nginx/certs:ro
+      # Mount the static frontend assets so nginx can serve them directly
+      - ../frontend/public:/usr/share/nginx/html:ro
     ports:
       - "443:443"
     restart: unless-stopped

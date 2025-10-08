@@ -214,64 +214,67 @@ if os.getenv('USE_FAKE_DB_FOR_TESTS'):
 
 
 class MongoDB:
-    """MongoDB connection manager."""
+    """Wrapper managing a Motor client + DB plus test fake DB swap."""
     def __init__(self):
         self.client: AsyncIOMotorClient | None = None
         self.db = None
+        self._connected = False
 
     async def connect(self):
-        """Connect to MongoDB and create necessary indexes."""
-        if os.getenv('USE_FAKE_DB_FOR_TESTS'):
-            # swap in fake DB and skip network
-            self.client = None
-            self.db = _fake_db  # type: ignore
-            globals()['db'] = self.db
+        """Connect to MongoDB (or fake) and create indexes (idempotent)."""
+        if self._connected:
             return
-        # establish real client/db if not already
-        if not self.client:
-            base_url = os.getenv('MONGO_URI') or os.getenv('MONGO_URL') or 'mongodb://mongo:27017/dinnerhopping'
-            db_name = os.getenv('MONGO_DB', 'dinnerhopping')
+
+        # Resolve base URI + DB name
+        base_url = os.getenv('MONGO_URI', 'mongodb://mongo:27017/dinnerhopping')
+        db_name = os.getenv('MONGO_DB', 'dinnerhopping')
+
+        use_fake = bool(os.getenv('USE_FAKE_DB_FOR_TESTS'))
+        if use_fake:
+            # Use in-memory fake DB
+            self.client = None
+            # _fake_db only defined when env var set (guard above)
+            self.db = _fake_db  # type: ignore[name-defined]
+            globals()['db'] = self.db
+        else:
+            # Optional separate credentials injection
             user = os.getenv('MONGO_USER')
             pwd = os.getenv('MONGO_PASSWORD')
-            # Normalize quotes if values are provided as 'value' or "value"
+
             def _strip_quotes(s: str | None) -> str | None:
                 if not s:
                     return s
                 if (s.startswith("'") and s.endswith("'")) or (s.startswith('"') and s.endswith('"')):
                     return s[1:-1]
                 return s
+
             user = _strip_quotes(user)
             pwd = _strip_quotes(pwd)
-            # If user/pass provided separately and URI lacks credentials, inject them and set authSource
+
+            mongo_url = base_url
             if user and '@' not in base_url:
                 p = urlparse(base_url)
-                # ensure path has DB name
                 path = p.path if p.path and p.path != '/' else f'/{db_name}'
-                # rebuild netloc with credentials
                 netloc = f"{quote(user)}:{quote(pwd or '')}@{p.hostname or 'localhost'}"
                 if p.port:
                     netloc += f":{p.port}"
-                # merge query params and set authSource if missing
                 q = dict(parse_qsl(p.query, keep_blank_values=True))
                 if 'authSource' not in q:
                     q['authSource'] = os.getenv('MONGO_AUTH_SOURCE', path.lstrip('/'))
-                built_url = urlunparse((p.scheme or 'mongodb', netloc, path, '', urlencode(q), ''))
-                mongo_url = built_url
-            else:
-                mongo_url = base_url
+                mongo_url = urlunparse((p.scheme or 'mongodb', netloc, path, '', urlencode(q), ''))
+
             self.client = AsyncIOMotorClient(mongo_url)
             self.db = self.client[db_name]
             globals()['db'] = self.db
 
-        # create some useful indexes to enforce uniqueness and speed lookups
+        # Create indexes (noop for fake collections)
         try:
             # USERS
             await self.db.users.create_index('email', unique=True)
-            await self.db.users.create_index('email_verified')  # boolean lookup
-            await self.db.users.create_index('deleted_at')       # soft delete filter
+            await self.db.users.create_index('email_verified')
+            await self.db.users.create_index('deleted_at')
 
             # EVENTS
-            # event organizer lookups & status/date filters
             await self.db.events.create_index('organizer_id')
             await self.db.events.create_index('status')
             await self.db.events.create_index('date')
@@ -279,8 +282,6 @@ class MongoDB:
             await self.db.events.create_index('payment_deadline')
             await self.db.events.create_index('fee_cents')
             await self.db.events.create_index('matching_status')
-            # geospatial location index (GeoJSON Point)
-            # create geospatial index best-effort; ignore validation issues from legacy docs
             try:
                 await self.db.events.create_index([('location.point', '2dsphere')])
             except PyMongoError:
@@ -294,18 +295,17 @@ class MongoDB:
             await self.db.registrations.create_index([('event_id', 1), ('user_id', 1)], unique=True, sparse=True)
 
             # INVITATIONS
-            # store only a non-reversible token_hash in invitations
             await self.db.invitations.create_index('token_hash', unique=True)
             await self.db.invitations.create_index('registration_id')
             await self.db.invitations.create_index('invited_email')
             await self.db.invitations.create_index('expires_at')
 
-            # EMAIL VERIFICATIONS (TTL index based on expires_at)
+            # EMAIL VERIFICATIONS
             await self.db.email_verifications.create_index('token_hash', unique=True)
             await self.db.email_verifications.create_index('email')
             await self.db.email_verifications.create_index('expires_at', expireAfterSeconds=0)
 
-            # PASSWORD RESETS (TTL on expires_at)
+            # PASSWORD RESETS
             await self.db.password_resets.create_index('token_hash', unique=True)
             await self.db.password_resets.create_index('email')
             await self.db.password_resets.create_index('expires_at', expireAfterSeconds=0)
@@ -322,14 +322,13 @@ class MongoDB:
                 )
             except PyMongoError:
                 pass
-                # WEBHOOK EVENTS - track processed provider events to avoid replay
-                try:
-                    await self.db.webhook_events.create_index([
-                        ('provider', 1),
-                        ('event_id', 1),
-                    ], unique=True, name='webhook_events_provider_event_unique')
-                except PyMongoError:
-                    pass
+            try:
+                await self.db.webhook_events.create_index([
+                    ('provider', 1),
+                    ('event_id', 1),
+                ], unique=True, name='webhook_events_provider_event_unique')
+            except PyMongoError:
+                pass
             await self.db.payments.create_index('status')
 
             # MATCHES
@@ -338,36 +337,39 @@ class MongoDB:
             await self.db.matches.create_index('version')
             await self.db.matches.create_index([('event_id', 1), ('version', -1)])
 
-            # PLANS (existing feature - per user per event)
+            # PLANS
             await self.db.plans.create_index('user_email')
             await self.db.plans.create_index('event_id')
+
             # REFRESH TOKENS
             await self.db.refresh_tokens.create_index('token_hash', unique=True)
             await self.db.refresh_tokens.create_index('user_email')
             await self.db.refresh_tokens.create_index('expires_at')
 
-            # teams, chats and messages collections
+            # CHAT / TEAMS
             await self.db.teams.create_index('event_id')
             await self.db.teams.create_index('status')
             await self.db.chat_groups.create_index('event_id')
             await self.db.chat_groups.create_index('created_at')
             await self.db.chat_messages.create_index([('group_id', 1), ('created_at', -1)])
 
-            # AUDIT LOGS - track state changes for compliance and debugging
+            # AUDIT LOGS
             await self.db.audit_logs.create_index('entity_type')
             await self.db.audit_logs.create_index('entity_id')
             await self.db.audit_logs.create_index('timestamp')
             await self.db.audit_logs.create_index([('entity_type', 1), ('entity_id', 1), ('timestamp', -1)])
-
         except PyMongoError as e:
             logging.warning("MongoDB index creation failed; continuing startup: %s", e)
 
-    print('Connected to MongoDB')
+        self._connected = True
+        print('Connected to MongoDB')
 
     async def close(self):
         if self.client:
             self.client.close()
             print('Closed MongoDB connection')
+        self._connected = False
+
 
 mongo_db = MongoDB()
 

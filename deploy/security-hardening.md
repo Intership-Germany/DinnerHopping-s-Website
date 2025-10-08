@@ -1,8 +1,8 @@
-# Security & Hardening VPS DinnerHopping
+# Sécurité & Durcissement VPS DinnerHopping
 
-## Network / Firewall
-- Allow only: 22 (SSH), 80 (HTTP), 443 (HTTPS). Block 27017 (Mongo) exposed only in the Docker network.
-- UFW example:
+## Réseau / Pare-feu
+- Autoriser uniquement: 22 (SSH), 80 (HTTP), 443 (HTTPS). Bloquer 27017 (Mongo) exposé seulement dans docker network.
+- UFW exemple:
 ```bash
 ufw default deny incoming
 ufw default allow outgoing
@@ -13,45 +13,45 @@ ufw enable
 ```
 
 ## SSH
-- Disable direct root login: `PermitRootLogin no`
-- Use SSH keys, disable password authentication: `PasswordAuthentication no`
-- Use Fail2ban to protect SSH.
+- Désactiver root direct: `PermitRootLogin no`
+- Utiliser clés SSH, désactiver password: `PasswordAuthentication no`
+- Fail2ban pour protéger SSH.
 
 ## Fail2ban
 ```bash
 apt install fail2ban
 cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
-# Enable sshd, apache-auth, apache-badbots
+# Activer sshd, apache-auth, apache-badbots
 systemctl enable --now fail2ban
 fail2ban-client status
 ```
 
-## Updates
-- Enable unattended-upgrades (Debian/Ubuntu) for security.
+## Mises à jour
+- Activer unattended-upgrades (Debian/Ubuntu) pour sécurité.
 
 ## Permissions
-- Deployment directory: `/opt/dinnerhopping` owned by a non-root user (e.g., deploy) who is a member of the Docker group.
-- Application logs: mount with 750 permissions, user-only access.
+- Répertoire de déploiement: `/opt/dinnerhopping` appartenant à un user non-root (ex: deploy) membre du groupe docker.
+- Logs applicatifs: monter avec permissions 750, utilisateur uniquement.
 
 ## Secrets
-- Do not commit the production `.env` file.
-- Use `chmod 600` on `.env`.
+- Ne pas commiter `.env` production.
+- Utiliser `chmod 600` sur `.env`.
 
 ## HTTP Security Headers
-- Already added in the Apache configuration. Also add:
+- Déjà ajoutés dans conf Apache. Ajouter aussi:
 ```
 Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
 ```
 
-## Basic Monitoring
-- Healthcheck script: `curl -f https://api.example.com/docs || echo 'api down'` in cron.
-- Regularly review `docker logs` and Apache logs.
+## Monitoring basique
+- Script healthcheck: `curl -f https://api.example.com/docs || echo 'api down'` dans cron.
+- Examiner `docker logs` et logs Apache régulièrement.
 
-## Backups
-- Regular Mongo dump (if critical data): `mongodump --archive=/backups/$(date +%F).gz --gzip --db dinnerhopping` via container exec.
+## Sauvegardes
+- Dump Mongo régulier (si donnée critique) : `mongodump --archive=/backups/$(date +%F).gz --gzip --db dinnerhopping` via container exec.
 
-## Resource Limitation
-- Optionally add in production docker-compose:
+## Limitation de ressources
+- Ajouter (optionnel) dans docker-compose production:
 ```
     deploy:
       resources:
@@ -59,4 +59,4 @@ Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains
           cpus: '1.0'
           memory: 512M
 ```
-(compatible with Swarm; otherwise use `--cpus` / `--memory` via run, or cgroups).
+(compatible swarm; sinon `--cpus` / `--memory` via run, ou cgroups).
