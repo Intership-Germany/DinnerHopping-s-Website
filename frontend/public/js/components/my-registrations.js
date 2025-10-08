@@ -16,7 +16,7 @@
   // ---------- Providers helpers ----------
   let __providersPromise = null;
   async function loadProviders() {
-    if (!window.dh?.apiGet) return { providers: ['paypal', 'stripe', 'wero'], default: 'paypal' };
+  if (!window.dh?.apiGet) return { providers: ['paypal', 'stripe'], default: 'paypal' };
     try {
       const { res, data } = await window.dh.apiGet('/payments/providers');
       if (res.ok) {
@@ -25,7 +25,7 @@
         if (Array.isArray(data)) return { providers: data, default: data[0] };
       }
     } catch {}
-    return { providers: ['paypal', 'stripe', 'wero'], default: 'paypal' };
+  return { providers: ['paypal', 'stripe'], default: 'paypal' };
   }
   function getProviders() {
     if (!__providersPromise) __providersPromise = loadProviders();
@@ -102,8 +102,8 @@
     if (!regId) return;
     let { providers, default: def } = await getProviders();
     if (!providers.length) {
-      providers = ['wero'];
-      def = 'wero';
+      alert('Online payments are currently unavailable. Please contact support to finalize payment.');
+      return;
     }
     let provider = def;
     if (providers.length > 1) {
@@ -163,26 +163,11 @@
       if (data.next_action) {
         if (data.next_action.type === 'redirect') link = data.next_action.url;
         else if (data.next_action.type === 'paypal_order') link = data.next_action.approval_link;
-        else if (data.next_action.type === 'instructions') {
-          const instr = data.next_action.instructions || data.instructions;
-          if (instr) {
-            const summary = [
-              instr.reference && `Reference: ${instr.reference}`,
-              instr.iban && `IBAN: ${instr.iban}`,
-              instr.amount && `Amount: ${instr.amount}`,
-              instr.currency && `Currency: ${instr.currency}`,
-            ].filter(Boolean).join('\n');
-            alert('Bank transfer instructions generated.\n\n' + summary);
-          }
-        }
       }
-      if (!link) link = data.payment_link;
-      if (!link && data.instructions)
-        link = data.instructions.approval_link || data.instructions.link || null;
-      if (link)
-        window.location.assign(link.startsWith('http') ? link : window.BACKEND_BASE_URL + link);
-      else if (data.instructions) alert('Instructions generated. Follow bank transfer steps.');
-      else alert('Payment initiated. Follow provider instructions.');
+          if (!link) link = data.payment_link;
+          if (link)
+            window.location.assign(link.startsWith('http') ? link : window.BACKEND_BASE_URL + link);
+          else alert('Payment initiated. Follow provider instructions.');
     } catch (e) {
       alert(e.message || 'Payment failed');
     }

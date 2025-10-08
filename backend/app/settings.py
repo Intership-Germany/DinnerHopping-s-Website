@@ -56,10 +56,6 @@ class Settings(BaseSettings):
     paypal_client_secret: Optional[str] = Field(None, alias="PAYPAL_CLIENT_SECRET")
     paypal_env: Optional[str] = Field("sandbox", alias="PAYPAL_ENV")
     payment_currency: str = Field("EUR", alias="PAYMENT_CURRENCY")
-    wero_iban: Optional[str] = Field(None, alias="WERO_IBAN")
-    wero_bic: Optional[str] = Field(None, alias="WERO_BIC")
-    wero_beneficiary: Optional[str] = Field(None, alias="WERO_BENEFICIARY")
-    wero_purpose_prefix: Optional[str] = Field(None, alias="WERO_PURPOSE_PREFIX")
 
     # Features & Flags
     enforce_https: bool = Field(True, alias="ENFORCE_HTTPS")

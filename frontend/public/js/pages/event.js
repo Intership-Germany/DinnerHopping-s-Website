@@ -663,8 +663,8 @@
   }
 
   async function fetchProviders() {
-    let providers = ['wero'];
-    let def = 'wero';
+    let providers = ['paypal', 'stripe'];
+    let def = 'paypal';
     try {
       if (window.dh?.apiGet) {
         const { res, data } = await window.dh.apiGet('/payments/providers');
@@ -675,7 +675,11 @@
         }
       }
     } catch {}
-    if (!providers.length) providers = ['wero'];
+    if (!Array.isArray(providers)) providers = [];
+    providers = providers
+      .map((p) => (typeof p === 'string' ? p.toLowerCase() : ''))
+      .filter((p) => p && ['paypal', 'stripe'].includes(p));
+    if (!providers.length) return { providers: [], def: null };
     if (!providers.includes(def)) def = providers[0];
     return { providers, def };
   }
@@ -723,6 +727,10 @@
     try {
       const { providers, def } = await fetchProviders();
       let provider = def;
+      if (!providers.length) {
+        alert('Online payments are currently unavailable. Please contact support to complete your payment.');
+        return;
+      }
       if (!quick && providers.length > 1) {
         const ui = buildProviderChooser(providers, def);
         provider = await new Promise((resolve) => {
@@ -753,35 +761,14 @@
         if (payData.next_action.type === 'redirect') link = payData.next_action.url;
         else if (payData.next_action.type === 'paypal_order')
           link = payData.next_action.approval_link;
-        else if (payData.next_action.type === 'instructions') {
-          const instr = payData.next_action.instructions || payData.instructions;
-          if (instr) {
-            const summary = [
-              instr.reference && `Reference: ${instr.reference}`,
-              instr.iban && `IBAN: ${instr.iban}`,
-              instr.amount && `Amount: ${instr.amount}`,
-              instr.currency && `Currency: ${instr.currency}`,
-            ]
-              .filter(Boolean)
-              .join('\n');
-            alert('Payment instructions generated.\n\n' + summary);
-          }
-        }
       }
       if (!link) link = payData.payment_link;
-      if (!link && payData.instructions) {
-        link = payData.instructions.approval_link || payData.instructions.link || null;
-      }
       if (payData.status === 'no_payment_required') {
         alert('No payment required for this registration.');
         return;
       }
       if (link) {
         window.location.assign(link.startsWith('http') ? link : window.BACKEND_BASE_URL + link);
-      } else if (payData.instructions) {
-        alert(
-          'Payment instructions generated. Please follow the bank transfer instructions shown after refreshing.'
-        );
       } else {
         alert('Payment initiated. Follow provider instructions.');
       }

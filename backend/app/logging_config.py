@@ -211,7 +211,7 @@ def configure_logging(level: Optional[str] = None) -> None:
         logging.getLogger(noisy).setLevel(os.getenv("NOISY_LOG_LEVEL", "WARNING").upper())
 
     # Convenience domain-specific loggers to ensure they exist
-    domain_loggers = ["auth", "payments", "payments.paypal", "payments.stripe", "payments.wero", "webhook", "request", "email"]
+    domain_loggers = ["auth", "payments", "payments.paypal", "payments.stripe", "webhook", "request", "email"]
     for name in domain_loggers:
         lg = logging.getLogger(name)
         if to_files:

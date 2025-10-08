@@ -6,7 +6,7 @@ FastAPI + (MongoDB or in‑memory fake DB) application providing:
 * Profile & role (admin) management
 * Event lifecycle (draft → coming_soon/open → matched/released, cancellation flag)
 * Solo & team registrations, invitations, partner replacement, cancellations with refund flags
-* Payments (Stripe Checkout, PayPal Orders API, manual SEPA “Wero”) with idempotent finalization
+* Payments (Stripe Checkout, PayPal Orders API) with idempotent finalization
 * Refund reporting endpoint for admins
 * Modular notification + verification email system (console fallback)
 * Centralized settings module, structured request logging with request IDs, global error schema
@@ -64,7 +64,6 @@ Centralized in `app/settings.py` using `pydantic-settings`. All env vars have sa
 | Payments | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | — | Enables PayPal Orders API |
 | Payments | `PAYPAL_ENV` | sandbox | sandbox or live |
 | Payments | `PAYPAL_WEBHOOK_ID` | — | (Optionnel) Active la vérification de signature des webhooks |
-| Manual Pay | `WERO_*` | — | IBAN/BIC beneficiary + purpose prefix |
 | Privacy | `ADDRESS_KEY` | — | Base64 AES-GCM key for address encryption |
 | Testing | `USE_FAKE_DB_FOR_TESTS` | 0 | Set to 1 to use in-memory DB |
 
@@ -74,11 +73,6 @@ from app.settings import get_settings
 settings = get_settings()
 ```
 
-Settings are cached, so reading them is inexpensive.
-
-### Intégration PayPal (Sandbox & Production)
-
-L'API de paiement utilise l'Orders API de PayPal (v2) en mode « Server-side create → client approve → server capture ».
 
 Variables d'environnement requises (sandbox):
 
@@ -90,38 +84,19 @@ PAYPAL_CLIENT_SECRET=VotreSecretSandbox
 PAYPAL_WEBHOOK_ID=WH-XXX...  # ID retourné par PayPal lors de la création du webhook
 ```
 
-En production, définissez `PAYPAL_ENV=live` et remplacez les identifiants par ceux du compte live.
-
-Endpoints principaux:
-* `GET /payments/paypal/config` → `{ clientId, currency, env }` pour charger le SDK JS.
-* `POST /payments/paypal/orders` → crée un Order PayPal et renvoie `{ id }` (order id).
-* `POST /payments/paypal/orders/{order_id}/capture` → capture l'ordre et marque la registration payée.
 * `POST /payments/webhooks/paypal` → traite `PAYMENT.CAPTURE.COMPLETED` et `CHECKOUT.ORDER.COMPLETED` (signature vérifiée si `PAYPAL_WEBHOOK_ID` est configuré).
 
 Flow standard (Buttons JS SDK):
 1. Front appelle `GET /payments/paypal/config` pour récupérer `clientId`.
-2. Charge le script `https://www.paypal.com/sdk/js?client-id=...&currency=EUR`.
-3. `createOrder` (callback JS) appelle `POST /payments/paypal/orders` avec `registration_id`.
-4. L'utilisateur approuve sur PayPal.
-5. `onApprove` appelle `POST /payments/paypal/orders/{orderID}/capture`.
 6. Backend met à jour Payment + Registration (status `succeeded`).
 
 Sécurité webhook:
 * Configurez un webhook dans le Dashboard PayPal (événements: `CHECKOUT.ORDER.COMPLETED`, `PAYMENT.CAPTURE.COMPLETED`).
-* Renseignez l'URL publique: `https://<votre-domaine>/payments/webhooks/paypal`.
-* Copiez l'ID du webhook (`PAYPAL_WEBHOOK_ID`) dans l'environnement.
-* La route vérifiera la signature via `/v1/notifications/verify-webhook-signature`.
-
 Test Sandbox rapide:
 1. Créez un event avec un `fee_cents > 0` et status `open`.
 2. Créez/validez un utilisateur puis enregistrez-le (`/registrations/solo`).
 3. Notez le `registration_id` renvoyé.
 4. Ouvrez `frontend/public/paypal-example.html` (servez le dossier `frontend/public` via le conteneur ou un serveur statique) et saisissez le `registration_id`.
-5. Payez avec un compte « Buyer » sandbox. Après redirection/approval, la capture devrait renvoyer `{ "status": "COMPLETED" }` et le paiement en base passer à `succeeded`.
-6. Vérifiez en base (Mongo) document `payments` ou appelez `GET /payments/{payment_id}`.
-
-Notes:
-* Le montant n'est pas pris depuis le client: il est recalculé à partir de `event.fee_cents * team_size` et rejeté si incohérent.
 * Idempotence: une seule commande PayPal par registration; les tentatives répétées renvoient l'`order_id` existant.
 * Pour changer de monnaie fixez `PAYMENT_CURRENCY` (défaut `EUR`).
 * Les captures peuvent se faire soit via `/payments/paypal/orders/{id}/capture` (JS SDK) soit via `GET /payments/paypal/return` (flow redirection classique).
@@ -132,7 +107,6 @@ Notes:
 Stripe Checkout relies on server-created sessions and a lightweight frontend redirect. Setup checklist:
 
 1. **Environment variables** — set `STRIPE_API_KEY` and `STRIPE_PUBLISHABLE_KEY`.
-	These can live in `backend/app/.env` during development; switch to live keys before production cutover. Optionally set `STRIPE_WEBHOOK_SECRET` to verify webhooks.
 2. **Frontend initialization** — call `GET /payments/stripe/config` to retrieve `{ publishableKey, currency, mode }`. Initialize Stripe.js with the publishable key and use the returned Checkout Session URL to redirect users.
 3. **Create payments** — send `POST /payments/create` with `provider="stripe"`. The backend stores the payment document, creates a Checkout Session, and responds with a redirect URL. The existing frontend modal already redirects when it receives `payment_link`.
 4. **Handle completions** — configure a Stripe webhook (e.g. `checkout.session.completed`) pointing to `/payments/webhooks/stripe`. Provide `STRIPE_WEBHOOK_SECRET` so signatures are validated. The webhook handler marks the payment and registration as succeeded.
@@ -145,50 +119,32 @@ Notes:
 - The admin fallback `POST /payments/{payment_id}/capture` checks the Checkout Session status via the Stripe API before confirming a payment, guaranteeing that “payment completed” only occurs when Stripe reports the session as paid.
 - **Redirect behavior**: After payment success or cancellation, Stripe redirects users to the frontend (`FRONTEND_BASE_URL/payment-success.html`) instead of backend endpoints. Set `FRONTEND_BASE_URL` in environment to specify the frontend URL (defaults to `BACKEND_BASE_URL` if not set).
 
-### Wero Manual SEPA Flow
-
-Wero is implemented as a manual SEPA transfer option that emits EPC QR payloads so guests can pay via their banking app. Implementation steps:
-
-1. **Set environment variables** — provide at least `WERO_IBAN`, `WERO_BIC`, `WERO_BENEFICIARY` and `WERO_PURPOSE_PREFIX` (see `deploy/example.env`). The backend falls back to demo values if unset, but production deployments must override them.
-2. **Expose the provider in the UI** — call `POST /payments/create` with `provider="wero"`. When PayPal/Stripe are not configured the backend auto-selects Wero, so legacy forms work without changes.
-3. **Display instructions to the user** — the response returns `{ instructions: { iban, bic, beneficiary, amount, currency, remittance, epc_qr_payload } }`. Render the IBAN/BIC and optionally convert `epc_qr_payload` into a QR code (any EPC QR generator works).
-4. **Confirm incoming transfers** — once the wire hits the bank account, an admin calls `POST /payments/{payment_id}/confirm` (existing endpoint) to mark the payment as `succeeded`. The confirmation flow is identical to other manual transfers in the system.
-
-The helper `app/payments_providers/wero.py` now contains inline comments describing how the remittance reference is generated and how the EPC payload is assembled. Adjusting the env vars is all that is required to switch beneficiaries between environments.
+> **Note:** The former manual SEPA (“Wero”) flow has been retired. Production deployments must rely on Stripe Checkout or PayPal Orders for online payments. If manual bank transfers are required, handle them completely outside of the platform and mark registrations manually in the database.
 
 
 ### Email & Notifications
-Primitive templates are in `app/notifications.py` and low-level delivery in `app/utils.py` (`send_email`). In absence of SMTP configuration, mail bodies are printed. Add new categories by reusing `send_email(category="your_feature")`.
 
 ## Editable Email Templates (New)
-
 Email notifications now support dynamic, database-backed templates editable via the admin UI.
 
 ### Storage Model
-Collection: `email_templates`
 Fields:
 - key (string, unique, e.g. `payment_confirmation`)
 - subject (string with {{placeholders}})
 - html_body (HTML or plaintext with {{placeholders}})
-- description (admin help text)
 - variables (array[str])
 - updated_at (datetime)
-
 Placeholders use the form `{{variable_name}}` and are replaced with simple string values. Nested lookup using dot notation is supported (e.g. `{{user.first_name}}`). Missing variables become an empty string. The current mail sender downgrades HTML to plain text by stripping tags until full multipart support is implemented.
 
-Auto-available variables:
 - `email`: recipient email (first recipient when multiple)
 - `first_name`, `last_name`, `full_name`: looked up from the recipient user in DB (best-effort)
 - `user.*`: a nested map with `email`, `first_name`, `last_name`, `full_name`
-- `current_date`, `current_time`, `current_datetime`, `current_year`: timestamps in UTC
 
 You can still override any of these by providing explicit `template_vars` in code. Caller-provided values take precedence over auto-enriched values.
 
-**Automatic Variables**: The following variables are automatically available in all templates:
 - `{{current_date}}` - Current date in YYYY-MM-DD format
 - `{{current_time}}` - Current time in HH:MM:SS format  
 - `{{current_datetime}}` - Full ISO datetime string
-- `{{current_year}}` - Current year (e.g., 2024)
 
 ### Admin Management Page
 A lightweight management interface lives at `frontend/public/admin-email-templates.html` (serve this statically behind admin auth or embed in existing admin dashboard). It lists templates, allows creation, editing and deletion.
@@ -203,24 +159,16 @@ API Endpoints (admin role required):
 ### Fallback Behavior
 If a template key is missing, the system falls back to built-in plaintext lines defined in `app/notifications.py`. This ensures no outage if the DB is empty. A seeding script `scripts/seed_email_templates.py` can pre-populate defaults:
 ```bash
-cd backend
-python -m scripts.seed_email_templates
-```
-
-### Verification Landing Page
 Verification emails now link to a frontend landing page: `verify-email.html` (instead of the raw JSON endpoint). The backend still exposes `GET /users/verify-email?token=...` for programmatic flows. Environment variables:
 - `FRONTEND_BASE_URL` (optional) – when set, verification links use this origin.
 
-### Adding a New Template
 1. Create it via the admin page or POST endpoint with a unique `key`.
 2. In code, when sending, pass `template_key='your_key'` and supply variables.
-3. Provide a reasonable fallback subject/body in case the template does not exist.
 
 Example (conceptual):
 ```python
 await _send(user_email, 'Default Subject', ['Plain fallback'], 'category', template_key='your_key', variables={'user_email': user_email})
 ```
-
 ### Security Considerations
 - No script sanitization is enforced; only admins can edit templates. Avoid embedding untrusted user input directly into templates; variable values are escaped during placeholder substitution before HTML stripping.
 - Future improvement: store both HTML and plaintext versions and send multipart emails.
@@ -243,10 +191,6 @@ Routers: users (`/register`, `/login`, `/logout`, `/refresh`, profile), events (
 	- Requires the user's email to be verified. Returns a JWT access token: { access_token }
 
 - GET /me (or GET /profile)
-	- Authorization: Bearer <token>
-	- Returns the authenticated user's profile.
-
-### Events
 - GET /events
 	- Returns a list of public events (supports query filters in the code).
 
@@ -273,7 +217,6 @@ Routers: users (`/register`, `/login`, `/logout`, `/refresh`, profile), events (
 			marks the registration as paid.
 		- If provider is 'stripe' (and `STRIPE_API_KEY` is set): creates (or returns) a payment record in DB and opens a
 			Stripe Checkout Session. The code stores our DB payment id in Stripe session metadata so webhooks can map back reliably.
-		- If provider is 'wero': returns bank transfer instructions including an EPC QR payload the app can render; an admin can confirm with POST /payments/{id}/confirm.
 		- If `STRIPE_API_KEY` is not set (dev mode): creates a dev-local payment document and
 			returns a local `/payments/{id}/pay` link which marks the payment as paid when visited.
 	- The implementation uses a DB atomic upsert to avoid duplicate-key races and supports
@@ -294,16 +237,15 @@ Routers: users (`/register`, `/login`, `/logout`, `/refresh`, profile), events (
 - POST /payments/webhooks/stripe
  - GET /payments/providers — Lists enabled providers and default selection.
  - GET /payments/paypal/return?payment_id=...&token=... — Captures PayPal order and marks paid.
- - POST /payments/{id}/confirm — Admin-only manual confirmation for bank transfers (Wero).
+- POST /payments/{id}/confirm — Retained for backward compatibility; returns HTTP 410 because manual bank transfer confirmations are disabled.
 
 #### Invited Users & Payments
-- When an invitation is accepted, a Registration with status "invited" is created for the invited email. Invited participants must pay to be confirmed. The frontend can call POST /payments/create with that registration_id and present either PayPal, Stripe, or Wero options. On success, the Registration status becomes "paid".
+- When an invitation is accepted, a Registration with status "invited" is created for the invited email. Invited participants must pay to be confirmed. The frontend can call POST /payments/create with that registration_id and present either PayPal or Stripe options. On success, the Registration status becomes "paid".
 	- Receives Stripe webhooks. If `STRIPE_WEBHOOK_SECRET` is set it will verify signatures.
 	- Processes `checkout.session.completed` events and marks the DB payment as paid.
 	- The handler is resilient: it first looks up payments by provider id, and falls back to
 		the Stripe session metadata (payment_db_id) if necessary.
 
-### Security & Operational Hardening
 * Structured logging with per-request `X-Request-ID` header + middleware (logs `request.start` / `request.end`).
 * Global validation (422) and unhandled (500) handlers return JSON:
 ```json

@@ -1,64 +1,39 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Email Verification - DinnerHopping</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/public/css/styles.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dinnerhopping - Verify Email</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="js/config.js"></script>
+  <script src="js/core/auth.js"></script>
+  <script src="js/unauthorized.js"></script>
+  <script src="js/debug-banner.js"></script>
+  <script src="js/core/includes.js" defer></script>
+  <script src="js/pages/verify-email.js" defer></script>
   <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 2rem; background:#fafafa; color:#222; }
-    .card { max-width:560px; margin:0 auto; background:#fff; border-radius:12px; padding:2rem; box-shadow:0 4px 12px rgba(0,0,0,0.08); }
-    h1 { font-size:1.5rem; margin-top:0; }
-    .status { font-weight:600; margin:1rem 0; }
-    .success { color:#0a7a2a; }
-    .error { color:#b00020; }
-    .spinner { width:32px; height:32px; border:4px solid #ddd; border-top:4px solid #007bff; border-radius:50%; animation:spin 1s linear infinite; margin:1rem auto; }
-    @keyframes spin { to { transform: rotate(360deg);} }
-    a.button { display:inline-block; background:#007bff; color:#fff; padding:0.6rem 1rem; border-radius:6px; text-decoration:none; }
+    body { font-family: 'Inter', sans-serif; background-color: #f0f4f7; }
+    [hidden]{ display:none !important; }
   </style>
 </head>
-<body>
-  <div class="card">
-    <h1>Email Verification</h1>
-    <div id="message" class="status">Verifying your email...</div>
-    <div id="spinner" class="spinner"></div>
-    <div id="actions" style="display:none;">
-      <a href="/login.html" class="button">Go to Login</a>
-      <a href="/home.html" class="button" style="background:#555;">Home</a>
-    </div>
+<body class="text-[#172a3a] flex flex-col min-h-screen">
+  <div id="app" class="flex flex-col flex-grow">
+    <div data-include="partials/header.html"></div>
+    <main class="flex-grow w-full px-6 pt-10 pb-20 mt-16">
+      <section class="max-w-xl mx-auto">
+        <h1 class="text-3xl font-bold mb-8 text-center">Email verification</h1>
+        <div class="bg-white p-6 rounded-2xl shadow-xl">
+          <div id="ve-msg" class="mb-4 text-sm text-center text-gray-600">Verifying your email…</div>
+          <div id="ve-spinner" class="w-12 h-12 border-4 border-gray-200 border-t-4 border-t-[#f46f47] rounded-full animate-spin mx-auto my-4"></div>
+          <div id="ve-actions" class="mt-4 text-center" hidden>
+            <a href="/login.html" class="inline-block bg-[#f46f47] text-white px-6 py-2 rounded-xl font-bold mr-2">Go to Login</a>
+            <a href="/home.html" class="inline-block bg-gray-600 text-white px-6 py-2 rounded-xl font-bold">Home</a>
+          </div>
+        </div>
+      </section>
+    </main>
+    <div data-include="partials/footer.html"></div>
   </div>
-  <script>
-    async function verify() {
-      const params = new URLSearchParams(window.location.search);
-      const token = params.get('token');
-      const msgEl = document.getElementById('message');
-      const spinner = document.getElementById('spinner');
-      const actions = document.getElementById('actions');
-      if(!token){
-        msgEl.textContent = 'Missing verification token.';
-        msgEl.classList.add('error');
-        spinner.style.display='none';
-        return;
-      }
-      try {
-        const res = await fetch('/users/verify-email?token=' + encodeURIComponent(token));
-        const data = await res.json().catch(()=>({}));
-        spinner.style.display='none';
-        actions.style.display='block';
-        if(res.ok && data.status === 'verified'){
-          msgEl.textContent = 'Your email has been verified successfully! You can now log in.';
-          msgEl.classList.add('success');
-        } else {
-          msgEl.textContent = (data && data.detail) ? data.detail : 'Verification failed or token invalid.';
-          msgEl.classList.add('error');
-        }
-      } catch(err){
-        spinner.style.display='none';
-        msgEl.textContent = 'Network error while verifying. Please try again later.';
-        msgEl.classList.add('error');
-      }
-    }
-    verify();
-  </script>
 </body>
 </html>
