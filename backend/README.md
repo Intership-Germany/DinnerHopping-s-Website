@@ -63,6 +63,7 @@ Centralized in `app/settings.py` using `pydantic-settings`. All env vars have sa
 | Payments | `STRIPE_WEBHOOK_SECRET` | — | Signature verification for webhooks |
 | Payments | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | — | Enables PayPal Orders API |
 | Payments | `PAYPAL_ENV` | sandbox | sandbox or live |
+
 | Payments | `PAYPAL_WEBHOOK_ID` | — | (Optionnel) Active la vérification de signature des webhooks |
 | Privacy | `ADDRESS_KEY` | — | Base64 AES-GCM key for address encryption |
 | Testing | `USE_FAKE_DB_FOR_TESTS` | 0 | Set to 1 to use in-memory DB |
@@ -74,14 +75,14 @@ settings = get_settings()
 ```
 
 
-Variables d'environnement requises (sandbox):
+Required environment variables (sandbox):
 
 ```
 PAYPAL_ENV=sandbox
-PAYPAL_CLIENT_ID=VotreClientIdSandbox
-PAYPAL_CLIENT_SECRET=VotreSecretSandbox
-# Optionnel pour sécuriser les webhooks:
-PAYPAL_WEBHOOK_ID=WH-XXX...  # ID retourné par PayPal lors de la création du webhook
+PAYPAL_CLIENT_ID=YourSandboxClientId
+PAYPAL_CLIENT_SECRET=YourSandboxSecret
+# Optional to secure webhooks:
+PAYPAL_WEBHOOK_ID=WH-XXX...  # ID returned by PayPal when creating the webhook
 ```
 
 * `POST /payments/webhooks/paypal` → traite `PAYMENT.CAPTURE.COMPLETED` et `CHECKOUT.ORDER.COMPLETED` (signature vérifiée si `PAYPAL_WEBHOOK_ID` est configuré).

@@ -15,6 +15,7 @@ from typing import List, Literal, Optional
 from fastapi import (APIRouter, Depends, Form, HTTPException, Request,
                      Response, status)
 from pydantic import BaseModel, EmailStr, field_validator
+import phonenumbers
 
 from .. import db as db_mod
 from ..auth import (authenticate_user, create_access_token, get_current_user,
@@ -29,7 +30,7 @@ from ..utils import (anonymize_public_address, encrypt_address,
 # Predefined list of valid allergies
 VALID_ALLERGIES = [
     "nuts",
-    "shellfish", 
+    "shellfish",
     "dairy",
     "eggs",
     "gluten",
@@ -42,29 +43,47 @@ VALID_ALLERGIES = [
 def _normalize_phone_number(phone: str | None) -> str | None:
     if phone is None:
         return None
-    if isinstance(phone, (int, float)):
-        phone = str(phone)
-    if not isinstance(phone, str):
-        raise ValueError('Phone number must be a string')
-    stripped = phone.strip()
-    if not stripped:
-        return None
-    cleaned = re.sub(r"[^0-9+]", "", stripped)
-    if cleaned.startswith('+'):
-        core = cleaned[1:]
-        prefix = '+'
-    else:
-        core = cleaned
-        prefix = ''
-    if not core.isdigit():
-        raise ValueError('Phone number must contain digits only')
-    if len(core) < 6:
-        raise ValueError('Phone number must contain at least 6 digits')
-    return prefix + core
+    try:
+        # Parse the phone number and normalize it to E.164 format
+        parsed_phone = phonenumbers.parse(phone, None)  # Automatically detects the region
+        if not phonenumbers.is_valid_number(parsed_phone):
+            raise HTTPException(status_code=400, detail="Invalid phone number.")
+        return phonenumbers.format_number(parsed_phone, phonenumbers.PhoneNumberFormat.E164)
+    except phonenumbers.NumberParseException as e:
+        raise HTTPException(status_code=400, detail=f"Invalid phone number: {str(e)}")
+
+# Utility function to validate phone numbers
+
+
+def validate_phone_number(phone: str) -> str:
+    """
+    Validates and normalizes a phone number using the phonenumbers library.
+
+    Args:
+        phone (str): The phone number to validate.
+
+    Returns:
+        str: The normalized phone number in E.164 format.
+
+    Raises:
+        HTTPException: If the phone number is invalid.
+    """
+    try:
+        # Automatically detects the region
+        parsed_phone = phonenumbers.parse(phone, None)
+        if not phonenumbers.is_valid_number(parsed_phone):
+            raise HTTPException(
+                status_code=400, detail="Invalid phone number.")
+        return phonenumbers.format_number(parsed_phone, phonenumbers.PhoneNumberFormat.E164)
+    except phonenumbers.NumberParseException as e:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid phone number: {str(e)}")
 
 ######### Router / Endpoints #########
 
+
 router = APIRouter()
+
 
 class UserCreate(BaseModel):
     # Required at registration
@@ -84,7 +103,7 @@ class UserCreate(BaseModel):
     lat: float | None = None
     lon: float | None = None
     allergies: list[str] | None = []
-    
+
     @field_validator('phone_number')
     @classmethod
     def validate_phone(cls, v):
@@ -114,6 +133,7 @@ class UserCreate(BaseModel):
     def normalize_gender(cls, value):
         return Gender.normalize(value)
 
+
 class UserOut(BaseModel):
     """Public/own profile user representation without duplicated full name field.
 
@@ -133,14 +153,17 @@ class UserOut(BaseModel):
     # Optional profile fields
     kitchen_available: Optional[bool] = None
     main_course_possible: Optional[bool] = None
-    default_dietary_preference: Optional[Literal['vegan','vegetarian','omnivore']] = None
+    default_dietary_preference: Optional[Literal['vegan',
+                                                 'vegetarian', 'omnivore']] = None
     field_of_study: Optional[str] = None
     optional_profile_completed: bool = False
     profile_prompt_pending: bool = False
 
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
 
 @router.post(
     '/register',
@@ -160,12 +183,14 @@ async def register(u: UserCreate):
     if u.password != u.password_confirm:
         raise HTTPException(status_code=400, detail="Passwords do not match")
     validate_password(u.password)
+    # Validate phone number
+    validate_phone_number(u.phone_number)
     # Build user document explicitly (do not trust arbitrary fields)
     user_doc = {
         'email': email_lower,
         'first_name': u.first_name.strip(),
         'last_name': u.last_name.strip(),
-    'gender': Gender.normalize(u.gender).value,
+        'gender': Gender.normalize(u.gender).value,
         'phone_number': u.phone_number,
         'address_struct': {
             'street': u.street,
@@ -216,6 +241,7 @@ async def register(u: UserCreate):
             "Please try again later or use the /resend-verification route."
         )
     return resp
+
 
 class LoginIn(BaseModel):
     username: EmailStr
@@ -292,9 +318,11 @@ async def _resolve_login_credentials(
                 username_value, password_value = _extract_credentials_from_source(form_dict, username_value, password_value)
 
     if not (username_value and password_value):
-        raise HTTPException(status_code=422, detail='username and password required')
+        raise HTTPException(
+            status_code=422, detail='username and password required')
 
     return username_value.lower(), password_value
+
 
 @router.post('/login', response_model=TokenOut, responses={401: {"description": "Unauthorized - invalid credentials or email not verified"}, 422: {"description": "Validation error"}})
 async def login(
@@ -315,18 +343,23 @@ async def login(
     # require verified email
     user_obj = await get_user_by_email(username)
     if not user_obj:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user_obj.get('email_verified'):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email not verified")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Email not verified")
     user = await authenticate_user(username, password)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     try:
         token = create_access_token({"sub": user['email']})
     except Exception as exc:
-        raise HTTPException(status_code=500, detail='Failed to create access token') from exc
+        raise HTTPException(
+            status_code=500, detail='Failed to create access token') from exc
     # first login timestamp and profile prompt
-    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+    now = __import__('datetime').datetime.now(
+        __import__('datetime').timezone.utc)
     if not user.get('first_login_at'):
         with suppress(Exception):
             await db_mod.db.users.update_one({'email': user['email']}, {'$set': {'first_login_at': now}})
@@ -334,7 +367,8 @@ async def login(
     # Issue refresh token (HttpOnly cookie) and store hashed refresh token server-side
     # use configured refresh token size
     try:
-        refresh_bytes = int(os.getenv('REFRESH_TOKEN_BYTES', os.getenv('REFRESH_TOKEN_SIZE', '32')))
+        refresh_bytes = int(os.getenv('REFRESH_TOKEN_BYTES',
+                            os.getenv('REFRESH_TOKEN_SIZE', '32')))
     except (TypeError, ValueError):
         refresh_bytes = 32
     refresh_plain, refresh_hash = generate_token_pair(refresh_bytes)
@@ -357,23 +391,33 @@ async def login(
     # Build JSON response body and attach cookies using response.set_cookie
     from fastapi.responses import JSONResponse
 
-    secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
-    use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
+    secure_flag = True if os.getenv(
+        'ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
+    use_host_prefix = secure_flag and (
+        os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1', 'true', 'yes'))
     max_refresh = 60 * 60 * 24 * int(os.getenv('REFRESH_TOKEN_DAYS', '30'))
 
-    needs_profile_completion = bool((user.get('profile_prompt_pending', True)) and (not user.get('optional_profile_completed')))
-    resp = JSONResponse(content={"access_token": token, "csrf_token": csrf_token, "token_type": "bearer", "needs_profile_completion": needs_profile_completion})
+    needs_profile_completion = bool((user.get('profile_prompt_pending', True)) and (
+        not user.get('optional_profile_completed')))
+    resp = JSONResponse(content={"access_token": token, "csrf_token": csrf_token,
+                        "token_type": "bearer", "needs_profile_completion": needs_profile_completion})
     # Cookie names and attributes
     if use_host_prefix:
         # __Host- cookies require Secure and Path=/ and no Domain
-        resp.set_cookie('__Host-refresh_token', refresh_plain, httponly=True, secure=True, samesite='lax', max_age=max_refresh, path='/')
-        resp.set_cookie('__Host-access_token', token, httponly=True, secure=True, samesite='lax', max_age=60*60*24, path='/')
-        resp.set_cookie('__Host-csrf_token', csrf_token, httponly=False, secure=True, samesite='lax', max_age=max_refresh, path='/')
+        resp.set_cookie('__Host-refresh_token', refresh_plain, httponly=True,
+                        secure=True, samesite='lax', max_age=max_refresh, path='/')
+        resp.set_cookie('__Host-access_token', token, httponly=True,
+                        secure=True, samesite='lax', max_age=60*60*24, path='/')
+        resp.set_cookie('__Host-csrf_token', csrf_token, httponly=False,
+                        secure=True, samesite='lax', max_age=max_refresh, path='/')
     else:
         # Dev fallback over http
-        resp.set_cookie('refresh_token', refresh_plain, httponly=True, secure=False, samesite='lax', max_age=max_refresh, path='/')
-        resp.set_cookie('access_token', token, httponly=True, secure=False, samesite='lax', max_age=60*60*24, path='/')
-        resp.set_cookie('csrf_token', csrf_token, httponly=False, secure=False, samesite='lax', max_age=max_refresh, path='/')
+        resp.set_cookie('refresh_token', refresh_plain, httponly=True,
+                        secure=False, samesite='lax', max_age=max_refresh, path='/')
+        resp.set_cookie('access_token', token, httponly=True,
+                        secure=False, samesite='lax', max_age=60*60*24, path='/')
+        resp.set_cookie('csrf_token', csrf_token, httponly=False,
+                        secure=False, samesite='lax', max_age=max_refresh, path='/')
 
     return resp
 
@@ -384,11 +428,10 @@ async def logout(response: Response, current_user=Depends(get_current_user)):
     with suppress(Exception):
         await db_mod.db.refresh_tokens.delete_many({'user_email': current_user['email']})
     # delete both dev and __Host- variants
-    for name in ('access_token','refresh_token','csrf_token','__Host-access_token','__Host-refresh_token','__Host-csrf_token'):
+    for name in ('access_token', 'refresh_token', 'csrf_token', '__Host-access_token', '__Host-refresh_token', '__Host-csrf_token'):
         with suppress(Exception):
             response.delete_cookie(name, path='/')
     return {"status": "logged_out"}
-
 
 
 @router.post('/refresh')
@@ -396,11 +439,14 @@ async def refresh(request: Request, response: Response):
     """Exchange a refresh cookie for a new access token. Rotates refresh token by default."""
     # validate CSRF: require X-CSRF-Token header match cookie value
     header_csrf = request.headers.get('x-csrf-token')
-    cookie_csrf = request.cookies.get('__Host-csrf_token') or request.cookies.get('csrf_token')
+    cookie_csrf = request.cookies.get(
+        '__Host-csrf_token') or request.cookies.get('csrf_token')
     if not header_csrf or not cookie_csrf or header_csrf != cookie_csrf:
-        raise HTTPException(status_code=403, detail='Missing or invalid CSRF token')
+        raise HTTPException(
+            status_code=403, detail='Missing or invalid CSRF token')
 
-    refresh_cookie = request.cookies.get('__Host-refresh_token') or request.cookies.get('refresh_token')
+    refresh_cookie = request.cookies.get(
+        '__Host-refresh_token') or request.cookies.get('refresh_token')
     if not refresh_cookie:
         raise HTTPException(status_code=401, detail='Missing refresh token')
     # lookup hashed refresh token
@@ -418,11 +464,13 @@ async def refresh(request: Request, response: Response):
     new_access = create_access_token({"sub": rec['user_email']})
     # rotate refresh
     try:
-        refresh_bytes = int(os.getenv('REFRESH_TOKEN_BYTES', os.getenv('REFRESH_TOKEN_SIZE', '32')))
+        refresh_bytes = int(os.getenv('REFRESH_TOKEN_BYTES',
+                            os.getenv('REFRESH_TOKEN_SIZE', '32')))
     except (TypeError, ValueError):
         refresh_bytes = 32
     new_plain, new_hash = generate_token_pair(refresh_bytes)
-    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+    now = __import__('datetime').datetime.now(
+        __import__('datetime').timezone.utc)
     # Implement single-use rotation: insert new refresh record and delete the old one
     new_doc = {
         'user_email': rec['user_email'],
@@ -464,7 +512,7 @@ class ProfileUpdate(BaseModel):
     lon: float | None = None
     allergies: list[str] | None = None
     phone_number: Optional[str] = None
-    
+
     @field_validator('phone_number')
     @classmethod
     def validate_phone(cls, v):
@@ -504,6 +552,7 @@ class ProfileUpdate(BaseModel):
     # allow skipping optional profile prompt via this endpoint
     skip_optional_profile: Optional[bool] = False
 
+
 @router.get('/allergies', response_model=dict)
 async def get_allergies():
     """Get the list of valid allergies for the allergy dropdown."""
@@ -511,6 +560,7 @@ async def get_allergies():
         "allergies": VALID_ALLERGIES,
         "supports_other": True
     }
+
 
 @router.get('/profile', response_model=UserOut)
 async def get_profile(current_user=Depends(get_current_user)):
@@ -535,6 +585,7 @@ async def get_profile(current_user=Depends(get_current_user)):
         profile_prompt_pending=bool(u.get('profile_prompt_pending')),
     )
 
+
 @router.put('/profile', response_model=UserOut)
 async def update_profile(payload: ProfileUpdate, current_user=Depends(get_current_user)):
     raw_payload = payload.dict()
@@ -542,14 +593,14 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
     fields_set = getattr(payload, '__fields_set__', None) or getattr(payload, 'model_fields_set', None) or set()
     if 'phone_number' in fields_set and raw_payload.get('phone_number') is None:
         update_data['phone_number'] = None
-    
+
     # Security: Reject password updates via profile endpoint
     if 'password' in update_data:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail='Password updates must use the dedicated /users/password endpoint for security'
         )
-    
+
     # handle email change: require uniqueness and mark unverified
     if 'email' in update_data:
         new_email = update_data.get('email')
@@ -571,7 +622,7 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
     if 'gender' in update_data:
         update_data['gender'] = Gender.normalize(update_data.get('gender')).value
     # handle structured address updates
-    if any(k in update_data for k in ('street','street_no','postal_code','city')):
+    if any(k in update_data for k in ('street', 'street_no', 'postal_code', 'city')):
         existing = current_user.get('address_struct') or {}
         struct = {
             'street': update_data.get('street', existing.get('street')),
@@ -587,7 +638,7 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
             update_data['address_encrypted'] = encrypt_address(full_line)
             update_data['address_public'] = anonymize_public_address(full_line)
     # handle optional profile fields provided via the main profile endpoint
-    if any(k in update_data for k in ('kitchen_available','main_course_possible','default_dietary_preference','field_of_study','skip_optional_profile')):
+    if any(k in update_data for k in ('kitchen_available', 'main_course_possible', 'default_dietary_preference', 'field_of_study', 'skip_optional_profile')):
         # map skip flag
         if update_data.get('skip_optional_profile'):
             update_data['profile_prompt_pending'] = False
@@ -625,6 +676,7 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
         profile_prompt_pending=bool(u.get('profile_prompt_pending')),
     )
 
+
 @router.get('/verify-email')
 async def verify_email(token: str | None = None):
     if not token:
@@ -652,6 +704,7 @@ async def verify_email(token: str | None = None):
     # delete the token for one-time use
     await db_mod.db.email_verifications.delete_one({"_id": rec['_id']})
     return {"status": "verified"}
+
 
 class ResendVerificationIn(BaseModel):
     email: EmailStr
@@ -890,6 +943,7 @@ async def update_optional_profile(payload: OptionalProfileUpdate, current_user=D
     await db_mod.db.users.update_one({"email": current_user['email']}, {"$set": set_fields})
     return {"status": "updated", "optional_profile_completed": bool(set_fields.get('optional_profile_completed', u.get('optional_profile_completed')))}
 
+
 @router.get('/csrf')
 async def get_csrf(request: Request, response: Response):
     """Expose CSRF token for browser clients.
@@ -901,4 +955,4 @@ async def get_csrf(request: Request, response: Response):
     token = request.cookies.get('__Host-csrf_token') or request.cookies.get('csrf_token') or ''
     if token:
         response.headers['X-CSRF-Token'] = token
-    return { 'csrf_token': token }
+    return {'csrf_token': token}

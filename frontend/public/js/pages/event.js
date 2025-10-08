@@ -33,7 +33,6 @@
   const badgesEl = document.getElementById('eventBadges');
   const refreshPlanBtn = document.getElementById('refreshPlanBtn');
   const openChatsBtn = document.getElementById('openChatsBtn');
-  const cancelRegBtn = document.getElementById('cancelRegistrationBtn');
   // Solo registration form elements
   const soloRegSection = document.getElementById('soloRegistrationSection');
   const soloRegForm = document.getElementById('soloRegistrationForm');
@@ -178,7 +177,6 @@
       btnYes.onclick = doCancel;
     }
     box.classList.remove('hidden');
-    cancelRegBtn && cancelRegBtn.classList.add('hidden');
   }
 
   // If no event id -> show banner + redirect
@@ -549,7 +547,6 @@
     regSection.classList.remove('hidden');
     if (!registrationData) {
       regBody.innerHTML = `<div class="text-sm">You are either not registered yet or your registration hasn't been detected. If you believe this is an error, try:<ul class="list-disc ml-5 mt-1"><li>Refreshing this page</li><li>Re-opening the event list and ensuring you're registered</li><li>Submitting the Solo registration form again (safe if you originally registered solo)</li></ul></div>`;
-      cancelRegBtn.disabled = true;
       if (payNowBtn) payNowBtn.classList.add('hidden');
       return;
     }

@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import APIRouter, Depends, FastAPI, Request
-from fastapi.exceptions import RequestValidationError
+from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -36,7 +36,7 @@ from .logging_config import configure_logging
 from .middleware.rate_limit import RedisRateLimit as RateLimit
 from .middleware.security import CSRFMiddleware, SecurityHeadersMiddleware
 from .routers import (admin, chats, events, invitations, matching, payments,
-                      registrations, users)
+                      registrations, users, geo)
 from .settings import get_settings
 
 # Context variables for request-scoped logging
@@ -161,6 +161,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        raise exc  # Let FastAPI handle HTTPException normally
+
     logging.getLogger('app').exception('unhandled exception rid=%s', getattr(request.state, 'request_id', None))
     return JSONResponse(status_code=500, content={
         'error': 'internal_server_error',
@@ -262,6 +265,7 @@ app.include_router(payments.router, prefix="/payments", tags=["payments"])
 app.include_router(matching.router, prefix="/matching", tags=["matching"])
 app.include_router(chats.router, prefix="/chats", tags=["chats"])
 app.include_router(registrations.router, prefix="/registrations", tags=["registrations"])
+app.include_router(geo.router, prefix="/geo", tags=["geo"])
 
 api_router = APIRouter()
 
