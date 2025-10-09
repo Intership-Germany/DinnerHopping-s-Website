@@ -23,6 +23,10 @@
         el = document.createElement('div');
         el.id = 'global-msg';
         el.className = 'mt-4 mb-4 text-center text-sm';
+        // make it an accessible live region so screen readers announce updates
+        el.setAttribute('aria-live', 'polite');
+        el.setAttribute('role', 'status');
+        el.setAttribute('aria-atomic', 'true');
         (els.loginForm || document.body).parentElement.prepend(el);
       }
       if (Array.isArray(text)) text = text.join(' ');
@@ -269,7 +273,32 @@
           phone_number: normalizedPhone,
           preferences: {},
         };
+        // Helper to toggle loading state for the form
+        const setLoading = (isLoading) => {
+          const btn = els.signupForm.querySelector('[type="submit"]');
+          const inputs = Array.from(els.signupForm.querySelectorAll('input,select,button'));
+          if (isLoading) {
+            if (btn) {
+              btn.dataset.prevLabel = btn.textContent;
+              btn.textContent = 'Creating account…';
+              btn.disabled = true;
+            }
+            inputs.forEach((i) => {
+              if (i !== btn) i.disabled = true;
+            });
+            // simple aria-live region update so screen readers announce processing
+            showMessage('Processing your registration…');
+          } else {
+            if (btn) {
+              btn.textContent = btn.dataset.prevLabel || 'Sign up';
+              btn.disabled = false;
+            }
+            inputs.forEach((i) => (i.disabled = false));
+          }
+        };
+
         try {
+          setLoading(true);
           const res = await fetch(`${BACKEND_BASE}/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -277,18 +306,30 @@
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            const d = data.detail;
+            const d = data.detail || data.message || data.error;
             if (d) {
-              if (Array.isArray(d)) showMessage(d.map((x) => x.msg).join(' '), 'error');
+              if (Array.isArray(d)) showMessage(d.map((x) => x.msg || x).join(' '), 'error');
               else if (typeof d === 'string') showMessage(d, 'error');
               else showMessage(JSON.stringify(d), 'error');
             } else showMessage('Signup failed', 'error');
             return;
           }
-          showMessage('Account created. Check your email for verification link.');
+          // Prefer server-provided message when available (backend may include info about email sending)
+          const successMsg = data.message || data.detail || 'Account created. Check your email for verification link.';
+          showMessage(successMsg);
+          // Switch to login tab and prefill the email used for signup
           activate('login');
+          try {
+            const loginEmailEl = document.getElementById('login-email');
+            if (loginEmailEl) {
+              loginEmailEl.value = email || '';
+              loginEmailEl.focus();
+            }
+          } catch (e) {}
         } catch {
           showMessage('Network error', 'error');
+        } finally {
+          setLoading(false);
         }
       });
 
