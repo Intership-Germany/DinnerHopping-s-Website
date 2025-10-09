@@ -39,8 +39,8 @@ def generate_random_user():
     address = {
         "street": f"{user['street']}",
         "street_no": f"{user['street_no']}",
-        "postal_code": f"37{random.randint(100, 999)}",
-        "city": "Göttingen"
+        "postal_code": f"{user['postal_code']}",
+        "city": f"{user['city']}",
     }
     return {
         "username": username,  # Added username to the returned dictionary

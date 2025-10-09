@@ -223,7 +223,26 @@ async def register(u: UserCreate):
     addr_line = f"{u.street} {u.street_no}, {u.postal_code} {u.city}"
     user_doc['address_encrypted'] = encrypt_address(addr_line)
     user_doc['address_public'] = anonymize_public_address(addr_line)
+    # Attempt geocoding if coordinates are missing
+    # We use the combined address line for better geocoder success.
+    try:
+        lat = user_doc.get('lat')
+        lon = user_doc.get('lon')
+        if (lat is None or lon is None) and addr_line.strip():
+            from app.services.geocoding import geocode_address  # local import to avoid circular imports
+            latlon = await geocode_address(addr_line)
+            if latlon:
+                glat, glon = latlon
+                user_doc['lat'] = float(glat)
+                user_doc['lon'] = float(glon)
+                # geocoded_at will be set below once 'now' is defined
+    except Exception:
+        # Best-effort: if geocoding fails, continue without coordinates
+        pass
     now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+    # If we successfully geocoded above, record the timestamp
+    if isinstance(user_doc.get('lat'), (int, float)) and isinstance(user_doc.get('lon'), (int, float)):
+        user_doc['geocoded_at'] = now
     user_doc['created_at'] = now
     user_doc['updated_at'] = now
     user_doc['deleted_at'] = None  # soft delete marker
