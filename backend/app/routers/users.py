@@ -720,7 +720,19 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
 
 
 @router.get('/verify-email')
-async def verify_email(token: str | None = None):
+async def verify_email(request: Request, token: str | None = None):
+    # If the caller looks like a browser expecting HTML, redirect to the
+    # frontend verification landing page which provides a friendlier UX.
+    accept_header = (request.headers.get('accept') or '').lower()
+    wants_html = 'text/html' in accept_header or 'html' in accept_header
+    if wants_html:
+        frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+        redirect_url = f"{frontend_base.rstrip('/')}/verify-email.html"
+        if token:
+            redirect_url += f"?token={token}"
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(redirect_url, status_code=303)
+
     if not token:
         raise HTTPException(status_code=400, detail='Missing token')
 
@@ -963,12 +975,25 @@ async def reset_password(request: Request):
 
 
 @router.get('/reset-password')
-async def reset_password_form(token: str | None = None):
+async def reset_password_form(request: Request, token: str | None = None):
     """Validate a password-reset token and return a JSON hint for clients.
 
-    This endpoint does not return HTML. It only checks the token exists and is not expired,
-    and returns a minimal JSON response instructing the client to POST the new password.
+    If the request comes from a browser (Accept header includes text/html), redirect
+    to the frontend landing page `reset-password.html` so users see the friendly UI.
+    Programmatic clients (Accept: application/json or XMLHttpRequest) still receive
+    the minimal JSON response used by API clients.
     """
+    # If the caller is a browser (wants HTML), redirect to frontend landing page
+    accept_header = (request.headers.get('accept') or '').lower()
+    wants_html = 'text/html' in accept_header or 'html' in accept_header
+    if wants_html:
+        frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+        redirect_url = f"{frontend_base.rstrip('/')}/reset-password.html"
+        if token:
+            redirect_url += f"?token={token}"
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(redirect_url, status_code=303)
+
     if not token:
         raise HTTPException(status_code=400, detail='Missing token')
     candidates = _collect_token_candidates(token)
