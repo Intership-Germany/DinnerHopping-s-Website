@@ -412,3 +412,4 @@ $RECYCLE.BIN/
 /frontend/public/tests
 frontend/package-lock.json
 frontend/my-httpd.conf
+/.vscode
