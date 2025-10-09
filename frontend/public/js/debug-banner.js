@@ -282,8 +282,8 @@
     function fetchProfile() {
       var base = window.BACKEND_BASE_URL;
       if (!base) return;
-      profileFetched = true; // avoid repeated attempts; we can expose manual refresh
-      var url = base.replace(/\/$/, '') + '/profile';
+
+      // Check if there are valid tokens or cookies before attempting fetch
       var lsBearer = null;
       try {
         lsBearer = (window.localStorage && window.localStorage.getItem('dh_access_token')) || null;
@@ -291,6 +291,14 @@
       var dhBearer = null;
       var m = document.cookie.match(/(?:^|; )dh_token=([^;]+)/);
       if (m) dhBearer = decodeURIComponent(m[1]);
+
+      if (!lsBearer && !dhBearer) {
+        console.warn('No valid tokens or cookies available. Skipping profile fetch.');
+        return;
+      }
+
+      profileFetched = true; // avoid repeated attempts; we can expose manual refresh
+      var url = base.replace(/\/$/, '') + '/profile';
 
       var triedCookie = false;
       var triedBearer = false;

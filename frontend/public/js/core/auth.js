@@ -133,26 +133,6 @@
     return data;
   }
 
-  // async function deleteCookie(name) {
-  //   try {
-  //     document.cookie =
-  //       name +
-  //       '=; Path=/; SameSite=Strict' +
-  //       (location.protocol === 'https:' ? '; Secure' : '') +
-  //       '; Max-Age=0';
-  //   } catch {}
-  // }
-
-  // async function logout() {
-  //   const base = window.BACKEND_BASE_URL;
-  //   try {
-  //     const headers = {};
-  //     const token = getStored();
-  //     if (token) headers.Authorization = 'Bearer ' + token;
-  //     const opts = { method: 'POST', headers }; // only send credentials where same-origin & cookies exist
-  //   } catch {}
-  // }
-
   async function logout() {
     const base = window.BACKEND_BASE_URL;
     try {
@@ -163,7 +143,15 @@
       // CSRF is exempt for /logout on the backend.
       const opts = { method: 'POST', headers, credentials: 'include' };
       await fetch(base + '/logout', opts);
-    } catch {}
+
+      // Clear client-side tokens and local storage
+      if (window.localStorage) {
+        window.localStorage.removeItem('dh_access_token');
+      }
+      document.cookie = 'dh_token=; Max-Age=0; path=/;';
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
     clearStored();
     // Best-effort: clear non-HttpOnly CSRF cookies client-side too
     try {
