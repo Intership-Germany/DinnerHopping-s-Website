@@ -53,8 +53,8 @@ document.addEventListener('DOMContentLoaded', () => {
       setMsg('Passwords do not match.', 'error');
       return;
     }
-    if (p.length < 8) {
-      setMsg('Password must be at least 8 characters.', 'error');
+    if (p.length < 10) {
+      setMsg('Password must be at least 10 characters.', 'error');
       return;
     }
     try {
