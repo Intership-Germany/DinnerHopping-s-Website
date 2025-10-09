@@ -7,10 +7,12 @@ Migration note (2025-09):
 Existing records may still contain 'name' or 'is_verified'; they are ignored.
 """
 import json
+import logging
 import os
 import re
 from contextlib import suppress
 from typing import List, Literal, Optional
+from urllib.parse import unquote
 
 from fastapi import (APIRouter, Depends, Form, HTTPException, Request,
                      Response, status)
@@ -80,6 +82,9 @@ def validate_phone_number(phone: str) -> str:
             status_code=400, detail=f"Invalid phone number: {str(e)}")
 
 ######### Router / Endpoints #########
+
+
+logger = logging.getLogger("auth")
 
 
 router = APIRouter()
@@ -681,10 +686,61 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
 async def verify_email(token: str | None = None):
     if not token:
         raise HTTPException(status_code=400, detail='Missing token')
-    # match by token_hash, not plaintext token
-    th = hash_token(token)
-    rec = await db_mod.db.email_verifications.find_one({"token_hash": th})
+
+    def _collect_candidates(raw: str) -> list[str]:
+        if raw is None:
+            return []
+        variants: list[str] = []
+        seen: set[str] = set()
+
+        def add_variant(value: str | None) -> None:
+            if not value:
+                return
+            normalized = value.strip()
+            if not normalized:
+                return
+            if normalized not in seen:
+                seen.add(normalized)
+                variants.append(normalized)
+
+        add_variant(raw)
+        # account for clients translating plus to space
+        add_variant(raw.replace(' ', '+'))
+
+        current = raw
+        for _ in range(2):  # single + double decoding as fallback
+            decoded = unquote(current)
+            if decoded == current:
+                break
+            add_variant(decoded)
+            current = decoded
+
+        return variants
+
+    candidates = _collect_candidates(token)
+    rec = None
+    for idx, candidate in enumerate(candidates):
+        th = hash_token(candidate)
+        rec = await db_mod.db.email_verifications.find_one({"token_hash": th})
+        if rec:
+            if idx > 0:
+                logger.info(
+                    "verify_email matched token after normalization",
+                    extra={
+                        "token_length": len(candidate),
+                        "candidate_index": idx,
+                    },
+                )
+            break
+
     if not rec:
+        logger.warning(
+            "verify_email token not found",
+            extra={
+                "original_length": len(token),
+                "candidates_checked": len(candidates),
+            },
+        )
         raise HTTPException(status_code=404, detail='Verification token not found')
     # check expiry
     expires_at = rec.get('expires_at')
@@ -722,6 +778,7 @@ async def resend_verification(payload: ResendVerificationIn):
             await db_mod.db.email_verifications.delete_many({"email": payload.email})
         with suppress(Exception):
             _token, email_sent = await generate_and_send_verification(payload.email)
+            
     return {"message": "If the account exists and is not verified, a new verification email has been sent.", "email_sent": email_sent}
 
 

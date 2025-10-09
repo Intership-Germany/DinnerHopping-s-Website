@@ -32,9 +32,9 @@ DEFAULT_TEMPLATES = [
             'If the button above does not work, copy and paste the following link into your browser:\n'
             '</p>\n'
             '<p style="font-size:13px; word-break:break-all;">\n'
-            '<a href="{{verification_url}}" style="color:#2563eb; text-decoration:underline;">{{verification_url}}</a>\n'
+            '<a href="{{verification_url}}" style="color:#2563eb; text-decoration:underline;"> {{verification_url}} </a>\n'
             '</p>\n'
-            '<p style="margin-top:18px; color:#374151;">If you didn\'t request this, ignore this message.</p>\n'
+            '<p style="margin-top:18px; color:#374151;"> If you didn\'t request this, ignore this message.</p>\n'
             '<p style="margin-top:18px; color:#6b7280;">— DinnerHopping Team</p>\n'
             '</div>'
         ),
