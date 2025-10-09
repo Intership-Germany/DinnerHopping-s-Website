@@ -274,8 +274,9 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
         reset_doc = {'email': invited_email_lc, 'token_hash': token_hash, 'created_at': now2, 'expires_at': expires_at}
         with __import__('contextlib').suppress(Exception):
             await db_mod.db.password_resets.insert_one(reset_doc)
-        base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
-        set_password_link = f"{base}/reset-password?token={token}"
+    # Prefer frontend landing pages when available so users get a friendly UI
+    frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL') or 'http://localhost:8000'
+    set_password_link = f"{frontend_base.rstrip('/')}/reset-password.html?token={token}"
 
     # generate token and insert invitation (retry on token collision)
     try:
@@ -297,6 +298,8 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
         }
         try:
             res = await db_mod.db.invitations.insert_one(inv)
+            # Use the backend API link for direct accept operations, but prefer
+            # frontend-hosted landing pages for password setting and user flows.
             base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
             link = f"{base}/invitations/{token}"
 
@@ -559,7 +562,9 @@ async def accept_invitation_via_link(token: str, request: Request):
         with __import__('contextlib').suppress(Exception):
             await db_mod.db.password_resets.insert_one(reset_doc)
         base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
-        set_password_link = f"{base}/reset-password?token={token}"
+        # Prefer frontend landing for set-password
+        frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL') or 'http://localhost:8000'
+        set_password_link = f"{frontend_base.rstrip('/')}/reset-password.html?token={token}"
 
     # create registration if missing
     event_id = inv.get('event_id')
@@ -667,7 +672,8 @@ async def accept_invitation_via_link(token: str, request: Request):
         )
 
     # redirect to frontend success page when requested by a browser
-    accept_success_url = f"{(os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL') or 'http://localhost:8000').rstrip('/')}/invitations/accepted"
+    # Redirect users to a frontend landing page after accepting an invitation
+    accept_success_url = f"{(os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL') or 'http://localhost:8000').rstrip('/')}/invitations-accepted.html"
     # If the client expects JSON (Accept header includes application/json) return JSON
     accept_header = request.headers.get('accept', '')
     if 'application/json' in accept_header or request.headers.get('x-requested-with') == 'XMLHttpRequest':
