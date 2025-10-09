@@ -27,6 +27,43 @@ from ..utils import (anonymize_public_address, encrypt_address,
                      generate_and_send_verification, generate_token_pair,
                      hash_token, send_email)
 
+
+def _collect_token_candidates(raw: str) -> list[str]:
+    """Create sensible decoding/normalization variants for tokens supplied via URL/query/form.
+
+    This mirrors the more robust normalization used for email verification tokens
+    to tolerate clients that alter URL-encoded characters (e.g. plus/space) or
+    perform single/double URL-decoding.
+    """
+    if raw is None:
+        return []
+    variants: list[str] = []
+    seen: set[str] = set()
+
+    def add_variant(value: str | None) -> None:
+        if not value:
+            return
+        normalized = value.strip()
+        if not normalized:
+            return
+        if normalized not in seen:
+            seen.add(normalized)
+            variants.append(normalized)
+
+    add_variant(raw)
+    # account for clients translating plus to space
+    add_variant(raw.replace(' ', '+'))
+
+    current = raw
+    for _ in range(2):  # single + double decoding as fallback
+        decoded = unquote(current)
+        if decoded == current:
+            break
+        add_variant(decoded)
+        current = decoded
+
+    return variants
+
 ######### Constants #########
 
 # Predefined list of valid allergies
@@ -839,8 +876,8 @@ async def forgot_password(payload: ForgotPasswordIn):
             await db_mod.db.password_resets.insert_one(doc)
         # send email with reset link
         with suppress(Exception):
-            base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
-            reset_link = f"{base}/reset-password?token={token}"
+            base = os.getenv('FRONTEND_BASE_URL', os.getenv('BACKEND_BASE_URL', 'http://localhost:8000'))
+            reset_link = f"{base}/reset-password.html?token={token}"
             subject = 'Reset your DinnerHopping password'
             body = f"Hi,\n\nTo reset your password, click the link below:\n{reset_link}\n\nIf you didn't request this, ignore this message.\n\nThanks,\nDinnerHopping Team"
             email_sent = await send_email(
@@ -884,11 +921,23 @@ async def reset_password(request: Request):
 
     if not token or not new_password:
         raise HTTPException(status_code=400, detail='token and new_password required')
-    th = hash_token(token)
-    rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+
+    # Accept a few normalized token candidates (URL-decoding & plus/space variants)
+    candidates = _collect_token_candidates(token)
+    rec = None
+    for idx, candidate in enumerate(candidates):
+        th = hash_token(candidate)
+        # ensure we only accept tokens that are present and not already marked used/expired
+        rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+        if rec:
+            if idx > 0:
+                logger.info("reset_password matched token after normalization", extra={"candidate_index": idx, "token_length": len(candidate)})
+            break
     if not rec:
         raise HTTPException(status_code=404, detail='Reset token not found')
-    # check expiry
+    # check status and expiry
+    if rec.get('status') in ('expired', 'used'):
+        raise HTTPException(status_code=404, detail='Reset token not found')
     expires_at = rec.get('expires_at')
     now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     try:
@@ -901,9 +950,15 @@ async def reset_password(request: Request):
     validate_password(new_password)
     # update user's password
     await db_mod.db.users.update_one({'email': rec['email']}, {'$set': {'password_hash': hash_password(new_password), 'updated_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc)}})
-    # delete/reset token
-    with suppress(Exception):
-        await db_mod.db.password_resets.delete_one({'_id': rec['_id']})
+    # mark token as used (preserve record for audit) and remove any others
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+    try:
+        await db_mod.db.password_resets.update_one({'_id': rec['_id']}, {'$set': {'status': 'used', 'used_at': now, 'expired_at': now}})
+        # remove any other tokens for this email for hygiene
+        await db_mod.db.password_resets.delete_many({'email': rec['email'], '_id': {'$ne': rec['_id']}})
+    except Exception:
+        with suppress(Exception):
+            await db_mod.db.password_resets.delete_one({'_id': rec['_id']})
     return {"status": "password_reset"}
 
 
@@ -916,9 +971,18 @@ async def reset_password_form(token: str | None = None):
     """
     if not token:
         raise HTTPException(status_code=400, detail='Missing token')
-    th = hash_token(token)
-    rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+    candidates = _collect_token_candidates(token)
+    rec = None
+    for idx, candidate in enumerate(candidates):
+        th = hash_token(candidate)
+        rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+        if rec:
+            if idx > 0:
+                logger.info("reset_password_form matched token after normalization", extra={"candidate_index": idx, "token_length": len(candidate)})
+            break
     if not rec:
+        raise HTTPException(status_code=404, detail='Reset token not found')
+    if rec.get('status') in ('expired', 'used'):
         raise HTTPException(status_code=404, detail='Reset token not found')
     # check expiry
     expires_at = rec.get('expires_at')
