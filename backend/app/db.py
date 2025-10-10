@@ -189,33 +189,14 @@ if os.getenv('USE_FAKE_DB_FOR_TESTS'):
             class _Cursor:
                 def __init__(self, docs):
                     self._docs = docs
-                    self._sort_spec = None
                 def __aiter__(self):
-                    docs = self._docs
-                    if self._sort_spec:
-                        # Apply sorting
-                        if isinstance(self._sort_spec, list):
-                            # List of (field, direction) tuples
-                            for field, direction in reversed(self._sort_spec):
-                                docs = sorted(docs, key=lambda x: x.get(field) if x.get(field) is not None else '', reverse=(direction == -1))
-                        else:
-                            # Single field, direction tuple
-                            field, direction = self._sort_spec
-                            docs = sorted(docs, key=lambda x: x.get(field) if x.get(field) is not None else '', reverse=(direction == -1))
-                    self._iter = iter(docs)
+                    self._iter = iter(self._docs)
                     return self
                 async def __anext__(self):
                     try:
                         return next(self._iter)
                     except StopIteration:
                         raise StopAsyncIteration
-                def sort(self, key_or_list, direction=None):
-                    """Support sorting by field or list of fields."""
-                    if isinstance(key_or_list, list):
-                        self._sort_spec = key_or_list
-                    else:
-                        self._sort_spec = (key_or_list, direction if direction is not None else 1)
-                    return self
             return _Cursor(matches)
 
     class FakeDB:
