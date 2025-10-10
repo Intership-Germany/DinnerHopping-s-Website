@@ -139,10 +139,40 @@
             body: JSON.stringify(payload.body),
           });
         } else {
-          res = await api(`/events/${encodeURIComponent(payload.event_id)}/register`, {
+          // Map client payload to backend expected TeamRegistrationIn shape
+          // payload.body currently contains: { team_size:2, invited_emails, preferences }
+          const pref = payload.body.preferences || {};
+          const cookAt = pref.cook_at || form.elements.cook_location?.value || 'self';
+          const mappedCook = cookAt === 'self' ? 'creator' : 'partner';
+          // Normalize course names: 'starter' -> 'appetizer'
+          let teamCourse = pref.course_preference || form.elements.team_course?.value || '';
+          if (teamCourse === 'starter') teamCourse = 'appetizer';
+
+          // Build backend body
+          const backendBody = {
+            event_id: payload.event_id,
+            cooking_location: mappedCook,
+            course_preference: teamCourse || undefined,
+          };
+
+          // Prefer explicit partner_external when provided, otherwise fall back to partner_existing
+          if (payload.body && payload.body.preferences && payload.body.preferences.partner_external) {
+            const ext = payload.body.preferences.partner_external;
+            backendBody.partner_external = {
+              name: ext.name,
+              email: ext.email,
+              gender: ext.gender || undefined,
+              dietary_preference: ext.dietary || ext.dietary_preference || undefined,
+              field_of_study: ext.field_of_study || ext.field || undefined,
+            };
+          } else if (Array.isArray(payload.body.invited_emails) && payload.body.invited_emails.length) {
+            backendBody.partner_existing = { email: payload.body.invited_emails[0] };
+          }
+
+          res = await api('/registrations/team', {
             method: 'POST',
             headers,
-            body: JSON.stringify(payload.body),
+            body: JSON.stringify(backendBody),
           });
         }
         if (!res.ok) {

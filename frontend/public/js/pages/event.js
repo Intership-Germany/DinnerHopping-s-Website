@@ -376,7 +376,10 @@
             payment_provider: match.payment?.provider || match.payment_provider,
             payment_id: match.payment?.payment_id || match.payment_id,
             refund_flag: match.refund_flag,
-            mode: match.registration_mode || match.mode || 'solo',
+            mode: match.registration_mode || match.mode || (match.team_size > 1 ? 'team' : 'solo'),
+            team_size: match.team_size || 1,
+            team_id: match.team_id,
+            amount_due_cents: match.amount_due_cents,
           };
           registrationStatusLoaded = true;
           return;
@@ -551,22 +554,62 @@
       return;
     }
     // Provide summary depending on mode
-    if (registrationData.mode === 'team' && !registrationData.registration_id) {
-      regBody.innerHTML = `<div class="text-sm">You are registered as part of a <strong>team</strong>. Detailed team registration data (and payment initiation) isn't yet available on this page without backend support.<br><br><em>Workaround:</em> The team creator can open the registration modal again or an organizer can assist with payment if required.</div>`;
+    if (registrationData.mode === 'team') {
+      const teamSize = registrationData.team_size || 2;
+      const totalAmount = registrationData.amount_due_cents 
+        ? (registrationData.amount_due_cents / 100).toFixed(2)
+        : ((eventData?.fee_cents || 0) * teamSize / 100).toFixed(2);
+      const paid =
+        /paid|succeeded/i.test(registrationData.payment_status || '') ||
+        /paid|succeeded/i.test(registrationData.status || '');
+      
+      // Show payment info if not paid
+      let payLine = '';
+      if ((eventData?.fee_cents || 0) > 0 && !paid) {
+        payLine = `<div class="mt-2 text-xs ${payNowBtn && !payNowBtn.classList.contains('hidden') ? 'text-amber-700' : 'text-gray-600'}">Team fee (${teamSize} people): €${totalAmount}</div>`;
+      }
+      regBody.innerHTML = `<div class="text-sm">${payLine || ' '}</div>`;
+      
       // Registration badge (team)
       const existingRegBadge = badgesEl.querySelector('[data-badge="registration-mode"]');
-      const teamText = 'Team registered';
+      const teamText = `Team registered (${teamSize} people)`;
+      const statusLower = (registrationData.status || '').toLowerCase();
+      let regCls =
+        'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200';
+      if (/cancelled|expired|refunded/.test(statusLower)) {
+        regCls =
+          'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-red-50 text-red-700 ring-1 ring-red-200';
+      }
       if (existingRegBadge) {
         existingRegBadge.textContent = teamText;
-        existingRegBadge.className =
-          'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200';
+        existingRegBadge.className = regCls;
       } else {
         const b = document.createElement('span');
         b.dataset.badge = 'registration-mode';
-        b.className =
-          'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200';
+        b.className = regCls;
         b.textContent = teamText;
         badgesEl.appendChild(b);
+      }
+      
+      // Update / insert payment badge
+      const existingPaymentBadge = badgesEl.querySelector('[data-badge="payment-status"]');
+      if ((eventData?.fee_cents || 0) > 0 && paid) {
+        const text = `Paid €${totalAmount}${registrationData.payment_provider ? ` via ${registrationData.payment_provider}` : ''}`;
+        if (existingPaymentBadge) {
+          existingPaymentBadge.textContent = text;
+          existingPaymentBadge.className =
+            'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200';
+        } else {
+          const b = document.createElement('span');
+          b.dataset.badge = 'payment-status';
+          b.className =
+            'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200';
+          b.textContent = text;
+          badgesEl.appendChild(b);
+        }
+      } else if (existingPaymentBadge) {
+        // If not paid yet, remove any previous payment badge
+        existingPaymentBadge.remove();
       }
     } else if (registrationData.mode === 'solo' && registrationData.registration_id) {
       const amount = (eventData?.fee_cents || 0) / 100;

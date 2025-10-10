@@ -759,10 +759,10 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             # Get event date for email
             event_date = ev.get('date') or (ev.get('start_at').strftime('%Y-%m-%d') if ev.get('start_at') else 'TBD')
             
-            # Use the new notification function
+            # Use the new notification function - log errors but don't fail registration
             try:
                 from app import notifications
-                _ = await notifications.send_team_invitation(
+                email_sent = await notifications.send_team_invitation(
                     partner_email=partner_user.get('email'),
                     creator_email=creator.get('email'),
                     event_title=ev.get('title', 'Upcoming Event'),
@@ -770,21 +770,29 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
                     decline_url=decline_link,
                     team_id=str(team_id)
                 )
-            except Exception:
+                if not email_sent:
+                    from app.logging_config import logger
+                    logger.warning(f"Team invitation email may not have been sent to {partner_user.get('email')} for team {team_id}")
+            except Exception as e:
+                from app.logging_config import logger
+                logger.error(f"Failed to send team invitation email to {partner_user.get('email')}: {e}", exc_info=True)
                 # Fallback to basic email if notification function fails
-                subject = 'You have been added to a DinnerHopping team'
-                body = (
-                    f"Hi,\n\nYou were added to a team for event '{ev.get('title')}' by {creator.get('email')}.\n\n"
-                    f"You have been automatically registered. If you cannot participate, you can decline here:\n{decline_link}\n\n"
-                    f"Thanks,\nDinnerHopping Team"
-                )
-                _ = await send_email(
-                    to=partner_user.get('email'),
-                    subject=subject,
-                    body=body,
-                    category='team_invitation',
-                    template_vars={'event_title': ev.get('title'), 'decline_link': decline_link, 'email': partner_user.get('email')}
-                )
+                try:
+                    subject = 'You have been added to a DinnerHopping team'
+                    body = (
+                        f"Hi,\n\nYou were added to a team for event '{ev.get('title')}' by {creator.get('email')}.\n\n"
+                        f"You have been automatically registered. If you cannot participate, you can decline here:\n{decline_link}\n\n"
+                        f"Thanks,\nDinnerHopping Team"
+                    )
+                    _ = await send_email(
+                        to=partner_user.get('email'),
+                        subject=subject,
+                        body=body,
+                        category='team_invitation',
+                        template_vars={'event_title': ev.get('title'), 'decline_link': decline_link, 'email': partner_user.get('email')}
+                    )
+                except Exception as fallback_error:
+                    logger.error(f"Fallback email also failed for {partner_user.get('email')}: {fallback_error}", exc_info=True)
         else:
             # External partner: no user account, no auto-registration. Store snapshot only.
             reg_partner_id = None
@@ -1421,13 +1429,19 @@ async def registration_status(registration_id: str | None = None, current_user=D
         except Exception:
             amount_due_cents = None
 
+        # Determine registration mode based on team_size
+        team_size = int(r.get('team_size') or 1)
+        registration_mode = 'team' if team_size > 1 else 'solo'
+
         out.append({
             'registration_id': str(r.get('_id')),
             'event_id': str(r.get('event_id')) if r.get('event_id') else None,
             'event_title': event_title,
             'status': r.get('status'),
             'team_id': str(r.get('team_id')) if r.get('team_id') else None,
-            'team_size': int(r.get('team_size') or 1),
+            'team_size': team_size,
+            'mode': registration_mode,
+            'registration_mode': registration_mode,
             'amount_due_cents': amount_due_cents,
             'payment': payment_summary,
             'created_at': r.get('created_at'),

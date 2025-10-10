@@ -139,7 +139,7 @@ async def setup_test_data():
 @pytest.mark.asyncio
 async def test_admin_teams_overview(setup_test_data):
     """Test that admin can get overview of teams with proper categorization."""
-    data = await setup_test_data
+    data = setup_test_data
     
     # Mock admin user
     admin_user = {'email': 'admin@test.com', 'roles': ['admin']}
@@ -175,7 +175,7 @@ async def test_admin_teams_overview(setup_test_data):
 @pytest.mark.asyncio
 async def test_admin_teams_overview_all_events(setup_test_data):
     """Test that admin can get overview of all teams across all events."""
-    data = await setup_test_data
+    data = setup_test_data
     
     # Mock admin user
     admin_user = {'email': 'admin@test.com', 'roles': ['admin']}
@@ -191,7 +191,7 @@ async def test_admin_teams_overview_all_events(setup_test_data):
 @pytest.mark.asyncio
 async def test_send_incomplete_reminders(setup_test_data, monkeypatch):
     """Test sending reminders to incomplete teams."""
-    data = await setup_test_data
+    data = setup_test_data
     
     # Mock admin user
     admin_user = {'email': 'admin@test.com', 'roles': ['admin']}
@@ -224,7 +224,7 @@ async def test_send_incomplete_reminders(setup_test_data, monkeypatch):
 @pytest.mark.asyncio
 async def test_release_event_plans(setup_test_data, monkeypatch):
     """Test releasing event plans to paid participants."""
-    data = await setup_test_data
+    data = setup_test_data
     
     # Mock admin user
     admin_user = {'email': 'admin@test.com', 'roles': ['admin']}
@@ -258,7 +258,7 @@ async def test_release_event_plans(setup_test_data, monkeypatch):
 @pytest.mark.asyncio
 async def test_faulty_team_detection(setup_test_data):
     """Test that faulty teams (both members cancelled after payment) are detected."""
-    data = await setup_test_data
+    data = setup_test_data
     
     # Create a faulty team (both paid then cancelled)
     faulty_team = {
