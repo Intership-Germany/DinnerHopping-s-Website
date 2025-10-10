@@ -1007,21 +1007,28 @@
       });
 
       // Logout (use centralized auth util to clear cookies/tokens)
-      el.logoutBtn &&
-        el.logoutBtn.addEventListener('click', async () => {
+      const profileLogoutBtn = document.getElementById('profile-logout-btn');
+      if (profileLogoutBtn) {
+        try {
+          const visible = !!(window.auth && typeof window.auth.hasAuth === 'function' && window.auth.hasAuth());
+          profileLogoutBtn.style.display = visible ? '' : 'none';
+        } catch {
+          profileLogoutBtn.style.display = 'none';
+        }
+        profileLogoutBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          try { profileLogoutBtn.style.display = 'none'; } catch {}
           try {
             if (window.auth && typeof window.auth.logout === 'function') {
               await window.auth.logout();
             } else {
-              // Fallback: call API and clear local token
               await window.apiFetch('/logout', { method: 'POST', credentials: 'include' });
-              if (window.auth && typeof window.auth.clearToken === 'function') {
-                window.auth.clearToken();
-              }
+              if (window.auth && typeof window.auth.clearToken === 'function') window.auth.clearToken();
             }
           } catch {}
           window.location.href = 'login.html';
         });
+      }
 
       // Onboarding (optional)
       el.onboardingSkip &&

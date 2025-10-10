@@ -87,17 +87,17 @@
   }
 
   function getAuthSnapshot() {
-    const lsToken = (function(){ try { return localStorage.getItem('dh_access_token'); } catch { return null; } })();
-    const tokenCookie = /(?:^|; )dh_token=/.test(document.cookie);
+  // Access tokens are not stored in localStorage for security.
+  const lsToken = null;
     return {
       mode: lsToken ? 'bearer-ls' : (tokenCookie ? 'legacy-cookie' : 'unknown'),
-      has_dh_token_cookie: tokenCookie,
       has_csrf_cookie: !!getCookie('csrf_token'),
       has_refresh_cookie: !!getCookie('refresh_token') || !!getCookie('__Host-refresh_token'),
       has_access_cookie: !!getCookie('access_token') || !!getCookie('__Host-access_token'),
       ls_access_present: !!lsToken,
       ls_access_preview: lsToken ? mask(lsToken) : undefined,
     };
+    // Removed has_dh_token_cookie from the return object
   }
 
   async function checkAuthServer() {

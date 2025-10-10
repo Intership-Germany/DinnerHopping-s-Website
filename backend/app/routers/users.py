@@ -446,6 +446,7 @@ async def login(
     # Cookie names and attributes
     if use_host_prefix:
         # __Host- cookies require Secure and Path=/ and no Domain
+        # Keep refresh token HttpOnly (server-side rotation) and expose CSRF
         resp.set_cookie('__Host-refresh_token', refresh_plain, httponly=True,
                         secure=True, samesite='lax', max_age=max_refresh, path='/')
         resp.set_cookie('__Host-access_token', token, httponly=True,
@@ -453,13 +454,12 @@ async def login(
         resp.set_cookie('__Host-csrf_token', csrf_token, httponly=False,
                         secure=True, samesite='lax', max_age=max_refresh, path='/')
     else:
-        # Dev fallback over http
         resp.set_cookie('refresh_token', refresh_plain, httponly=True,
-                        secure=False, samesite='lax', max_age=max_refresh, path='/')
+                        secure=secure_flag, samesite='lax', max_age=max_refresh, path='/')
         resp.set_cookie('access_token', token, httponly=True,
-                        secure=False, samesite='lax', max_age=60*60*24, path='/')
+                        secure=secure_flag, samesite='lax', max_age=60*60*24, path='/')
         resp.set_cookie('csrf_token', csrf_token, httponly=False,
-                        secure=False, samesite='lax', max_age=max_refresh, path='/')
+                        secure=secure_flag, samesite='lax', max_age=max_refresh, path='/')
 
     return resp
 
@@ -469,10 +469,23 @@ async def logout(response: Response, current_user=Depends(get_current_user)):
     # Clear cookies and remove refresh token(s) associated with user
     with suppress(Exception):
         await db_mod.db.refresh_tokens.delete_many({'user_email': current_user['email']})
-    # delete both dev and __Host- variants
-    for name in ('access_token', 'refresh_token', 'csrf_token', '__Host-access_token', '__Host-refresh_token', '__Host-csrf_token'):
-        with suppress(Exception):
-            response.delete_cookie(name, path='/')
+    
+    # To delete cookies properly, we must match the attributes used when setting them
+    secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
+    use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1', 'true', 'yes'))
+    
+    # Delete cookies with matching attributes
+    if use_host_prefix:
+        # __Host- cookies require secure=True, samesite='lax', path='/', no domain
+        for name in ('__Host-access_token', '__Host-refresh_token', '__Host-csrf_token'):
+            with suppress(Exception):
+                response.delete_cookie(name, path='/', secure=True, samesite='lax')
+    else:
+        # Standard cookies with secure_flag and samesite='lax'
+        for name in ('access_token', 'refresh_token', 'csrf_token'):
+            with suppress(Exception):
+                response.delete_cookie(name, path='/', secure=secure_flag, samesite='lax')
+    
     return {"status": "logged_out"}
 
 
@@ -531,13 +544,32 @@ async def refresh(request: Request, response: Response):
 
     secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
     use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
+
+    try:
+        refresh_max_age = 60 * 60 * 24 * int(os.getenv('REFRESH_TOKEN_DAYS', '30'))
+    except (TypeError, ValueError):
+        refresh_max_age = 60 * 60 * 24 * 30
+    try:
+        access_max_age = int(os.getenv('ACCESS_TOKEN_COOKIE_MAX_AGE', str(60 * 60 * 24)))
+    except (TypeError, ValueError):
+        access_max_age = 60 * 60 * 24
+    try:
+        csrf_bytes = int(os.getenv('CSRF_TOKEN_BYTES', '16'))
+    except (TypeError, ValueError):
+        csrf_bytes = 16
+    csrf_token = generate_token_pair(csrf_bytes)[0]
+
     if use_host_prefix:
-        response.set_cookie('__Host-refresh_token', new_plain, httponly=True, secure=True, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')), path='/')
-        response.set_cookie('__Host-access_token', new_access, httponly=True, secure=True, samesite='lax', max_age=60*60*24, path='/')
+        response.set_cookie('__Host-refresh_token', new_plain, httponly=True, secure=True, samesite='lax', max_age=refresh_max_age, path='/')
+        response.set_cookie('__Host-access_token', new_access, httponly=True, secure=True, samesite='lax', max_age=access_max_age, path='/')
+        response.set_cookie('__Host-csrf_token', csrf_token, httponly=False, secure=True, samesite='lax', max_age=refresh_max_age, path='/')
     else:
-        response.set_cookie('refresh_token', new_plain, httponly=True, secure=False, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')), path='/')
-        response.set_cookie('access_token', new_access, httponly=True, secure=False, samesite='lax', max_age=60*60*24, path='/')
-    return {"access_token": new_access}
+        response.set_cookie('refresh_token', new_plain, httponly=True, secure=secure_flag, samesite='lax', max_age=refresh_max_age, path='/')
+        response.set_cookie('access_token', new_access, httponly=True, secure=secure_flag, samesite='lax', max_age=access_max_age, path='/')
+        response.set_cookie('csrf_token', csrf_token, httponly=False, secure=secure_flag, samesite='lax', max_age=refresh_max_age, path='/')
+
+    # Return the new access token (and CSRF token for JS clients storing tokens locally).
+    return {"access_token": new_access, "csrf_token": csrf_token}
 
 
 class ProfileUpdate(BaseModel):
