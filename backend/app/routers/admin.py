@@ -211,6 +211,27 @@ async def list_email_templates(_=Depends(require_admin)):
                 'html_body': '',
                 'description': 'Sent to a participant when a cancellation refund is processed',
                 'variables': ['event_title','amount_eur','email']
+            },
+            {
+                'key': 'team_incomplete_reminder',
+                'subject': '',
+                'html_body': '',
+                'description': 'Reminder to team creator to find a replacement partner',
+                'variables': ['event_title','replace_url','email']
+            },
+            {
+                'key': 'team_partner_cancelled',
+                'subject': '',
+                'html_body': '',
+                'description': 'Notification that team partner has cancelled',
+                'variables': ['event_title','email']
+            },
+            {
+                'key': 'team_replacement',
+                'subject': '',
+                'html_body': '',
+                'description': 'Notification for replacement partner joining team',
+                'variables': ['event_title','email']
             }
         ]
         for tpl in DEFAULT_TEMPLATES:
@@ -460,3 +481,205 @@ async def admin_post_group_message(group_id: str, body: str, _=Depends(require_a
     }
     res = await db_mod.db.chat_messages.insert_one(doc)
     return {'id': str(res.inserted_id), 'group_id': group_id, 'body': body, 'created_at': now.isoformat(), 'sender_email': 'admin@system'}
+
+
+# ---------------- Admin: Team Management ----------------
+@router.get('/teams/overview')
+async def admin_teams_overview(event_id: str | None = None, _=Depends(require_admin)):
+    """Get overview of all teams with status categorization.
+    
+    Returns teams categorized as:
+    - complete: All members active and paid
+    - incomplete: One member cancelled, needs replacement
+    - faulty: Both members cancelled after payment/matching
+    - pending: Awaiting payment or confirmation
+    """
+    query = {}
+    if event_id:
+        try:
+            query['event_id'] = ObjectId(event_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail='Invalid event_id')
+    
+    teams_list = []
+    async for team in db_mod.db.teams.find(query):
+        team_id = str(team.get('_id'))
+        event_id_str = str(team.get('event_id'))
+        
+        # Get event info
+        event = None
+        try:
+            event = await db_mod.db.events.find_one({'_id': team.get('event_id')})
+        except Exception:
+            pass
+        
+        # Get all registrations for this team
+        registrations = []
+        async for reg in db_mod.db.registrations.find({'team_id': team.get('_id')}):
+            registrations.append(reg)
+        
+        # Categorize team status
+        active_count = sum(1 for r in registrations if r.get('status') not in ('cancelled_by_user', 'cancelled_admin'))
+        cancelled_count = sum(1 for r in registrations if r.get('status') in ('cancelled_by_user', 'cancelled_admin'))
+        paid_count = sum(1 for r in registrations if r.get('status') == 'paid')
+        
+        category = 'pending'
+        if team.get('status') == 'incomplete':
+            category = 'incomplete'
+        elif cancelled_count == 2 and paid_count >= 1:
+            category = 'faulty'
+        elif active_count == 2 and paid_count >= 1:
+            category = 'complete'
+        
+        teams_list.append({
+            'team_id': team_id,
+            'event_id': event_id_str,
+            'event_title': event.get('title') if event else 'Unknown',
+            'status': team.get('status'),
+            'category': category,
+            'created_at': team.get('created_at').isoformat() if team.get('created_at') else None,
+            'members': team.get('members', []),
+            'active_registrations': active_count,
+            'cancelled_registrations': cancelled_count,
+            'paid_registrations': paid_count,
+            'cooking_location': team.get('cooking_location'),
+            'course_preference': team.get('course_preference'),
+            'team_diet': team.get('team_diet'),
+        })
+    
+    return {
+        'teams': teams_list,
+        'total': len(teams_list),
+        'complete': sum(1 for t in teams_list if t['category'] == 'complete'),
+        'incomplete': sum(1 for t in teams_list if t['category'] == 'incomplete'),
+        'faulty': sum(1 for t in teams_list if t['category'] == 'faulty'),
+        'pending': sum(1 for t in teams_list if t['category'] == 'pending'),
+    }
+
+
+@router.post('/teams/send-incomplete-reminder')
+async def admin_send_incomplete_team_reminders(event_id: str, _=Depends(require_admin)):
+    """Send standardized email to all incomplete teams for an event.
+    
+    Reminds team creators to find a replacement partner before the event.
+    """
+    try:
+        eid = ObjectId(event_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid event_id')
+    
+    event = await db_mod.db.events.find_one({'_id': eid})
+    if not event:
+        raise HTTPException(status_code=404, detail='Event not found')
+    
+    # Find all incomplete teams
+    incomplete_teams = []
+    async for team in db_mod.db.teams.find({'event_id': eid, 'status': 'incomplete'}):
+        incomplete_teams.append(team)
+    
+    emails_sent = 0
+    errors = []
+    
+    for team in incomplete_teams:
+        # Find the creator's registration
+        creator_reg = await db_mod.db.registrations.find_one({
+            'team_id': team.get('_id'),
+            'user_id': team.get('created_by_user_id'),
+            'status': {'$nin': ['cancelled_by_user', 'cancelled_admin']}
+        })
+        
+        if creator_reg and creator_reg.get('user_email_snapshot'):
+            try:
+                base = __import__('os').getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+                replace_url = f"{base}/registrations/teams/{str(team.get('_id'))}/replace"
+                
+                from app.utils import send_email
+                success = await send_email(
+                    to=creator_reg['user_email_snapshot'],
+                    subject=f"Action needed: Find a replacement partner for {event.get('title')}",
+                    body=(
+                        f"Hi,\n\n"
+                        f"Your team for '{event.get('title')}' is currently incomplete.\n"
+                        f"Your partner has cancelled, and you need to find a replacement.\n\n"
+                        f"Please visit: {replace_url}\n\n"
+                        f"If you don't find a replacement, your team may be excluded from matching.\n\n"
+                        f"Best regards,\nDinnerHopping Team"
+                    ),
+                    category='team_incomplete_reminder',
+                    template_vars={
+                        'event_title': event.get('title'),
+                        'replace_url': replace_url,
+                        'email': creator_reg['user_email_snapshot']
+                    }
+                )
+                if success:
+                    emails_sent += 1
+            except Exception as e:
+                errors.append(f"Failed to send to {creator_reg.get('user_email_snapshot')}: {str(e)}")
+    
+    return {
+        'status': 'completed',
+        'incomplete_teams_found': len(incomplete_teams),
+        'emails_sent': emails_sent,
+        'errors': errors
+    }
+
+
+@router.post('/events/{event_id}/release-plans')
+async def admin_release_event_plans(event_id: str, _=Depends(require_admin)):
+    """Send final event plans to all paid participants.
+    
+    Notifies all participants with paid status that their schedule is ready.
+    """
+    try:
+        eid = ObjectId(event_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid event_id')
+    
+    event = await db_mod.db.events.find_one({'_id': eid})
+    if not event:
+        raise HTTPException(status_code=404, detail='Event not found')
+    
+    # Find all paid registrations
+    paid_emails = set()
+    async for reg in db_mod.db.registrations.find({'event_id': eid, 'status': 'paid'}):
+        email = reg.get('user_email_snapshot')
+        if email:
+            paid_emails.add(email.lower())
+    
+    emails_sent = 0
+    errors = []
+    
+    for email in paid_emails:
+        try:
+            from app.utils import send_email
+            base = __import__('os').getenv('FRONTEND_BASE_URL', 'http://localhost:3000')
+            plan_url = f"{base}/my-plan.html"
+            
+            success = await send_email(
+                to=email,
+                subject=f"Your DinnerHopping schedule is ready - {event.get('title')}",
+                body=(
+                    f"Hi,\n\n"
+                    f"Great news! The final schedule for '{event.get('title')}' is now available.\n\n"
+                    f"View your personal event plan here: {plan_url}\n\n"
+                    f"See you soon!\nDinnerHopping Team"
+                ),
+                category='final_plan',
+                template_vars={
+                    'event_title': event.get('title'),
+                    'plan_url': plan_url,
+                    'email': email
+                }
+            )
+            if success:
+                emails_sent += 1
+        except Exception as e:
+            errors.append(f"Failed to send to {email}: {str(e)}")
+    
+    return {
+        'status': 'completed',
+        'participants_notified': emails_sent,
+        'total_paid': len(paid_emails),
+        'errors': errors
+    }
