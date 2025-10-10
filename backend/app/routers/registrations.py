@@ -638,6 +638,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
                 'kitchen_available': creator_kitchen,
                 'main_course_possible': creator_main,
                 'diet': creator_diet,
+                'allergies': creator.get('allergies', []),
             }
         ],
         'cooking_location': payload.cooking_location,  # 'creator' | 'partner'
@@ -655,6 +656,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             'kitchen_available': bool(partner_user.get('kitchen_available')),
             'main_course_possible': bool(partner_user.get('main_course_possible')),
             'diet': _enum_value(DietaryPreference, partner_user.get('default_dietary_preference')) or 'omnivore',
+            'allergies': partner_user.get('allergies', []),
         })
     else:
         team_doc['members'].append({
@@ -666,6 +668,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             'field_of_study': partner_external_info.get('field_of_study'),
             'kitchen_available': bool(partner_external_info.get('kitchen_available')),
             'main_course_possible': bool(partner_external_info.get('main_course_possible')),
+            'allergies': partner_external_info.get('allergies', []),
         })
 
     # Validate at least one kitchen available
@@ -1135,6 +1138,7 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
             'kitchen_available': bool(partner_user.get('kitchen_available')),
             'main_course_possible': bool(partner_user.get('main_course_possible')),
             'diet': _enum_value(DietaryPreference, partner_user.get('default_dietary_preference')) or 'omnivore',
+            'allergies': partner_user.get('allergies', []),
         }
     else:
         partner_external_info = payload.partner_external.model_dump()
@@ -1147,6 +1151,7 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
             'field_of_study': partner_external_info.get('field_of_study'),
             'kitchen_available': bool(partner_external_info.get('kitchen_available')),
             'main_course_possible': bool(partner_external_info.get('main_course_possible')),
+            'allergies': partner_external_info.get('allergies', []),
         }
     # Update team members replacing cancelled one
     members = team.get('members') or []
