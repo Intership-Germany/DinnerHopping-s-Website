@@ -7,6 +7,7 @@ import datetime
 from bson.objectid import ObjectId
 
 from .. import utils
+from ..utils import finalize_registration_payment
 
 router = APIRouter()
 
@@ -266,6 +267,68 @@ async def list_email_templates(_=Depends(require_admin)):
         out.append(EmailTemplateOut(**{k: v for k,v in t.items() if k in allowed}))
     return out
 
+    @router.get('/alerts')
+    async def list_admin_alerts(_=Depends(require_admin)):
+        """List admin_alerts for the dashboard."""
+        out = []
+        try:
+            cursor = db_mod.db.admin_alerts.find({}).sort('created_at', -1)
+        except Exception:
+            cursor = db_mod.db.admin_alerts.find({})
+        async for a in cursor:
+            a['id'] = str(a.get('_id'))
+            out.append(a)
+        return out
+
+    @router.post('/alerts/{alert_id}/close')
+    async def close_admin_alert(alert_id: str, _=Depends(require_admin)):
+        try:
+            oid = ObjectId(alert_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail='invalid alert id')
+        res = await db_mod.db.admin_alerts.update_one({'_id': oid}, {'$set': {'status': 'closed', 'closed_at': datetime.datetime.utcnow()}})
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail='alert not found')
+        return {'status': 'closed'}
+
+    @router.post('/alerts/{alert_id}/confirm_payment')
+    async def admin_confirm_alert_payment(alert_id: str, _=Depends(require_admin)):
+        """Admin action: confirm payment referenced by alert and finalize registration.
+
+        This performs the same action as the payments.confirm endpoint but is convenient
+        to be called from the admin dashboard.
+        """
+        try:
+            oid = ObjectId(alert_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail='invalid alert id')
+        alert = await db_mod.db.admin_alerts.find_one({'_id': oid})
+        if not alert:
+            raise HTTPException(status_code=404, detail='alert not found')
+        payment_id = alert.get('payment_id')
+        if not payment_id:
+            raise HTTPException(status_code=400, detail='no payment linked to alert')
+        try:
+            pay_oid = ObjectId(payment_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail='invalid payment id stored')
+        pay = await db_mod.db.payments.find_one({'_id': pay_oid})
+        if not pay:
+            raise HTTPException(status_code=404, detail='payment not found')
+        if (pay.get('status') or '').lower() in ('succeeded', 'paid'):
+            # ensure alert closed
+            await db_mod.db.admin_alerts.update_one({'_id': oid}, {'$set': {'status': 'closed', 'closed_at': datetime.datetime.utcnow()}})
+            return {'status': 'already_paid'}
+
+        now = datetime.datetime.utcnow()
+        await db_mod.db.payments.update_one({'_id': pay_oid}, {'$set': {'status': 'succeeded', 'paid_at': now, 'meta.admin_confirmed_by': 'admin_dashboard'}})
+        # finalize registration
+        try:
+            await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
+        except Exception:
+            pass
+        await db_mod.db.admin_alerts.update_one({'_id': oid}, {'$set': {'status': 'closed', 'closed_at': now}})
+        return {'status': 'succeeded'}
 @router.get('/email-templates/{key}', response_model=EmailTemplateOut)
 async def get_email_template(key: str, _=Depends(require_admin)):
     t = await db_mod.db.email_templates.find_one({'key': key})

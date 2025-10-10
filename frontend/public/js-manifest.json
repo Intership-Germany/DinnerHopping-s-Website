@@ -295,7 +295,7 @@
         "loadProfileForPrefill",
         "loadRegistration",
         "loadRegistrationPaymentStatus",
-        "maybeShowSoloForm",
+        "ShowSoloForm",
         "pushMessage",
         "renderPlan",
         "renderRegistration",

@@ -216,18 +216,17 @@ async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    # Prefer token from the OAuth2 dependency (this will pick up the
-    # Authorization: Bearer <token> header when present). If the dependency
-    # did not provide a token (auto_error=False), fall back to the cookie.
+    # Prefer token from the OAuth2 dependency (Authorization header). If not
+    # present, fall back to the HttpOnly access_token cookie for browser
+    # session flows.
     if not token:
         # prefer secure __Host- cookie if present
         cookie_token = request.cookies.get('__Host-access_token') or request.cookies.get('access_token')
         if cookie_token:
             token = cookie_token
-
-    if not token:
-        # no token provided via header or cookie
-        raise credentials_exception
+        else:
+            # no token provided via header or cookie
+            raise credentials_exception
 
     try:
         payload = jwt.decode(

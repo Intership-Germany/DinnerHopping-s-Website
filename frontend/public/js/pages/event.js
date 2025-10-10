@@ -420,7 +420,7 @@
     }
   }
 
-  function maybeShowSoloForm() {
+  function ShowSoloForm() {
     // Show form only if user NOT registered yet
     if (
       registrationData &&
@@ -880,6 +880,6 @@
   if (registrationData && registrationData.registration_id) {
     await loadRegistrationPaymentStatus();
   }
-  maybeShowSoloForm();
+  ShowSoloForm();
   finalizeUI();
 })();

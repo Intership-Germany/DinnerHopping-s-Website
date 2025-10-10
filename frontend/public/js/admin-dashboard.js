@@ -869,7 +869,7 @@
     const processBtn = $('#btn-process-refunds');
     $('#btn-load-refunds').addEventListener('click', async ()=>{
       const evId = $('#refunds-event-select').value;
-      const res = await apiFetch(`/matching/${evId}/refunds`);
+  const res = await apiFetch(`payments/admin/events/${evId}/refunds`);
       const data = await res.json().catch(()=>({ enabled:false, items:[], total_refund_cents:0 }));
       const box = $('#refunds-overview');
       const msg = $('#refunds-msg');
@@ -888,7 +888,7 @@
       processBtn.addEventListener('click', async ()=>{
         const evId = $('#refunds-event-select').value; if (!evId) return;
         const t = toastLoading('Processing refunds...');
-        const r = await apiFetch(`/matching/${evId}/refunds/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+  const r = await apiFetch(`/events/${evId}/refunds/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
         const data = await r.json().catch(()=>({}));
         if (r.ok){ t.update(`Processed ${data.processed||0}`); toast(`Refunds processed: ${data.processed||0}`, { type: 'success' }); }
         else { t.update('Error'); toast('Refund processing failed', { type: 'error' }); }
@@ -906,7 +906,7 @@
       const evId = $('#refunds-event-select').value; if (!evId || !regId) return;
       const t = toastLoading('Refunding...');
       btn.disabled = true; btn.classList.add('opacity-70');
-      const r = await apiFetch(`/matching/${evId}/refunds/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registration_ids: [regId] }) });
+  const r = await apiFetch(`/events/${evId}/refunds/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registration_ids: [regId] }) });
       const data = await r.json().catch(()=>({}));
       if (r.ok){ t.update('Done'); toast('Refund processed', { type: 'success' }); }
       else { t.update('Error'); toast('Refund failed', { type: 'error' }); }

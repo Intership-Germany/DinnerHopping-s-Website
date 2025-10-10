@@ -168,23 +168,6 @@ async def move_team(event_id: str, payload: dict, _=Depends(require_admin)):
     return {'status': 'noop', 'reason': 'team_not_guest_or_already_present'}
 
 
-@router.get('/{event_id}/refunds')
-async def refunds(event_id: str, _=Depends(require_admin)):
-    await require_event_published(event_id)
-    return await refunds_overview(event_id)
-
-
-@router.post('/{event_id}/refunds/process')
-async def process_refunds_endpoint(event_id: str, payload: dict | None = None, _=Depends(require_admin)):
-    await require_event_published(event_id)
-    registration_ids = None
-    if payload and isinstance(payload, dict):
-        val = payload.get('registration_ids')
-        if isinstance(val, list):
-            registration_ids = [str(x) for x in val if isinstance(x, (str, int))]
-    result = await process_refunds(event_id, registration_ids=registration_ids)
-    return result
-
 
 @router.get('/{event_id}/details')
 async def match_details(event_id: str, version: Optional[int] = None, _=Depends(require_admin)):

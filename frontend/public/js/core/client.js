@@ -16,14 +16,8 @@
   let FORCE_BEARER_MODE = false;
 
   function getBearerToken() {
-    try {
-      const ls = localStorage.getItem('dh_access_token');
-      if (ls) return ls;
-    } catch {}
-    try {
-      const m = document.cookie.match(/(?:^|; )dh_token=([^;]+)/);
-      if (m) return decodeURIComponent(m[1]);
-    } catch {}
+    // Browser clients no longer store access tokens in JS for security.
+    // Always prefer cookie-based HttpOnly session authentication.
     return null;
   }
   function decodeJwtExp(tok) {
@@ -108,6 +102,9 @@
               .json()
               .catch(() => ({}));
             if (data.csrf_token) csrfToken = data.csrf_token;
+            // Do not persist access_token into JS storage; prefer HttpOnly cookie.
+            // Some clients may still return an access_token in JSON for non-browser
+            // clients; we ignore it for browser security and keep cookie-based flow.
           }
           if (!res.ok) throw new Error('Refresh failed');
           return true;
@@ -127,7 +124,9 @@
     const existingBearer =
       options.headers && (options.headers.Authorization || options.headers.authorization);
     const storedToken = getBearerToken();
-    const preferBearer = existingBearer || FORCE_BEARER_MODE || (CROSS_ORIGIN && storedToken);
+  // Prefer bearer auth when caller already provided an Authorization header,
+  // when we've forced bearer mode, or when we have a stored token available.
+  const preferBearer = existingBearer || FORCE_BEARER_MODE || Boolean(storedToken);
     if (preferBearer) {
       options.credentials = 'omit';
     } else if (typeof options.credentials === 'undefined') {
@@ -185,7 +184,22 @@
       } catch {}
     }
     if ((res.status === 401 || res.status === 419) && (preferBearer || usedBearer)) {
+      // Attempt a refresh if we have a refresh cookie and retry the request
       try {
+        try {
+          const newToken = await doRefresh();
+          // if refresh returned a new access token, update header and retry
+          const fresh = typeof newToken === 'string' ? newToken : getBearerToken();
+          if (fresh) {
+            options.headers = Object.assign({}, options.headers || {}, { Authorization: `Bearer ${fresh}` });
+            options.credentials = 'omit';
+            res = await fetch(url, options);
+            readCsrfFromResponse(res);
+            if (res.ok) return res;
+          }
+        } catch (e) {
+          // refresh failed or not available - fallthrough to unauthorized handler
+        }
         if (typeof window.handleUnauthorized === 'function') {
           window.handleUnauthorized({ autoRedirect: true, delayMs: 500 });
         } else {
