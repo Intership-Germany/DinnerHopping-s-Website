@@ -30,6 +30,7 @@ class PaymentProvider(str, Enum):
     auto = 'auto'
     paypal = 'paypal'
     stripe = 'stripe'
+    other = 'other'
 
 
 class PaymentFlow(str, Enum):
@@ -78,8 +79,11 @@ async def list_providers_early():
         providers.append('paypal')
     if os.getenv('STRIPE_API_KEY'):
         providers.append('stripe')
+    # Always include 'other' as a fallback manual payment method
+    providers.append('other')
     default = providers[0] if providers else None
     return {"providers": providers, "default": default}
+
 
 
 @router.get('/stripe/config')
@@ -425,6 +429,77 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
             currency=currency,
             idempotency_key=canonical_idempotency,
             next_action=next_action,
+        )
+
+    if provider == 'other':
+        # Manual payment method: create payment with "waiting_manual_approval" status
+        initial_doc = {
+            "registration_id": reg_obj,
+            "amount": canonical_amount_cents / 100.0,
+            "currency": currency,
+            "status": "waiting_manual_approval",
+            "provider": "other",
+            "idempotency_key": canonical_idempotency,
+            "meta": {"user_email": current_user.get('email'), "event_id": str(ev.get('_id')) if ev else None},
+            "created_at": datetime.datetime.now(datetime.timezone.utc),
+        }
+        doc = await db_mod.db.payments.find_one_and_update(
+            {"registration_id": reg_obj, "provider": "other"},
+            {"$setOnInsert": initial_doc},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        if doc.get('idempotency_key') != canonical_idempotency:
+            await db_mod.db.payments.update_one({"_id": doc.get('_id')}, {"$set": {"idempotency_key": canonical_idempotency}})
+            doc['idempotency_key'] = canonical_idempotency
+
+        payment_id = doc.get('_id')
+        
+        # Link payment to registration
+        try:
+            await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_id}})
+        except PyMongoError:
+            pass
+        
+        # Notify admins about pending manual payment
+        try:
+            from app.utils import send_email
+            admin_users = await db_mod.db.users.find({"roles": "admin"}).to_list(length=None)
+            admin_emails = [u.get('email') for u in admin_users if u.get('email')]
+            
+            event_title = ev.get('title', 'Unknown Event') if ev else 'Unknown Event'
+            user_email = current_user.get('email', 'Unknown User')
+            amount_str = f"{canonical_amount_cents / 100.0:.2f} {currency}"
+            
+            if admin_emails:
+                subject = f"Manual Payment Pending: {event_title}"
+                body = (
+                    f"A user has requested manual payment approval.\n\n"
+                    f"Event: {event_title}\n"
+                    f"User: {user_email}\n"
+                    f"Amount: {amount_str}\n"
+                    f"Payment ID: {str(payment_id)}\n\n"
+                    f"Please review and approve/reject this payment in the admin dashboard.\n\n"
+                    f"Thanks,\nDinnerHopping System"
+                )
+                await send_email(
+                    to=admin_emails,
+                    subject=subject,
+                    body=body,
+                    category='admin_notification'
+                )
+                log.info('payment.create.other.admin_notified payment_id=%s admins=%d', payment_id, len(admin_emails))
+        except Exception as exc:
+            log.warning('payment.create.other.admin_notification_failed payment_id=%s error=%s', payment_id, str(exc))
+        
+        log.info('payment.create.other.ok payment_id=%s status=waiting_manual_approval', payment_id)
+        return _build_payment_response(
+            payment_doc=doc,
+            provider=provider,
+            amount_cents=canonical_amount_cents,
+            currency=currency,
+            idempotency_key=canonical_idempotency,
+            next_action={"type": "manual_approval", "message": "Your payment request has been submitted. An administrator will review and approve it shortly. You will receive a confirmation email once approved."},
         )
 
     raise HTTPException(status_code=400, detail='Unsupported payment provider or provider not configured')
@@ -843,6 +918,116 @@ async def paypal_webhook(request: Request):
         await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
         return {"status": "ok"}
     return {"status": "ignored"}
+
+
+@router.get('/admin/manual-payments', dependencies=[Depends(require_admin)])
+async def list_manual_payments(status: Optional[str] = None):
+    """List all manual payments (provider='other') with optional status filter.
+    
+    Admin-only endpoint to view pending manual payment approvals.
+    """
+    query = {"provider": "other"}
+    if status:
+        query["status"] = status
+    
+    payments = []
+    async for pay in db_mod.db.payments.find(query).sort("created_at", -1):
+        reg = None
+        user_email = None
+        event_title = None
+        
+        # Get registration details
+        if pay.get('registration_id'):
+            reg = await db_mod.db.registrations.find_one({"_id": pay['registration_id']})
+            if reg:
+                user_email = reg.get('user_email_snapshot')
+                # Get event details
+                if reg.get('event_id'):
+                    event = await db_mod.db.events.find_one({"_id": reg['event_id']})
+                    if event:
+                        event_title = event.get('title')
+        
+        payments.append({
+            "payment_id": str(pay['_id']),
+            "registration_id": str(pay['registration_id']) if pay.get('registration_id') else None,
+            "amount": pay.get('amount'),
+            "currency": pay.get('currency'),
+            "status": pay.get('status'),
+            "user_email": user_email or pay.get('meta', {}).get('user_email'),
+            "event_title": event_title,
+            "created_at": pay.get('created_at').isoformat() if pay.get('created_at') else None,
+        })
+    
+    return {"payments": payments}
+
+
+@router.post('/admin/manual-payments/{payment_id}/approve', dependencies=[Depends(require_admin)])
+async def approve_manual_payment(payment_id: str):
+    """Approve a manual payment and finalize the registration.
+    
+    Admin-only endpoint to approve pending manual payments.
+    """
+    try:
+        oid = ObjectId(payment_id)
+    except InvalidId as exc:
+        raise HTTPException(status_code=400, detail='Invalid payment id') from exc
+    
+    pay = await db_mod.db.payments.find_one({"_id": oid})
+    if not pay:
+        raise HTTPException(status_code=404, detail='Payment not found')
+    
+    if pay.get('provider') != 'other':
+        raise HTTPException(status_code=400, detail='Only manual payments (provider=other) can be approved via this endpoint')
+    
+    if pay.get('status') == 'succeeded':
+        return {"status": "already_approved", "payment_id": payment_id}
+    
+    # Update payment status to succeeded
+    now = datetime.datetime.now(datetime.timezone.utc)
+    await db_mod.db.payments.update_one(
+        {"_id": oid},
+        {"$set": {"status": "succeeded", "paid_at": now, "meta.approved_by": "admin", "meta.approved_at": now.isoformat()}}
+    )
+    
+    log.info('payment.manual.approved payment_id=%s', payment_id)
+    
+    # Finalize registration
+    await finalize_registration_payment(pay.get('registration_id'), oid)
+    
+    return {"status": "approved", "payment_id": payment_id}
+
+
+@router.post('/admin/manual-payments/{payment_id}/reject', dependencies=[Depends(require_admin)])
+async def reject_manual_payment(payment_id: str):
+    """Reject a manual payment.
+    
+    Admin-only endpoint to reject pending manual payments.
+    """
+    try:
+        oid = ObjectId(payment_id)
+    except InvalidId as exc:
+        raise HTTPException(status_code=400, detail='Invalid payment id') from exc
+    
+    pay = await db_mod.db.payments.find_one({"_id": oid})
+    if not pay:
+        raise HTTPException(status_code=404, detail='Payment not found')
+    
+    if pay.get('provider') != 'other':
+        raise HTTPException(status_code=400, detail='Only manual payments (provider=other) can be rejected via this endpoint')
+    
+    if pay.get('status') in ('succeeded', 'failed'):
+        return {"status": "already_processed", "payment_id": payment_id, "current_status": pay.get('status')}
+    
+    # Update payment status to failed
+    now = datetime.datetime.now(datetime.timezone.utc)
+    await db_mod.db.payments.update_one(
+        {"_id": oid},
+        {"$set": {"status": "failed", "meta.rejected_by": "admin", "meta.rejected_at": now.isoformat()}}
+    )
+    
+    log.info('payment.manual.rejected payment_id=%s', payment_id)
+    
+    return {"status": "rejected", "payment_id": payment_id}
 
 
 @router.post('/{payment_id}/confirm')
