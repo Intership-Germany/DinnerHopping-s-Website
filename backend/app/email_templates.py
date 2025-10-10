@@ -51,7 +51,7 @@ DEFAULT_TEMPLATES = [
     {
         'key': 'cancellation_confirmation',
         'subject': 'Cancellation confirmed: {{event_title}}',
-        'html_body': '<p>Your registration for <strong>{{event_title}}</strong> has been cancelled.</p><p>{{refund}}</p>',
+        'html_body': '<p>Your registration for <strong>{{event_title}}</strong> has been cancelled. </p> <p> Refund processing: {{refund}}</p>',
         'description': 'Registration cancellation notice',
         'variables': ['event_title','refund','email']
     },
