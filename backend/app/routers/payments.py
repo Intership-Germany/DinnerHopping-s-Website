@@ -931,7 +931,7 @@ async def list_manual_payments(status: Optional[str] = None):
         query["status"] = status
     
     payments = []
-    async for pay in db_mod.db.payments.find(query).sort("created_at", -1):
+    async for pay in db_mod.db.payments.find(query).sort([("created_at", -1)]):
         reg = None
         user_email = None
         event_title = None
