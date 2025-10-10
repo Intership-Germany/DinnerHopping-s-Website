@@ -127,6 +127,49 @@ async def send_team_partner_cancelled(creator_email: str, event_title: str) -> b
     ], "team_cancellation", template_key="team_partner_cancelled", variables={'event_title': event_title, 'email': creator_email})
 
 
+async def send_team_invitation(partner_email: str, creator_email: str, event_title: str, event_date: str, decline_url: str, team_id: str) -> bool:
+    """Send invitation email to a partner who was added to a team.
+    
+    The email should include:
+    - Event details
+    - Creator information
+    - Link to decline the invitation
+    - Information that they have been automatically registered
+    """
+    lines = [
+        f"Hi!",
+        "",
+        f"You have been invited to join a DinnerHopping team by {creator_email}.",
+        f"Event: {event_title}",
+        f"Date: {event_date}",
+        "",
+        "You have been automatically registered for this event as part of this team.",
+        "",
+        "If you cannot participate, you can decline your participation using the link below:",
+        f"{decline_url}",
+        "",
+        "If you decline, the team creator will be notified and can find a replacement partner.",
+        "",
+        "Looking forward to seeing you at the event!",
+        "— DinnerHopping Team",
+    ]
+    return await _send(
+        partner_email, 
+        f"You've been invited to join a DinnerHopping team - {event_title}", 
+        lines, 
+        "team_invitation", 
+        template_key="team_invitation", 
+        variables={
+            'event_title': event_title, 
+            'event_date': event_date,
+            'creator_email': creator_email,
+            'partner_email': partner_email,
+            'decline_url': decline_url,
+            'team_id': team_id
+        }
+    )
+
+
 # Replacement flow
 async def send_partner_replaced_notice(old_partner_email: str | None, new_partner_email: str | None, creator_email: str, event_title: str) -> bool:
     lines = [
@@ -243,6 +286,7 @@ __all__ = [
     "send_payment_confirmation_emails",
     "send_cancellation_confirmation",
     "send_team_partner_cancelled",
+    "send_team_invitation",
     "send_partner_replaced_notice",
     "send_verification_reminder",
     "send_refund_processed",

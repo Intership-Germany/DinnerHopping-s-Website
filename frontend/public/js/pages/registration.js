@@ -114,6 +114,18 @@
         window.dh && window.dh.apiFetch
           ? window.dh.apiFetch
           : (p, opts) => fetch(BASE + p, { ...(opts || {}), credentials: 'include' });
+      
+      // Load user profile to get kitchen/course info
+      let userProfile = null;
+      try {
+        const profileRes = await api('/users/me', { method: 'GET' });
+        if (profileRes.ok) {
+          userProfile = await profileRes.json();
+        }
+      } catch (e) {
+        console.warn('Failed to load user profile:', e);
+      }
+
       // Collect minimal required info for backend: exactly one of partner_existing or partner_external
       let mode = (prompt('Team registration: type "existing" to invite a registered user by email, or "external" for a partner without account.\nLeave empty to cancel.') || '').trim().toLowerCase();
       if (!mode) return;
@@ -121,13 +133,91 @@
         alert('Invalid choice. Please type existing or external.');
         return;
       }
-      let payload = { event_id: eventId, cooking_location: 'creator' };
+      
+      let payload = { 
+        event_id: eventId, 
+        cooking_location: 'creator',
+        dietary_preference: userProfile?.default_dietary_preference || null,
+        kitchen_available: userProfile?.kitchen_available || false,
+        main_course_possible: userProfile?.main_course_possible || false,
+        course_preference: null
+      };
+      
       if (mode === 'existing') {
         const email = (prompt('Enter partner email (existing user):') || '').trim();
         if (!email) {
           alert('Email required.');
           return;
         }
+        
+        // Try to fetch partner info
+        try {
+          const partnerRes = await api(`/registrations/search-user?email=${encodeURIComponent(email)}`, { method: 'GET' });
+          if (partnerRes.ok) {
+            const partner = await partnerRes.json();
+            
+            // Ask who will host
+            const hostChoice = prompt(
+              `Partner found: ${partner.full_name || email}\n\n` +
+              `Who will host the cooking?\n` +
+              `Type "me" for your kitchen or "partner" for their kitchen:\n\n` +
+              `Your kitchen: ${payload.kitchen_available ? 'Available' : 'Not available'}\n` +
+              `Partner kitchen: ${partner.kitchen_available ? 'Available' : 'Not available'}`
+            );
+            
+            if (!hostChoice) return;
+            
+            const normalizedHost = hostChoice.trim().toLowerCase();
+            if (normalizedHost === 'me') {
+              payload.cooking_location = 'creator';
+              if (!payload.kitchen_available) {
+                alert('You indicated your kitchen is not available. Please update your profile or choose partner as host.');
+                return;
+              }
+            } else if (normalizedHost === 'partner') {
+              payload.cooking_location = 'partner';
+              if (!partner.kitchen_available) {
+                alert('Partner kitchen is not available. Please choose a different location.');
+                return;
+              }
+            } else {
+              alert('Invalid choice. Please type "me" or "partner".');
+              return;
+            }
+            
+            // Ask for course preference
+            const courseChoice = prompt(
+              'Which course would your team prefer to cook?\n' +
+              'Type: appetizer, main, or dessert\n' +
+              (payload.cooking_location === 'creator' && !payload.main_course_possible ? 
+                '\nNote: Main course not possible at your location.' : 
+                payload.cooking_location === 'partner' && !partner.main_course_possible ?
+                '\nNote: Main course not possible at partner location.' : '')
+            );
+            
+            if (courseChoice) {
+              const normalizedCourse = courseChoice.trim().toLowerCase();
+              if (['appetizer', 'main', 'dessert'].includes(normalizedCourse)) {
+                payload.course_preference = normalizedCourse;
+                
+                // Validate main course choice
+                if (normalizedCourse === 'main') {
+                  if (payload.cooking_location === 'creator' && !payload.main_course_possible) {
+                    alert('Main course not possible at your location.');
+                    return;
+                  }
+                  if (payload.cooking_location === 'partner' && !partner.main_course_possible) {
+                    alert('Main course not possible at partner location.');
+                    return;
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Could not fetch partner details:', e);
+        }
+        
         payload.partner_existing = { email };
       } else {
         const name = (prompt('Enter partner name:') || '').trim();
@@ -136,8 +226,87 @@
           alert('Name and email required for external partner.');
           return;
         }
-        payload.partner_external = { name, email };
+        
+        const gender = prompt('Partner gender (optional - female/male/diverse/prefer_not_to_say):') || null;
+        const diet = prompt('Partner dietary preference (optional - vegan/vegetarian/omnivore):') || null;
+        const fieldOfStudy = prompt('Partner field of study (optional):') || null;
+        const hasKitchen = confirm('Does partner have a kitchen available?');
+        const canCookMain = hasKitchen ? confirm('Can partner location host main course?') : false;
+        
+        payload.partner_external = { 
+          name, 
+          email,
+          gender: gender || null,
+          dietary_preference: diet || null,
+          field_of_study: fieldOfStudy || null,
+          kitchen_available: hasKitchen,
+          main_course_possible: canCookMain
+        };
+        
+        // Ask who will host
+        let hostChoice = null;
+        if (payload.kitchen_available || hasKitchen) {
+          hostChoice = prompt(
+            'Who will host the cooking?\n' +
+            'Type "me" for your kitchen or "partner" for their kitchen:\n\n' +
+            `Your kitchen: ${payload.kitchen_available ? 'Available' : 'Not available'}\n` +
+            `Partner kitchen: ${hasKitchen ? 'Available' : 'Not available'}`
+          );
+        } else {
+          alert('Neither you nor your partner has a kitchen available. At least one kitchen is required.');
+          return;
+        }
+        
+        if (!hostChoice) return;
+        
+        const normalizedHost = hostChoice.trim().toLowerCase();
+        if (normalizedHost === 'me') {
+          payload.cooking_location = 'creator';
+          if (!payload.kitchen_available) {
+            alert('Your kitchen is not available.');
+            return;
+          }
+        } else if (normalizedHost === 'partner') {
+          payload.cooking_location = 'partner';
+          if (!hasKitchen) {
+            alert('Partner kitchen is not available.');
+            return;
+          }
+        } else {
+          alert('Invalid choice. Please type "me" or "partner".');
+          return;
+        }
+        
+        // Ask for course preference
+        const courseChoice = prompt(
+          'Which course would your team prefer to cook?\n' +
+          'Type: appetizer, main, or dessert\n' +
+          (payload.cooking_location === 'creator' && !payload.main_course_possible ? 
+            '\nNote: Main course not possible at your location.' : 
+            payload.cooking_location === 'partner' && !canCookMain ?
+            '\nNote: Main course not possible at partner location.' : '')
+        );
+        
+        if (courseChoice) {
+          const normalizedCourse = courseChoice.trim().toLowerCase();
+          if (['appetizer', 'main', 'dessert'].includes(normalizedCourse)) {
+            payload.course_preference = normalizedCourse;
+            
+            // Validate main course choice
+            if (normalizedCourse === 'main') {
+              if (payload.cooking_location === 'creator' && !payload.main_course_possible) {
+                alert('Main course not possible at your location.');
+                return;
+              }
+              if (payload.cooking_location === 'partner' && !canCookMain) {
+                alert('Main course not possible at partner location.');
+                return;
+              }
+            }
+          }
+        }
       }
+      
       const res = await api('/registrations/team', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

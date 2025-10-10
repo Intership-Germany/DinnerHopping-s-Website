@@ -675,6 +675,12 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
     if not any(bool(m.get('kitchen_available')) for m in team_doc['members']):
         raise HTTPException(status_code=400, detail='At least one kitchen must be available in the team')
 
+    # Validate that cooking location has a kitchen
+    cooking_location_idx = 0 if payload.cooking_location == 'creator' else 1
+    if not bool(team_doc['members'][cooking_location_idx].get('kitchen_available')):
+        location_name = 'creator' if cooking_location_idx == 0 else 'partner'
+        raise HTTPException(status_code=400, detail=f'Cooking location ({location_name}) must have a kitchen available')
+
     # Ensure main course rule on chosen location
     if team_doc.get('course_preference') == 'main':
         if team_doc.get('cooking_location') == 'creator' and not creator_main:
@@ -747,19 +753,38 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             reg_partner_id = reg_partner_res.inserted_id
             # Notify partner via email with decline link
             base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
-            decline_link = f"{base}/registrations/teams/{team_id}/decline"
-            subject = 'You have been added to a DinnerHopping team'
-            body = (
-                f"Hi,\n\nYou were added to a team for event '{ev.get('title')}'. If you cannot participate, you can decline here:\n{decline_link}\n\nThanks,\nDinnerHopping Team"
-            )
-            # best-effort notification
-            _ = await send_email(
-                to=partner_user.get('email'),
-                subject=subject,
-                body=body,
-                category='team_invitation',
-                template_vars={'event_title': ev.get('title'), 'decline_link': decline_link, 'email': partner_user.get('email')}
-            )
+            frontend_base = os.getenv('FRONTEND_BASE_URL', base)
+            decline_link = f"{frontend_base}/team-invitation.html?team_id={team_id}&action=decline"
+            
+            # Get event date for email
+            event_date = ev.get('date') or (ev.get('start_at').strftime('%Y-%m-%d') if ev.get('start_at') else 'TBD')
+            
+            # Use the new notification function
+            try:
+                from app import notifications
+                _ = await notifications.send_team_invitation(
+                    partner_email=partner_user.get('email'),
+                    creator_email=creator.get('email'),
+                    event_title=ev.get('title', 'Upcoming Event'),
+                    event_date=event_date,
+                    decline_url=decline_link,
+                    team_id=str(team_id)
+                )
+            except Exception:
+                # Fallback to basic email if notification function fails
+                subject = 'You have been added to a DinnerHopping team'
+                body = (
+                    f"Hi,\n\nYou were added to a team for event '{ev.get('title')}' by {creator.get('email')}.\n\n"
+                    f"You have been automatically registered. If you cannot participate, you can decline here:\n{decline_link}\n\n"
+                    f"Thanks,\nDinnerHopping Team"
+                )
+                _ = await send_email(
+                    to=partner_user.get('email'),
+                    subject=subject,
+                    body=body,
+                    category='team_invitation',
+                    template_vars={'event_title': ev.get('title'), 'decline_link': decline_link, 'email': partner_user.get('email')}
+                )
         else:
             # External partner: no user account, no auto-registration. Store snapshot only.
             reg_partner_id = None
@@ -876,7 +901,70 @@ async def decline_team(team_id: str, current_user=Depends(get_current_user)):
             await db_mod.db.events.update_one({'_id': team.get('event_id'), 'attendee_count': {'$gte': res.modified_count}}, {'$inc': {'attendee_count': -res.modified_count}})
     except Exception:
         pass
+    
+    # Notify creator that partner declined
+    try:
+        from app import notifications
+        creator_reg = await db_mod.db.registrations.find_one({'team_id': tid, 'user_id': team.get('created_by_user_id')})
+        if creator_reg and creator_reg.get('user_email_snapshot'):
+            await notifications.send_team_partner_cancelled(
+                creator_email=creator_reg.get('user_email_snapshot'),
+                event_title=ev.get('title', 'Event')
+            )
+    except Exception:
+        pass
+    
     return {'status': 'declined'}
+
+
+@router.get('/teams/{team_id}')
+async def get_team_details(team_id: str, current_user=Depends(get_current_user)):
+    """Get team details for invitation page.
+    
+    Returns basic team information including event details and creator info.
+    Only accessible by team members.
+    """
+    try:
+        tid = ObjectId(team_id)
+    except (InvalidId, TypeError) as exc:
+        raise HTTPException(status_code=400, detail='invalid team id') from exc
+    
+    team = await db_mod.db.teams.find_one({'_id': tid})
+    if not team:
+        raise HTTPException(status_code=404, detail='Team not found')
+    
+    # Check if current user is a member of this team
+    members = team.get('members') or []
+    is_member = any(
+        m.get('email', '').lower() == current_user.get('email', '').lower() or
+        m.get('user_id') == current_user.get('_id')
+        for m in members
+    )
+    
+    if not is_member:
+        raise HTTPException(status_code=403, detail='You are not a member of this team')
+    
+    # Get event details
+    ev = await db_mod.db.events.find_one({'_id': team.get('event_id')}) if team.get('event_id') else None
+    if not ev:
+        raise HTTPException(status_code=404, detail='Event not found')
+    
+    # Get creator info
+    creator = await db_mod.db.users.find_one({'_id': team.get('created_by_user_id')})
+    
+    event_date = ev.get('date') or (ev.get('start_at').strftime('%Y-%m-%d') if ev.get('start_at') else 'TBD')
+    
+    return {
+        'team_id': str(team.get('_id')),
+        'event_id': str(ev.get('_id')),
+        'event_title': ev.get('title'),
+        'event_date': event_date,
+        'created_by_email': creator.get('email') if creator else 'Unknown',
+        'status': team.get('status'),
+        'team_diet': team.get('team_diet'),
+        'cooking_location': team.get('cooking_location'),
+        'course_preference': team.get('course_preference'),
+    }
 
 
 @router.get('/teams/{team_id}/decline')
@@ -895,6 +983,37 @@ async def list_active_events(current_user=Depends(get_current_user)):
     async for e in db_mod.db.events.find(query).sort([('start_at', 1)]):
         out.append({'id': str(e.get('_id')), 'title': e.get('title'), 'date': e.get('date'), 'start_at': e.get('start_at'), 'fee_cents': e.get('fee_cents', 0)})
     return out
+
+
+@router.get('/search-user')
+async def search_user_by_email(email: str, current_user=Depends(get_current_user)):
+    """Search for a user by email address for team invitation.
+    
+    Returns basic user info if found, used by frontend to validate partner invitations.
+    Only returns public info (email, name) - no sensitive data.
+    """
+    if not email or not email.strip():
+        raise HTTPException(status_code=400, detail='Email parameter required')
+    
+    email_lower = email.strip().lower()
+    
+    # Don't allow searching for yourself
+    if email_lower == current_user.get('email', '').lower():
+        raise HTTPException(status_code=400, detail='Cannot invite yourself as partner')
+    
+    user = await db_mod.db.users.find_one({'email': email_lower})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+    
+    # Return only public information
+    return {
+        'email': user.get('email'),
+        'full_name': user.get('full_name'),
+        'kitchen_available': bool(user.get('kitchen_available')),
+        'main_course_possible': bool(user.get('main_course_possible')),
+        'dietary_preference': _enum_value(DietaryPreference, user.get('default_dietary_preference')) or 'omnivore',
+    }
 
 
 # ------------- CANCELLATIONS & REPLACEMENTS (Phase 2.5) -------------

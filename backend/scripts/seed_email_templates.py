@@ -48,10 +48,33 @@ DEFAULT_TEMPLATES = [
     },
     {
         'key': 'team_invitation',
-        'subject': 'You have been added to a DinnerHopping team',
-        'html_body': '<p>Hi!</p><p>You were added to a team for event "{{event_title}}". If you cannot participate, decline here: <a href="{{decline_link}}">Decline</a></p><p>— DinnerHopping Team</p>',
-        'description': 'Team invitation email (partner)',
-        'variables': ['event_title','decline_link','email']
+        'subject': 'You\'ve been invited to join a DinnerHopping team - {{event_title}}',
+        'html_body': '''<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #059669;">You\'ve Been Invited to Join a DinnerHopping Team!</h2>
+            <p>Hi!</p>
+            <p>You have been invited to join a DinnerHopping team by <strong>{{creator_email}}</strong>.</p>
+            
+            <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
+                <p style="margin: 5px 0;"><strong>Event:</strong> {{event_title}}</p>
+                <p style="margin: 5px 0;"><strong>Date:</strong> {{event_date}}</p>
+            </div>
+            
+            <p><strong>You have been automatically registered for this event as part of this team.</strong></p>
+            
+            <p>If you cannot participate, you can decline your participation using the button below:</p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{{decline_url}}" style="display: inline-block; background-color: #dc2626; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold;">Decline Invitation</a>
+            </div>
+            
+            <p style="color: #6b7280; font-size: 14px;">If you decline, the team creator will be notified and can find a replacement partner.</p>
+            
+            <p style="margin-top: 30px;">Looking forward to seeing you at the event!</p>
+            <p>— DinnerHopping Team</p>
+        </div>''',
+        'description': 'Team invitation email with event details and decline option',
+        'variables': ['event_title', 'event_date', 'creator_email', 'partner_email', 'decline_url', 'team_id', 'email']
     },
     {
         'key': 'payment_confirmation',
