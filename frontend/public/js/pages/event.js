@@ -660,7 +660,7 @@
   }
 
   async function fetchProviders() {
-    let providers = ['paypal', 'stripe'];
+    let providers = ['paypal', 'stripe', 'other'];
     let def = 'paypal';
     try {
       if (window.dh?.apiGet) {
@@ -675,7 +675,7 @@
     if (!Array.isArray(providers)) providers = [];
     providers = providers
       .map((p) => (typeof p === 'string' ? p.toLowerCase() : ''))
-      .filter((p) => p && ['paypal', 'stripe'].includes(p));
+      .filter((p) => p && ['paypal', 'stripe', 'other'].includes(p));
     if (!providers.length) return { providers: [], def: null };
     if (!providers.includes(def)) def = providers[0];
     return { providers, def };
@@ -697,7 +697,8 @@
       btn.className =
         'w-full px-3 py-2 rounded border text-sm flex items-center justify-between hover:bg-gray-50';
       btn.dataset.provider = p;
-      btn.innerHTML = `<span class="capitalize">${p}</span>${p === def ? '<span class="text-xs text-teal-600">(default)</span>' : ''}`;
+      const label = p === 'other' ? 'Other (Contact Us)' : p.charAt(0).toUpperCase() + p.slice(1);
+      btn.innerHTML = `<span>${label}</span>${p === def ? '<span class="text-xs text-teal-600">(default)</span>' : ''}`;
       list.appendChild(btn);
     });
     const cancel = document.createElement('button');
@@ -754,17 +755,24 @@
       if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
       // Normalize next_action / legacy fields
       let link = null;
+      let message = null;
       if (payData.next_action) {
         if (payData.next_action.type === 'redirect') link = payData.next_action.url;
         else if (payData.next_action.type === 'paypal_order')
           link = payData.next_action.approval_link;
+        else if (payData.next_action.type === 'manual_approval')
+          message = payData.next_action.message;
       }
       if (!link) link = payData.payment_link;
       if (payData.status === 'no_payment_required') {
         alert('No payment required for this registration.');
         return;
       }
-      if (link) {
+      if (message) {
+        alert(message);
+        // Reload page to show updated status
+        window.location.reload();
+      } else if (link) {
         window.location.assign(link.startsWith('http') ? link : window.BACKEND_BASE_URL + link);
       } else {
         alert('Payment initiated. Follow provider instructions.');

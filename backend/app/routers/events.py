@@ -722,7 +722,7 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
     # handle invited_emails: create invitation records per email
     invited = payload.get('invited_emails') or []
     sent_invitations = []
-    from ..utils import generate_token_pair
+    from ..utils import generate_token_pair, send_email
     for em in invited:
         try:
             invite_bytes = int(os.getenv('INVITE_TOKEN_BYTES', os.getenv('TOKEN_BYTES', '18')))
@@ -731,6 +731,7 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
         token, token_hash_val = generate_token_pair(invite_bytes)
         inv = {
             "registration_id": res.inserted_id,
+            "event_id": ObjectId(event_id),
             "token_hash": token_hash_val,
             "invited_email": em,
             "status": "pending",
@@ -740,7 +741,27 @@ async def register_for_event(event_id: str, payload: dict, current_user=Depends(
         try:
             await db_mod.db.invitations.insert_one(inv)
             base = __import__('os').getenv('BACKEND_BASE_URL', 'http://localhost:8000')
-            print(f"[invitation] To {em}: {base}/invitations/{token}")
+            link = f"{base}/invitations/{token}"
+            print(f"[invitation] To {em}: {link}")
+            
+            # Send invitation email
+            event_title = event.get('title', 'an event')
+            subject = f"You've been invited to {event_title} on DinnerHopping"
+            body = (
+                f"Hi,\n\n"
+                f"You have been invited to join '{event_title}' on DinnerHopping.\n\n"
+                f"To accept this invitation, please visit:\n{link}\n\n"
+                f"If you don't have an account yet, you can create one using the same email address.\n\n"
+                f"Thanks,\nDinnerHopping Team"
+            )
+            await send_email(
+                to=em,
+                subject=subject,
+                body=body,
+                category='invitation',
+                template_vars={'invitation_link': link, 'email': em, 'event_title': event_title}
+            )
+            
             sent_invitations.append(em)
         except PyMongoError as exc:
             # log and continue - invitation failure shouldn't block registration
