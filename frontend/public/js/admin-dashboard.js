@@ -915,12 +915,101 @@
     });
   }
 
+  async function bindManualPayments(){
+    $('#btn-load-manual-payments').addEventListener('click', async ()=>{
+      const msg = $('#manual-payments-msg');
+      const list = $('#manual-payments-list');
+      msg.textContent = 'Loading...';
+      const res = await apiFetch('/payments/admin/manual-payments?status=waiting_manual_approval');
+      const data = await res.json().catch(()=>({ payments: [] }));
+      const payments = data.payments || [];
+      
+      if (payments.length === 0){
+        list.innerHTML = '<p class="text-sm text-[#4a5568]">No pending manual payments.</p>';
+        msg.textContent = '';
+        return;
+      }
+      
+      const rows = payments.map(p => {
+        const date = p.created_at ? new Date(p.created_at).toLocaleString() : 'N/A';
+        return `
+          <div class="border border-[#f0f4f7] rounded-xl p-4 bg-white" data-payment-id="${p.payment_id}">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm mb-3">
+              <div><span class="font-semibold">Event:</span> ${p.event_title || 'N/A'}</div>
+              <div><span class="font-semibold">User:</span> ${p.user_email || 'N/A'}</div>
+              <div><span class="font-semibold">Amount:</span> ${p.amount} ${p.currency}</div>
+              <div><span class="font-semibold">Date:</span> ${date}</div>
+              <div class="md:col-span-2"><span class="font-semibold">Payment ID:</span> <span class="text-xs font-mono">${p.payment_id}</span></div>
+            </div>
+            <div class="flex gap-2">
+              <button class="btn-approve-payment bg-[#1b5e20] text-white rounded-xl px-4 py-2 text-sm font-semibold shadow hover:bg-[#2f7f33] transition">Approve</button>
+              <button class="btn-reject-payment bg-[#e53e3e] text-white rounded-xl px-4 py-2 text-sm font-semibold shadow hover:opacity-90 transition">Reject</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+      
+      list.innerHTML = rows;
+      msg.textContent = `${payments.length} pending payment(s)`;
+    });
+    
+    // Delegated approve/reject handlers
+    document.addEventListener('click', async (e)=>{
+      const approveBtn = e.target && e.target.closest && e.target.closest('.btn-approve-payment');
+      const rejectBtn = e.target && e.target.closest && e.target.closest('.btn-reject-payment');
+      
+      if (!approveBtn && !rejectBtn) return;
+      
+      const container = (approveBtn || rejectBtn).closest('[data-payment-id]');
+      if (!container) return;
+      
+      const paymentId = container.getAttribute('data-payment-id');
+      const action = approveBtn ? 'approve' : 'reject';
+      
+      const t = toastLoading(`${action === 'approve' ? 'Approving' : 'Rejecting'} payment...`);
+      
+      // Disable buttons
+      const btns = container.querySelectorAll('button');
+      btns.forEach(b => { b.disabled = true; b.classList.add('opacity-70'); });
+      
+      const r = await apiFetch(`/payments/admin/manual-payments/${paymentId}/${action}`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({}) 
+      });
+      
+      if (r.ok){
+        t.update(`Payment ${action}d`);
+        toast(`Payment ${action}d successfully`, { type: 'success' });
+        // Remove from list
+        container.remove();
+        // Update count
+        const remaining = document.querySelectorAll('[data-payment-id]').length;
+        const msg = $('#manual-payments-msg');
+        if (remaining === 0){
+          $('#manual-payments-list').innerHTML = '<p class="text-sm text-[#4a5568]">No pending manual payments.</p>';
+          msg.textContent = '';
+        } else {
+          msg.textContent = `${remaining} pending payment(s)`;
+        }
+      } else {
+        t.update('Error');
+        toast(`Failed to ${action} payment`, { type: 'error' });
+        // Re-enable buttons
+        btns.forEach(b => { b.disabled = false; b.classList.remove('opacity-70'); });
+      }
+      t.close();
+    });
+  }
+
+
   async function init(){
     await ensureCsrf();
     await loadEvents();
     await handleCreate();
     await startMatching();
     await bindRefunds();
+    await bindManualPayments();
     bindMaps();
     // Do not auto-load matching proposals or details on page load.
     // Users must click "Start Matching" or "Refresh Proposals" to fetch them.
