@@ -118,12 +118,18 @@
         const list = document.createElement('div');
         list.className = 'space-y-2';
         providers.forEach((p) => {
+          const key = (p || '').toLowerCase();
           const b = document.createElement('button');
           b.type = 'button';
-          b.dataset.provider = p;
-          b.className =
-            'w-full px-3 py-2 rounded border text-sm flex items-center justify-between hover:bg-gray-50';
-          b.innerHTML = `<span class="capitalize">${p}</span>${p === def ? '<span class="text-xs text-teal-600">(default)</span>' : ''}`;
+          b.dataset.provider = key;
+          b.className = 'w-full px-3 py-2 rounded border text-sm flex items-center justify-between gap-2 hover:bg-gray-50';
+          if (key === 'paypal') {
+            b.innerHTML = '<div class="flex items-center gap-2"><img alt="PayPal" src="https://www.paypalobjects.com/webstatic/icon/pp258.png" class="w-5 h-5" /><span class="font-medium">Pay with PayPal</span></div>' + (key === def ? '<span class="text-xs text-teal-600">(default)</span>' : '');
+          } else if (key === 'stripe') {
+            b.innerHTML = '<div class="flex items-center gap-2"><svg viewBox="0 0 28 28" class="w-5 h-5" aria-hidden="true"><path fill="#635BFF" d="M.5 9.3l7.8-1.4v13.6c0 3.2-1.9 4.6-4.8 4.6-1.3 0-2.2-.3-3-1v-3.8c.6.3 1.3.5 2 .5.8 0 1.2-.3 1.2-1.2V9.3zM27.5 14.9c0-4.1-2.5-5.7-7.4-6.5-3.5-.6-4.2-1-4.2-2 0-.8.8-1.4 2.2-1.4 1.3 0 2.6.3 3.9.8l.6-4c-1.5-.5-3.1-.8-4.7-.8-4 0-6.8 2.1-6.8 5.5 0 3.8 2.5 5.2 6.8 6 3.3.6 4.2 1.1 4.2 2.1 0 1-1 1.6-2.5 1.6-1.6 0-3.3-.4-4.8-1.1l-.7 4.1c1.8.7 3.8 1 5.7 1 4.2 0 7.7-2.1 7.7-5.8z"/></svg><span class="font-medium">Pay with Stripe</span></div>' + (key === def ? '<span class="text-xs text-teal-600">(default)</span>' : '');
+          } else {
+            b.innerHTML = `<div class="flex items-center gap-2"><span class="font-medium">Pay with ${key.charAt(0).toUpperCase()}${key.slice(1)}</span></div>` + (key === def ? '<span class="text-xs text-teal-600">(default)</span>' : '');
+          }
           list.appendChild(b);
         });
         const cancel = document.createElement('button');

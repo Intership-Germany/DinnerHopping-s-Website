@@ -109,6 +109,43 @@ async def paypal_capture_order(order_id: str):
     capture = await paypal_provider.capture_order(order_id)
     status = (capture.get('status') or '').upper()
     now = datetime.datetime.now(datetime.timezone.utc)
+    # Extra validation: ensure PayPal capture belongs to our payment and amount matches
+    try:
+        purchase_units = capture.get('purchase_units') or []
+        matched = False
+        for pu in purchase_units:
+            ref = pu.get('reference_id') or pu.get('referenceId') or pu.get('reference')
+            amt = (pu.get('payments') or {}).get('captures', [])
+            if ref and str(ref) == str(pay.get('_id')):
+                # If captures array present, check amounts
+                if amt:
+                    # take first capture
+                    c0 = amt[0]
+                    c_amount = c0.get('amount') or {}
+                    c_value = c_amount.get('value')
+                    c_currency = c_amount.get('currency_code') or c_amount.get('currency')
+                    # expected amount from DB
+                    expected = int(round((pay.get('amount') or 0) * 100))
+                    try:
+                        # compare cents
+                        captured_cents = int(round(float(c_value) * 100)) if c_value is not None else None
+                    except Exception:
+                        captured_cents = None
+                    if captured_cents is not None and captured_cents != expected:
+                        log.warning('paypal.capture.mismatch_amount order_id=%s payment_id=%s expected_cents=%s captured_cents=%s', order_id, pay.get('_id'), expected, captured_cents)
+                        # mark failed but include capture meta
+                        await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "failed", "meta.capture": capture}})
+                        return {"status": "FAILED", "detail": "amount_mismatch"}
+                matched = True
+                break
+        if not matched:
+            # reference id did not match — log and reject
+            log.warning('paypal.capture.reference_mismatch order_id=%s payment_id=%s', order_id, pay.get('_id'))
+            await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "failed", "meta.capture": capture}})
+            return {"status": "FAILED", "detail": "reference_mismatch"}
+    except Exception:
+        log.exception('paypal.capture.validation_error order_id=%s payment_id=%s', order_id, pay.get('_id'))
+
     if status == 'COMPLETED':
         log.info('paypal.capture.completed order_id=%s payment_id=%s', order_id, pay.get('_id'))
         await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "succeeded", "paid_at": now, "meta.capture": capture}})
@@ -154,7 +191,7 @@ def _build_payment_response(
         amount_minor = 0
     resp = {
         "payment_id": str(payment_doc.get('_id')) if payment_doc else None,
-        "status": (payment_doc or {}).get('status') or 'pending',
+        "status": (payment_doc or {}).get('status') or 'in_process',
         "amount_cents": amount_minor,
         "currency": (payment_doc or {}).get('currency') or currency,
         "provider": provider,
@@ -297,7 +334,7 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
     if existing_for_registration and flow == 'order':
         # Only reuse if we have a valid order/link and payment is still pending
         if existing_for_registration.get('provider_payment_id') and existing_for_registration.get('payment_link') and (
-            (existing_for_registration.get('status') or 'pending').lower() in ('pending', 'created')
+            (existing_for_registration.get('status') or 'pending').lower() in ('pending', 'created', 'in_process')
         ):
             next_action = {
                 "type": "paypal_order",
@@ -371,7 +408,7 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
             "registration_id": reg_obj,
             "amount": canonical_amount_cents / 100.0,
             "currency": currency,
-            "status": "pending",
+            "status": "in_process",
             "provider": "stripe",
             "idempotency_key": canonical_idempotency,
             "meta": {},
@@ -435,7 +472,7 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
             "registration_id": reg_obj,
             "amount": canonical_amount_cents / 100.0,
             "currency": currency,
-            "status": "pending",
+            "status": "in_process",
             "provider": "others",
             "idempotency_key": canonical_idempotency,
             "meta": {"note": "manual_contact_us"},
@@ -497,6 +534,9 @@ async def payment_cancel(payment_id: str):
     
     # Redirect to frontend
     frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+    # Defensive normalization: remove trailing '/api' if present (common misconfig)
+    if frontend_base.rstrip('/').endswith('/api'):
+        frontend_base = frontend_base.rstrip('/')[:-4]
     redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}&status=cancelled"
     return RedirectResponse(url=redirect_url, status_code=303)
 
@@ -598,7 +638,42 @@ async def paypal_return(payment_id: str, token: Optional[str] = None):
     
     # Determine frontend URL for redirect
     frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+    if frontend_base.rstrip('/').endswith('/api'):
+        frontend_base = frontend_base.rstrip('/')[:-4]
     
+    # Validate capture: ensure it references our payment and amount matches DB before marking success
+    try:
+        purchase_units = capture.get('purchase_units') or []
+        matched = False
+        for pu in purchase_units:
+            ref = pu.get('reference_id') or pu.get('referenceId') or pu.get('reference')
+            if ref and str(ref) == str(pay.get('_id')):
+                # amount check if possible
+                amt = (pu.get('payments') or {}).get('captures', [])
+                if amt:
+                    c0 = amt[0]
+                    c_amount = c0.get('amount') or {}
+                    c_value = c_amount.get('value')
+                    try:
+                        captured_cents = int(round(float(c_value) * 100)) if c_value is not None else None
+                    except Exception:
+                        captured_cents = None
+                    expected = int(round((pay.get('amount') or 0) * 100))
+                    if captured_cents is not None and captured_cents != expected:
+                        log.warning('paypal.return.mismatch_amount payment_id=%s order_id=%s expected_cents=%s captured_cents=%s', payment_id, order_id, expected, captured_cents)
+                        await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
+                        redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}&status=failed"
+                        return RedirectResponse(url=redirect_url, status_code=303)
+                matched = True
+                break
+        if not matched:
+            log.warning('paypal.return.reference_mismatch payment_id=%s order_id=%s', payment_id, order_id)
+            await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
+            redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}&status=failed"
+            return RedirectResponse(url=redirect_url, status_code=303)
+    except Exception:
+        log.exception('paypal.return.validation_error payment_id=%s order_id=%s', payment_id, order_id)
+
     if status == 'COMPLETED':
         log.info('paypal.return.completed payment_id=%s order_id=%s', payment_id, order_id)
         await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now, "meta.capture": capture}})
@@ -759,6 +834,35 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
 
         if pay.get('status') in ('succeeded', 'paid'):
             return {"status": "already_processed"}
+
+        # Validate amount/currency when present in session data
+        try:
+            # amount in DB is stored as float (euros) -> convert to cents
+            expected_cents = int(round((pay.get('amount') or 0) * 100))
+            session_amount = None
+            session_currency = None
+            if isinstance(data, dict):
+                session_amount = data.get('amount_total') or data.get('amount') or data.get('amount_subtotal')
+                session_currency = data.get('currency') or data.get('currency_code')
+            # If webhook didn't include amount_total, try retrieving via Stripe API using session_id
+            if session_amount is None and session_id:
+                try:
+                    session_obj = stripe_provider.retrieve_checkout_session(session_id)
+                    session_dict = session_obj.to_dict() if hasattr(session_obj, 'to_dict') else session_obj
+                    session_amount = session_dict.get('amount_total')
+                    session_currency = session_dict.get('currency')
+                except Exception:
+                    session_amount = None
+            if session_amount is not None:
+                # Stripe provides cents already when amount_total from API
+                captured_cents = int(session_amount) if isinstance(session_amount, (int, float)) else int(round(float(session_amount)))
+                if captured_cents != expected_cents:
+                    log.warning('webhook.stripe.amount_mismatch session_id=%s payment_id=%s expected_cents=%s captured_cents=%s', session_id, pay.get('_id'), expected_cents, captured_cents)
+                    await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "failed", "meta.webhook": data}})
+                    return {"status": "amount_mismatch"}
+        except Exception:
+            log.exception('webhook.stripe.validation_error session_id=%s payment_id=%s', session_id, pay.get('_id'))
+
         now = datetime.datetime.now(datetime.timezone.utc)
         await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "succeeded", "paid_at": now}})
         log.info('webhook.stripe.payment.succeeded session_id=%s payment_id=%s', session_id, pay.get('_id'))
@@ -892,6 +996,51 @@ async def paypal_webhook(request: Request):
     if typ in ('PAYMENT.CAPTURE.COMPLETED', 'CHECKOUT.ORDER.COMPLETED'):
         if pay.get('status') in ('succeeded', 'paid'):
             return {"status": "ok"}
+        # Validate capture amount and reference if possible
+        try:
+            resource_type = (resource.get('resource_type') or '').lower()
+            # resource may contain capture details or order details
+            captured_value = None
+            captured_currency = None
+            ref = None
+            # Try common shapes: resource.amount, resource.purchase_units, resource.supplementary_data
+            if isinstance(resource, dict):
+                # Direct capture payload
+                amt = resource.get('amount') or resource.get('capture_amount') or {}
+                if isinstance(amt, dict):
+                    captured_value = amt.get('value') or amt.get('amount')
+                    captured_currency = amt.get('currency_code') or amt.get('currency')
+                # supplementary ids
+                ref = resource.get('supplementary_data', {}).get('related_ids', {}).get('order_id') or resource.get('id')
+                # fallback: check purchase_units
+                if not captured_value and resource.get('purchase_units'):
+                    pus = resource.get('purchase_units') or []
+                    if pus:
+                        pu = pus[0]
+                        if pu.get('payments') and pu.get('payments').get('captures'):
+                            c0 = pu.get('payments').get('captures')[0]
+                            ca = c0.get('amount') or {}
+                            captured_value = ca.get('value')
+                            captured_currency = ca.get('currency_code') or ca.get('currency')
+                            ref = pu.get('reference_id') or pu.get('referenceId') or ref
+            expected_cents = int(round((pay.get('amount') or 0) * 100))
+            if captured_value is not None:
+                try:
+                    captured_cents = int(round(float(captured_value) * 100))
+                except Exception:
+                    captured_cents = None
+                if captured_cents is not None and captured_cents != expected_cents:
+                    log.warning('webhook.paypal.amount_mismatch order_id=%s payment_id=%s expected_cents=%s captured_cents=%s', order_id, pay.get('_id'), expected_cents, captured_cents)
+                    await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "failed", "meta.webhook": body}})
+                    return {"status": "amount_mismatch"}
+            # If reference id present, ensure it matches our provider_payment_id or DB id
+            if ref and str(ref) not in (str(pay.get('provider_payment_id') or ''), str(pay.get('_id') or '')):
+                log.warning('webhook.paypal.reference_mismatch order_id=%s payment_id=%s ref=%s', order_id, pay.get('_id'), ref)
+                await db_mod.db.payments.update_one({"_id": pay.get('_id')}, {"$set": {"status": "failed", "meta.webhook": body}})
+                return {"status": "reference_mismatch"}
+        except Exception:
+            log.exception('webhook.paypal.validation_error order_id=%s payment_id=%s', order_id, pay.get('_id'))
+
         now = datetime.datetime.now(datetime.timezone.utc)
         await db_mod.db.payments.update_one({"_id": pay['_id']}, {"$set": {"status": "succeeded", "paid_at": now, "meta.webhook": body}})
         log.info('webhook.paypal.payment.succeeded order_id=%s payment_id=%s', order_id, pay.get('_id'))

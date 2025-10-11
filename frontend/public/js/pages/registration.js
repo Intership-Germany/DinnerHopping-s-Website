@@ -29,6 +29,27 @@
     if (!res.ok) throw new Error('Failed to load events');
     return await res.json();
   }
+
+  async function fetchUserRegistrations() {
+    const api =
+      window.dh && window.dh.apiFetch
+        ? window.dh.apiFetch
+        : (p, opts) => fetch(BASE + p, { ...(opts || {}), credentials: 'include' });
+    try {
+      const res = await api('/registrations/registration-status', { method: 'GET' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data?.registrations || [];
+    } catch {
+      return null;
+    }
+  }
+
+  function hasActiveRegistration(registrations) {
+    if (!Array.isArray(registrations)) return false;
+    const cancelledStatuses = ['cancelled_by_user', 'cancelled_admin'];
+    return registrations.some(reg => reg.status && !cancelledStatuses.includes(reg.status));
+  }
   async function startSolo(eventId) {
     try {
       const api =
@@ -382,12 +403,74 @@
     const list = document.getElementById('events-list');
     if (!list) return;
     try {
-      const events = await fetchActiveEvents();
+      // Fetch both events and user's current registrations
+      const [events, userRegistrations] = await Promise.all([
+        fetchActiveEvents(),
+        fetchUserRegistrations()
+      ]);
+
+      const hasActive = hasActiveRegistration(userRegistrations);
+      
+      if (hasActive && Array.isArray(userRegistrations)) {
+        // User has active registration - show warning message
+        const activeReg = userRegistrations.find(reg => {
+          const cancelledStatuses = ['cancelled_by_user', 'cancelled_admin'];
+          return reg.status && !cancelledStatuses.includes(reg.status);
+        });
+        
+        const warningDiv = el(
+          'div',
+          { class: 'p-4 mb-4 border-l-4 border-yellow-500 bg-yellow-50 rounded' },
+          el('div', { class: 'flex items-start' },
+            el('div', { class: 'ml-3' },
+              el('h3', { class: 'text-sm font-medium text-yellow-800' }, 'Active Registration Found'),
+              el('div', { class: 'mt-2 text-sm text-yellow-700' },
+                `You already have an active registration for "${activeReg?.event_title || 'an event'}". ` +
+                `You must cancel your current registration before registering for another event. ` +
+                `Please visit your profile or registrations page to cancel.`
+              )
+            )
+          )
+        );
+        list.appendChild(warningDiv);
+      }
+
       if (!events.length) {
         list.appendChild(el('p', { class: 'text-gray-600' }, 'No active events right now.'));
         return;
       }
+      
       events.forEach((ev) => {
+        const soloBtn = el(
+          'button',
+          {
+            class: hasActive 
+              ? 'px-3 py-1 bg-gray-400 text-white rounded cursor-not-allowed' 
+              : 'px-3 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700',
+            onclick: hasActive ? () => {
+              alert('You already have an active registration. Please cancel it first before registering for another event.');
+            } : () => startSolo(ev.id),
+            disabled: hasActive,
+            title: hasActive ? 'You must cancel your active registration first' : 'Register as solo participant'
+          },
+          'Register Solo'
+        );
+
+        const teamBtn = el(
+          'button',
+          {
+            class: hasActive 
+              ? 'px-3 py-1 bg-gray-400 text-white rounded cursor-not-allowed' 
+              : 'px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700',
+            onclick: hasActive ? () => {
+              alert('You already have an active registration. Please cancel it first before registering for another event.');
+            } : () => startTeam(ev.id),
+            disabled: hasActive,
+            title: hasActive ? 'You must cancel your active registration first' : 'Register as a team'
+          },
+          'Register Team'
+        );
+
         const row = el(
           'div',
           { class: 'p-3 border rounded mb-2 flex items-center justify-between' },
@@ -397,26 +480,7 @@
             el('div', { class: 'font-semibold' }, ev.title || 'Event'),
             el('div', { class: 'text-xs text-gray-500' }, ev.date || ev.start_at || '')
           ),
-          el(
-            'div',
-            { class: 'space-x-2' },
-            el(
-              'button',
-              {
-                class: 'px-3 py-1 bg-emerald-600 text-white rounded',
-                onclick: () => startSolo(ev.id),
-              },
-              'Register Solo'
-            ),
-            el(
-              'button',
-              {
-                class: 'px-3 py-1 bg-indigo-600 text-white rounded',
-                onclick: () => startTeam(ev.id),
-              },
-              'Register Team'
-            )
-          )
+          el('div', { class: 'space-x-2' }, soloBtn, teamBtn)
         );
         list.appendChild(row);
       });

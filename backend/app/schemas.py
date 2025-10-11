@@ -54,6 +54,7 @@ class RegistrationStatus(str, Enum):
 class PaymentStatus(str, Enum):
     created = 'created'
     pending = 'pending'
+    in_process = 'in_process'
     succeeded = 'succeeded'
     failed = 'failed'
     refunded = 'refunded'

@@ -244,6 +244,21 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
                             await db_mod.db.events.update_one({'_id': existing_active.get('event_id')}, {'$inc': {'attendee_count': -int(res.modified_count)}})
                     except Exception:
                         pass
+                    # Notify all team members about the cancellation
+                    try:
+                        from app import notifications
+                        prev_event_title = prev_ev.get('title', 'Event')
+                        refund_flag = bool(prev_ev.get('refund_on_cancellation', False))
+                        # Find all registrations for this team and send notification to each member
+                        async for team_reg in db_mod.db.registrations.find({'team_id': tid}):
+                            member_email = team_reg.get('user_email_snapshot')
+                            if member_email:
+                                try:
+                                    await notifications.send_cancellation_confirmation(member_email, prev_event_title, refund_flag)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
                 else:
                     # Solo registration: cancel it
                     await db_mod.db.registrations.update_one({'_id': existing_active.get('_id')}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
@@ -475,6 +490,21 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
                             await db_mod.db.events.update_one({'_id': existing_creator_active.get('event_id')}, {'$inc': {'attendee_count': -int(res.modified_count)}})
                     except Exception:
                         pass
+                    # Notify all team members about the cancellation
+                    try:
+                        from app import notifications
+                        prev_event_title = prev_ev.get('title', 'Event')
+                        refund_flag = bool(prev_ev.get('refund_on_cancellation', False))
+                        # Find all registrations for this team and send notification to each member
+                        async for team_reg in db_mod.db.registrations.find({'team_id': tid}):
+                            member_email = team_reg.get('user_email_snapshot')
+                            if member_email:
+                                try:
+                                    await notifications.send_cancellation_confirmation(member_email, prev_event_title, refund_flag)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
                 else:
                     await db_mod.db.registrations.update_one({'_id': existing_creator_active.get('_id')}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
                     try:
@@ -555,6 +585,21 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
                         try:
                             if getattr(res, 'modified_count', 0) > 0:
                                 await db_mod.db.events.update_one({'_id': existing_partner_active.get('event_id')}, {'$inc': {'attendee_count': -int(res.modified_count)}})
+                        except Exception:
+                            pass
+                        # Notify all team members about the cancellation
+                        try:
+                            from app import notifications
+                            partner_prev_event_title = partner_prev_ev.get('title', 'Event')
+                            refund_flag = bool(partner_prev_ev.get('refund_on_cancellation', False))
+                            # Find all registrations for this team and send notification to each member
+                            async for team_reg in db_mod.db.registrations.find({'team_id': tid}):
+                                member_email = team_reg.get('user_email_snapshot')
+                                if member_email:
+                                    try:
+                                        await notifications.send_cancellation_confirmation(member_email, partner_prev_event_title, refund_flag)
+                                    except Exception:
+                                        pass
                         except Exception:
                             pass
                     else:
@@ -771,10 +816,12 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
                     team_id=str(team_id)
                 )
                 if not email_sent:
-                    from app.logging_config import logger
+                    import logging
+                    logger = logging.getLogger('registrations')
                     logger.warning(f"Team invitation email may not have been sent to {partner_user.get('email')} for team {team_id}")
             except Exception as e:
-                from app.logging_config import logger
+                import logging
+                logger = logging.getLogger('registrations')
                 logger.error(f"Failed to send team invitation email to {partner_user.get('email')}: {e}", exc_info=True)
                 # Fallback to basic email if notification function fails
                 try:
