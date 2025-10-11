@@ -10,9 +10,11 @@ _Work in Progress • Actively developed_
 
 ## 1. Overview
 
-DinnerHopping lets users register, verify their email, browse & join dinner events, invite partners/teammates, and pay participation fees via Stripe Checkout or PayPal Orders. Admins manage events, review refund eligibility, and (future) launch matching logic to group participants.
+DinnerHopping lets users register (solo or as teams of two), verify their email, browse & join dinner events, invite partners/teammates, and pay participation fees via Stripe Checkout or PayPal Orders. Admins manage events, monitor team statuses, review refund eligibility, and (future) launch matching logic to group participants.
 
-Current focus: stable core flows (auth → event creation → registration → payment → cancellation/refund listing) with a clean foundation for deferred features (matching, chat, richer travel logic).
+Current focus: stable core flows (auth → event creation → registration (solo/team) → payment → cancellation/refund listing → team management) with a clean foundation for deferred features (matching, chat, richer travel logic).
+
+**Key Feature:** Comprehensive team registration system allowing users to form teams of two, with automatic dietary preference calculation, kitchen validation, partner invitation/replacement, and admin oversight. See **TEAM_REGISTRATION_GUIDE.md** for details.
 
 ### Key Characteristics
 - FastAPI backend with modular routers & settings
@@ -79,6 +81,10 @@ frontend/
 	generate-config.js    # Produces runtime config.js from .env
 
 README.md (this)        # General project documentation
+TEAM_REGISTRATION_GUIDE.md  # Complete team system documentation
+TEAM_QUICK_REFERENCE.md     # Quick reference for team features
+TEAM_IMPLEMENTATION_SUMMARY.md  # Implementation status report
+REGISTRATION_IMPROVEMENTS.md    # Single active registration system
 ```
 
 ## 5. Quick Start (Full Stack via Docker Compose)
@@ -227,10 +233,14 @@ Add new tests in `backend/tests/` using shared fixtures (`conftest.py`).
 
 | Feature | Status |
 |---------|--------|
+| Team registration & management | ✅ Complete (See TEAM_REGISTRATION_GUIDE.md) |
+| Single active registration system | ✅ Complete (See REGISTRATION_IMPROVEMENTS.md) |
+| Email template system | ✅ Complete |
+| Admin team dashboard | ✅ Complete |
+| Payment integration (Stripe/PayPal) | ✅ Complete |
 | Matching algorithm & group travel | Deferred |
 | Chat lifecycle & messaging persistence | Scaffold only |
 | Automated provider refunds | Planned |
-| Advanced admin dashboards | Planned |
 | Rich HTML email templates | Planned |
 | Cookie/CSRF auth full migration | In progress |
 
