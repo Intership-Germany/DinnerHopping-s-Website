@@ -37,6 +37,8 @@
     if (!reg)
       return { label: 'registered', cancelled: false, refunded: false, refundPending: false };
     const s = (reg.status || '').toLowerCase();
+    // Normalize invited state to a friendly label
+    if (s === 'invited') return { label: 'Invited', cancelled: false, refunded: false, refundPending: false };
     const pay = (reg.payment_status || reg.payment?.status || '').toLowerCase();
     const refunded = s === 'refunded' || pay === 'refunded';
     const cancelled = [
@@ -65,6 +67,8 @@
       el.classList.add('bg-red-600', 'text-white');
     } else if (meta.label.toLowerCase() === 'paid') {
       el.classList.add('bg-green-600', 'text-white');
+    } else if (meta.label.toLowerCase() === 'invited' || meta.label === 'Invited') {
+      el.classList.add('bg-blue-600', 'text-white');
     }
   }
 
@@ -249,6 +253,7 @@
       const badge = node.querySelector('.reg-badge');
       const note = node.querySelector('.reg-note');
       const btnPay = node.querySelector('.reg-pay');
+      const btnAccept = node.querySelector('.reg-accept');
       const spanPaymentId = node.querySelector('.reg-payment-id');
       const aGo = node.querySelector('.reg-go');
       const eventId = ev.id || ev._id || ev.eventId;
@@ -262,6 +267,49 @@
 
       const meta = computeStatus(regInfo);
       applyBadge(badge, meta);
+      // Show an explanatory note for invited registrations
+      if (regInfo && (regInfo.status || '').toLowerCase() === 'invited') {
+        if (note) {
+          note.classList.remove('hidden');
+          note.innerHTML = 'You were invited to this event. Check your email for the invitation link to accept. If you already have an account, log in and accept the invitation while authenticated.';
+          note.classList.remove('text-red-600');
+          note.classList.add('text-blue-600');
+        }
+        // Hide payment button for invited users
+        if (btnPay) btnPay.classList.add('hidden');
+        if (btnAccept) {
+          btnAccept.classList.remove('hidden');
+          btnAccept.addEventListener('click', async () => {
+            try {
+              // Prefer accepting by registration id when available, otherwise accept by invitation id
+              const regId = regInfo.registration_id || regInfo._id || regInfo.id;
+              let resp;
+              if (regId) {
+                resp = await window.dh.apiPost(`/invitations/by-registration/${encodeURIComponent(regId)}/accept`, {});
+              } else {
+                const invId = regInfo.invitation_id || (regInfo.invitation && regInfo.invitation.id) || regInfo.inv_id || regInfo.invitation_id_str;
+                if (!invId) return alert('Invitation id missing');
+                resp = await window.dh.apiPost(`/invitations/by-id/${encodeURIComponent(invId)}/accept`, {});
+              }
+              if (!resp.res.ok) {
+                const err = resp.data?.detail || 'Failed to accept invitation';
+                return alert(err);
+              }
+              const data = resp.data;
+              // If payment is required, redirect to payment creation endpoint
+              if (data && data.payment_create_endpoint && data.registration_id) {
+                // redirect to payment create page (frontend will typically open provider flow)
+                window.location.assign(`${data.payment_create_endpoint}?registration_id=${encodeURIComponent(data.registration_id)}`);
+                return;
+              }
+              // otherwise refresh page or registrations
+              if (window.dh?.components?.renderMyRegistrations) {
+                try { window.dh.apiGet('/registrations/registration-status').then(({res,data})=> window.dh.components.renderMyRegistrations(data?.registrations || [])); } catch(e){}
+              } else location.reload();
+            } catch (e) { alert(e.message || 'Accept failed'); }
+          });
+        }
+      }
       const amountDue =
         regInfo && typeof regInfo.amount_due_cents === 'number' ? regInfo.amount_due_cents : null;
       const isPaid = meta.label.toLowerCase() === 'paid';

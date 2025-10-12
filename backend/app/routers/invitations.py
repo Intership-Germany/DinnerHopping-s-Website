@@ -12,7 +12,7 @@ import datetime
 from typing import Optional
 from fastapi import Request
 from fastapi.responses import RedirectResponse
-import urllib.parse
+from app.auth import get_current_user
 
 ######### Router / Endpoints #########
 
@@ -379,20 +379,22 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
     set_password_link = None
     reset_token = None
     if not existing_user:
-        # create a provisional user with a placeholder password hash (random) and mark email_verified=True
-        # user will be required to set a real password via the emailed set-password link
-        placeholder = secrets.token_urlsafe(18)
+        # create a provisional user without a password (password_hash="") so that
+        # self-service registration can later overwrite the record within a short TTL.
+        # Mark the account as 'invited' and record invited_at to allow cleanup.
         user_doc = {
             "email": invited_email_lc,
             "name": invited_email_lc.split('@', 1)[0],
-            "password_hash": hash_password(placeholder),
-            "email_verified": True,
+            "password_hash": "",
+            "email_verified": False,
             "roles": ['user'],
             "preferences": {},
             "failed_login_attempts": 0,
             "lockout_until": None,
             "lat": None,
             "lon": None,
+            "invited": True,
+            "invited_at": now,
             "created_at": now,
             "updated_at": now,
             "deleted_at": None,
@@ -454,8 +456,13 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
             res = await db_mod.db.invitations.insert_one(inv)
             # Use the backend API link for direct accept operations, but prefer
             # frontend-hosted landing pages for password setting and user flows.
-            base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
-            link = f"{base}/invitations/{invite_token}"
+            # Prefer frontend landing page so users get a friendly UI
+            frontend_base = os.getenv('FRONTEND_BASE_URL') or ''
+            if frontend_base:
+                link = f"{frontend_base.rstrip('/')}/invitation.html?token={invite_token}"
+            else:
+                base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+                link = f"{base}/invitations/{invite_token}"
 
             # send invitation email (best-effort)
             if user_created:
@@ -478,9 +485,19 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
                     "If you don't have an account, you can register using the same email address.\n\nThanks,\nDinnerHopping Team"
                 )
             # fire-and-forget but await to surface SMTP errors in logs (send_email handles its own failures)
+            # Attempt to include event title for nicer email rendering
+            ev = None
+            try:
+                ev = await db_mod.db.events.find_one({'_id': event_id}) if event_id else None
+            except Exception:
+                ev = None
+            event_title_name = (ev or {}).get('title') if ev else None
+
             tmpl_vars = {'invitation_link': link, 'email': invited_email_lc}
             if set_password_link:
                 tmpl_vars['set_password_url'] = set_password_link
+            if event_title_name:
+                tmpl_vars['event_title'] = event_title_name
             await send_email(
                 to=invited_email_lc,
                 subject=subject,
@@ -675,19 +692,20 @@ async def accept_invitation_via_link(token: str, request: Request):
     provisional_created = False
     set_password_link = None
     if not existing:
-        # create provisional user with placeholder password and issue a password-reset token
-        placeholder = secrets.token_urlsafe(18)
+        # create provisional user without password so registration can overwrite it
         user_doc = {
             "email": invited_email,
             "name": invited_email.split('@', 1)[0],
-            "password_hash": hash_password(placeholder),
-            "email_verified": True,
+            "password_hash": "",
+            "email_verified": False,
             "roles": ['user'],
             "preferences": {},
             "failed_login_attempts": 0,
             "lockout_until": None,
             "lat": None,
             "lon": None,
+            "invited": True,
+            "invited_at": now,
             "created_at": now,
             "updated_at": now,
             "deleted_at": None,
@@ -834,3 +852,247 @@ async def accept_invitation_via_link(token: str, request: Request):
         return {"status": "accepted", "user_email": user_email, "registration_id": reg_id}
 
     return RedirectResponse(accept_success_url, status_code=303)
+
+
+@router.post('/by-registration/{registration_id}/accept')
+async def accept_invitation_by_registration(registration_id: str, current_user=Depends(get_current_user)):
+    """Accept an invitation linked to a registration while authenticated.
+
+    This allows a logged-in user to accept an invitation from the UI without requiring
+    the token that was delivered via email. Only the invited email or the intended
+    recipient may accept the invitation using this route.
+    """
+    try:
+        reg_oid = ObjectId(registration_id)
+    except (InvalidId, TypeError) as exc:
+        raise HTTPException(status_code=400, detail='invalid registration_id') from exc
+
+    inv = await db_mod.db.invitations.find_one({'registration_id': reg_oid, 'status': 'pending'})
+    if not inv:
+        raise HTTPException(status_code=404, detail='Invitation not found')
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    expires_at = inv.get('expires_at')
+    if expires_at and isinstance(expires_at, datetime.datetime) and expires_at < now:
+        await db_mod.db.invitations.update_one({"_id": inv['_id']}, {"$set": {"status": "expired", "expired_at": now}})
+        raise HTTPException(status_code=400, detail='Invitation expired')
+
+    if inv.get('status') != 'pending':
+        raise HTTPException(status_code=400, detail='Invitation already used or invalid')
+
+    invited_email = inv.get('invited_email')
+    user_email = current_user.get('email')
+    # Only the invited email may accept the invitation via this route
+    if invited_email and invited_email.lower() != user_email.lower():
+        raise HTTPException(status_code=403, detail='Not authorized to accept this invitation')
+
+    # Ensure event still accepts registrations
+    if inv.get('event_id'):
+        await require_event_published(inv.get('event_id'))
+
+    # Proceed with acceptance logic (authenticated path)
+    event_id = inv.get('event_id')
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    # Find the registration this invitation is for
+    reg = await db_mod.db.registrations.find_one({'_id': reg_oid})
+    if not reg:
+        raise HTTPException(status_code=400, detail='Registration not found')
+
+    team_id = reg.get('team_id')
+
+    if team_id:
+        # TEAM flow for authenticated user
+        team = await db_mod.db.teams.find_one({'_id': team_id})
+        creator_reg = None
+        try:
+            creator_reg = await db_mod.db.registrations.find_one({'team_id': team_id, 'user_id': team.get('created_by_user_id')})
+        except Exception:
+            creator_reg = None
+
+        is_inv_linked_to_creator = False
+        try:
+            if reg and creator_reg and str(reg.get('_id')) == str(creator_reg.get('_id')):
+                is_inv_linked_to_creator = True
+        except Exception:
+            is_inv_linked_to_creator = False
+
+        partner_reg_oid = reg_oid
+        if is_inv_linked_to_creator:
+            user_doc = await db_mod.db.users.find_one({'email': user_email})
+            partner_user_id = user_doc.get('_id') if user_doc else None
+            partner_reg_doc = {
+                'event_id': event_id,
+                'team_id': team_id,
+                'team_size': 2,
+                'preferences': team.get('preferences') if team.get('preferences') else {},
+                'diet': team.get('team_diet'),
+                'status': 'confirmed',
+                'user_id': partner_user_id,
+                'user_email_snapshot': user_email,
+                'created_at': now,
+                'updated_at': now,
+            }
+            p_res = await db_mod.db.registrations.insert_one(partner_reg_doc)
+            partner_reg_oid = p_res.inserted_id
+
+        await db_mod.db.registrations.update_many(
+            {'team_id': team_id, 'status': 'pending_invitation'},
+            {'$set': {'status': 'confirmed', 'updated_at': now}}
+        )
+
+        await db_mod.db.teams.update_one(
+            {'_id': team_id},
+            {'$set': {'status': 'confirmed', 'updated_at': now}}
+        )
+
+        ev = await db_mod.db.events.find_one({"_id": event_id}) if event_id else None
+        fee_cents = (ev or {}).get('fee_cents', 0)
+
+        creator_reg = creator_reg or await db_mod.db.registrations.find_one({'team_id': team_id, 'user_id': {'$ne': partner_reg_oid}})
+
+        team_amount_cents = 0
+        if creator_reg and fee_cents and fee_cents > 0:
+            existing_payment = await db_mod.db.payments.find_one({'registration_id': creator_reg.get('_id')})
+            if not existing_payment:
+                team_amount_cents = int(fee_cents) * 2
+                pay = {
+                    "registration_id": creator_reg.get('_id'),
+                    "amount": float(team_amount_cents) / 100.0,
+                    "currency": 'EUR',
+                    "status": "pending",
+                    "provider": 'N/A',
+                    "meta": {"reason": "team_invitation_accepted", "team_id": str(team_id)},
+                    "created_at": now
+                }
+                p = await db_mod.db.payments.insert_one(pay)
+                try:
+                    await db_mod.db.registrations.update_one({"_id": creator_reg.get('_id')}, {"$set": {"payment_id": p.inserted_id, "status": "pending_payment", "updated_at": now}})
+                    await db_mod.db.registrations.update_one({"_id": partner_reg_oid}, {"$set": {"status": "pending_payment", "updated_at": now}})
+                except PyMongoError:
+                    pass
+
+        await db_mod.db.invitations.update_one({"_id": inv['_id']}, {"$set": {"status": "accepted", "accepted_by": user_email, "accepted_at": now}})
+
+        if creator_reg:
+            try:
+                from app import notifications
+                creator_email = creator_reg.get('user_email_snapshot')
+                event_title = ev.get('title', 'Event') if ev else 'Event'
+                await notifications.send_team_partner_accepted(
+                    creator_email=creator_email,
+                    partner_email=user_email,
+                    event_title=event_title,
+                    team_id=str(team_id)
+                )
+            except Exception:
+                pass
+
+        base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+        response = {
+            "status": "accepted",
+            "user_email": user_email,
+            "registration_id": str(partner_reg_oid),
+            "team_id": str(team_id),
+            "registration_status": "pending_payment",
+            "payment_create_endpoint": f"{base}/payments/create",
+            "amount_cents": team_amount_cents if fee_cents else 0,
+            "message": "Team confirmed! Please complete payment to finalize registration."
+        }
+
+        return response
+
+
+@router.post('/by-id/{inv_id}/accept')
+async def accept_invitation_by_id(inv_id: str, current_user=Depends(get_current_user)):
+    """Accept an invitation by its database id while authenticated.
+
+    Use this for invitations that were created without an associated registration.
+    The caller must be the invited email to accept the invitation.
+    """
+    try:
+        oid = ObjectId(inv_id)
+    except (InvalidId, TypeError) as exc:
+        raise HTTPException(status_code=400, detail='invalid invitation id') from exc
+
+    inv = await db_mod.db.invitations.find_one({'_id': oid})
+    if not inv:
+        raise HTTPException(status_code=404, detail='Invitation not found')
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    expires_at = inv.get('expires_at')
+    if expires_at and isinstance(expires_at, datetime.datetime) and expires_at < now:
+        await db_mod.db.invitations.update_one({'_id': inv['_id']}, {'$set': {'status': 'expired', 'expired_at': now}})
+        raise HTTPException(status_code=400, detail='Invitation expired')
+
+    if inv.get('status') != 'pending':
+        raise HTTPException(status_code=400, detail='Invitation already used or invalid')
+
+    invited_email = inv.get('invited_email')
+    user_email = current_user.get('email')
+    if invited_email and invited_email.lower() != user_email.lower():
+        raise HTTPException(status_code=403, detail='Not authorized to accept this invitation')
+
+    # Delegate to existing accept logic by reusing registration-based accept where possible
+    reg_oid = inv.get('registration_id')
+    if reg_oid:
+        # call existing by-registration accept logic
+        return await accept_invitation_by_registration(str(reg_oid), current_user)
+
+    # No registration exists: create solo registration linked to this invitation
+    event_id = inv.get('event_id')
+    if event_id:
+        await require_event_published(event_id)
+
+    # create registration for the invited user
+    user_doc = await db_mod.db.users.find_one({'email': user_email})
+    user_id = user_doc.get('_id') if user_doc else None
+    reg_doc = {
+        'event_id': event_id,
+        'user_email_snapshot': user_email,
+        'status': 'invited',
+        'invitation_id': inv.get('_id'),
+        'user_id': user_id,
+        'team_size': 1,
+        'preferences': {},
+        'created_at': now,
+        'updated_at': now,
+    }
+    reg_res = await db_mod.db.registrations.insert_one(reg_doc)
+
+    # retro-link invitation
+    try:
+        await db_mod.db.invitations.update_one({'_id': inv['_id']}, {'$set': {'registration_id': reg_res.inserted_id}})
+    except Exception:
+        pass
+
+    # pending payment logic (if event has fee)
+    try:
+        ev = await db_mod.db.events.find_one({'_id': event_id}) if event_id else None
+        fee_cents = (ev or {}).get('fee_cents', 0)
+        reg_oid = reg_res.inserted_id
+        if fee_cents and fee_cents > 0 and reg_oid:
+            existing_payment = await db_mod.db.payments.find_one({'registration_id': reg_oid})
+            if not existing_payment:
+                pay = {
+                    'registration_id': reg_oid,
+                    'amount': float(fee_cents) / 100.0,
+                    'currency': 'EUR',
+                    'status': 'pending',
+                    'provider': 'N/A',
+                    'meta': {'reason': 'invite_accepted'},
+                    'created_at': datetime.datetime.now(datetime.timezone.utc)
+                }
+                p = await db_mod.db.payments.insert_one(pay)
+                try:
+                    await db_mod.db.registrations.update_one({'_id': reg_oid}, {'$set': {'payment_id': p.inserted_id}})
+                except PyMongoError:
+                    pass
+    except PyMongoError:
+        pass
+
+    # mark invitation accepted
+    await db_mod.db.invitations.update_one({'_id': inv['_id']}, {'$set': {'status': 'accepted', 'accepted_by': user_email, 'accepted_at': now}})
+
+    reg_id = str(reg_res.inserted_id) if hasattr(reg_res, 'inserted_id') else str(reg_res.get('_id'))
+    return {'status': 'accepted', 'user_email': user_email, 'registration_id': reg_id}

@@ -222,26 +222,6 @@ async def send_team_created(creator_email: str, partner_email: str | None, event
         ) or ok_any
     except Exception:
         ok_any = ok_any or False
-
-    # Informational partner email (best-effort)
-    if partner_email:
-        try:
-            lines = [
-                f"Hi,\n\nYou were invited to join a DinnerHopping team for '{event_title}'.",
-                "Please accept the invitation to confirm your participation.",
-                "— DinnerHopping Team",
-            ]
-            ok_any = await _send(
-                partner_email,
-                f"You've been invited to join a team - {event_title}",
-                lines,
-                "team_created_partner",
-                template_key="team_created_partner",
-                variables={'event_title': event_title, 'team_id': team_id, 'email': partner_email}
-            ) or ok_any
-        except Exception:
-            ok_any = ok_any or False
-
     return ok_any
 
 

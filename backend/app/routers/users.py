@@ -220,7 +220,79 @@ async def register(u: UserCreate):
     email_lower = str(u.email).lower()
     existing = await db_mod.db.users.find_one({"email": email_lower})
     if existing:
-        raise HTTPException(status_code=409, detail="Email already registered")
+        # Allow overwriting a provisional invited user if the existing record
+        # appears to be provisional (no password set) and the original
+        # invitation is recent enough (configurable TTL).
+        invited_ttl_days = 7
+        try:
+            invited_ttl_days = int(os.getenv('INVITED_TTL_DAYS', '7'))
+        except Exception:
+            invited_ttl_days = 7
+
+        can_overwrite = False
+
+        # Only consider provisional records with an empty password hash.
+        try:
+            if existing.get('password_hash') == "":
+                invitation = await db_mod.db.invitations.find_one({"invited_email": email_lower})
+                if not invitation:
+                    logger.info("no valid invitation found for existing provisional user", extra={"invitation": invitation})
+                else:
+                    expires_at = invitation.get('expires_at')
+                    if isinstance(expires_at, __import__('datetime').datetime):
+                        try:
+                            # Ensure both datetimes are timezone-aware in UTC for safe comparison.
+                            tz_utc = __import__('datetime').timezone.utc
+                            now = __import__('datetime').datetime.now(tz_utc)
+
+                            expires_dt = expires_at
+                            if expires_dt.tzinfo is None:
+                                expires_dt = expires_dt.replace(tzinfo=tz_utc)
+                            else:
+                                expires_dt = expires_dt.astimezone(tz_utc)
+
+                            # Log invitation state for auditing/debugging
+                            try:
+                                expires_str = expires_dt.isoformat()
+                                if expires_dt < now:
+                                    logger.info(
+                                        "provisional invitation expired",
+                                        extra={
+                                            "email": email_lower,
+                                            "expires_at": expires_str,
+                                            "invited_ttl_days": invited_ttl_days,
+                                        },
+                                    )
+                                else:
+                                    logger.info(
+                                        "provisional invitation found",
+                                        extra={
+                                            "email": email_lower,
+                                            "expires_at": expires_str,
+                                            "invited_ttl_days": invited_ttl_days,
+                                        },
+                                    )
+                            except Exception:
+                                logger.info(
+                                    "provisional invitation lookup (unable to format expires_at)",
+                                    extra={"email": email_lower},
+                                )
+
+                            # compute cutoff in short steps to satisfy linters
+                            cutoff_now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+                            cutoff_delta = __import__('datetime').timedelta(days=invited_ttl_days)
+                            cutoff = cutoff_now - cutoff_delta
+
+                            if expires_dt >= cutoff:
+                                can_overwrite = True
+                        except Exception:
+                            can_overwrite = False
+        except Exception as e:
+            logger.info({"error": str(e)})
+            can_overwrite = False
+
+        if not can_overwrite:
+            raise HTTPException(status_code=409, detail="Email already registered")
     # validate password under policy
     if u.password != u.password_confirm:
         raise HTTPException(status_code=400, detail="Passwords do not match")
@@ -269,8 +341,44 @@ async def register(u: UserCreate):
     user_doc['created_at'] = now
     user_doc['updated_at'] = now
     user_doc['deleted_at'] = None  # soft delete marker
-    res = await db_mod.db.users.insert_one(user_doc)
-    user_doc['id'] = str(res.inserted_id)
+    # If an existing provisional user was detected and is allowed to be overwritten,
+    # perform an update preserving the existing _id. Otherwise insert a new user.
+    if existing and existing.get('password_hash') is "":
+        # Overwrite permitted provisional user
+        try:
+            updated = await db_mod.db.users.find_one_and_update(
+                {'email': email_lower},
+                {'$set': {
+                    'first_name': user_doc['first_name'],
+                    'last_name': user_doc['last_name'],
+                    'gender': user_doc['gender'],
+                    'phone_number': user_doc['phone_number'],
+                    'address_struct': user_doc['address_struct'],
+                    'lat': user_doc['lat'],
+                    'lon': user_doc['lon'],
+                    'allergies': user_doc['allergies'],
+                    'password_hash': user_doc['password_hash'],
+                    'email_verified': False,
+                    'profile_prompt_pending': True,
+                    'optional_profile_completed': False,
+                    'roles': ['user'],
+                    'address_encrypted': user_doc['address_encrypted'],
+                    'address_public': user_doc['address_public'],
+                    'updated_at': now,
+                    'deleted_at': None
+                }},
+                upsert=False,
+                return_document=__import__('pymongo').ReturnDocument.AFTER
+            )
+            # Ensure we have an id string
+            user_doc['id'] = str(updated.get('_id')) if updated and updated.get('_id') else None
+        except Exception:
+            # fallback to insert if update fails for any reason
+            res = await db_mod.db.users.insert_one(user_doc)
+            user_doc['id'] = str(res.inserted_id)
+    else:
+        res = await db_mod.db.users.insert_one(user_doc)
+        user_doc['id'] = str(res.inserted_id)
     # send verification email (prints link in dev)
     email_sent = False
     with suppress(Exception):
