@@ -2,7 +2,20 @@ import os
 from typing import Dict, Any
 
 
-def create_checkout_session(amount_cents: int, payment_id, idempotency_key: str | None = None) -> Dict[str, Any]:
+def create_checkout_session(
+    amount_cents: int,
+    payment_id,
+    idempotency_key: str | None = None,
+    *,
+    payer_name: str | None = None,
+    registration_type: str | None = None,
+) -> Dict[str, Any]:
+    """Create a Stripe Checkout Session.
+
+    New optional keyword-only args:
+    - payer_name: display name to include in the product description/metadata
+    - registration_type: string like 'team' or 'solo' to include in metadata
+    """
     stripe_key = os.getenv('STRIPE_API_KEY')
     if not stripe_key:
         raise RuntimeError('Stripe not configured')
@@ -10,27 +23,36 @@ def create_checkout_session(amount_cents: int, payment_id, idempotency_key: str 
     stripe.api_key = stripe_key
 
     # Build common kwargs for session creation
-    # Use FRONTEND_BASE_URL for user-facing redirects, fallback to BACKEND_BASE_URL
-    frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+    # Prefer FRONTEND_BASE_URL for user-facing redirects (Stripe Checkout expects public URLs),
+    # fall back to BACKEND_BASE_URL if frontend base not configured.
+    frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL') or 'http://localhost:8000'
+    product_name = 'Event registration'
+    if payer_name:
+        # include payer name to make the checkout clearer for the user
+        product_name = f"Event registration — {payer_name}"
+    session_metadata = {
+        "payment_db_id": str(payment_id),
+        "idempotency_key": idempotency_key or '',
+    }
+    if registration_type:
+        session_metadata['registration_type'] = registration_type
+
     session_kwargs = dict(
         payment_method_types=['card'],
         line_items=[
             {
                 "price_data": {
                     "currency": "eur",
-                    "product_data": {"name": "Event registration"},
+                    "product_data": {"name": product_name},
                     "unit_amount": amount_cents,
                 },
                 "quantity": 1,
             }
         ],
         mode='payment',
-        success_url=frontend_base.rstrip('/') + f'/payment-success.html?payment_id={payment_id}',
-        cancel_url=frontend_base.rstrip('/') + f'/payment-success.html?payment_id={payment_id}&status=cancelled',
-        metadata={
-            "payment_db_id": str(payment_id),
-            "idempotency_key": idempotency_key or '',
-        },
+        success_url=frontend_base.rstrip('/') + f'/payement?payment_id={payment_id}',
+        cancel_url=frontend_base.rstrip('/') + f'/payement?payment_id={payment_id}&status=cancelled',
+        metadata=session_metadata,
     )
 
     # If an idempotency key is provided, pass it through to Stripe so provider-side

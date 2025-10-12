@@ -4,11 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Team Invitation - DinnerHopping</title>
-  <link rel="stylesheet" href="/css/main.css">
-  <script src="/js/config.js"></script>
+  <script src="js/config.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  </style>
 </head>
 <body class="bg-gray-50">
-  <div data-include="/partials/header.html"></div>
+  <div data-include="partials/header.html"></div>
 
   <main class="max-w-2xl mx-auto px-4 py-12">
     <div id="loadingSpinner" class="text-center py-12">
@@ -51,11 +55,11 @@
     </div>
   </main>
 
-  <div data-include="/partials/footer.html"></div>
+  <div data-include="partials/footer.html"></div>
 
-  <script src="/js/core/includes.js"></script>
-  <script src="/js/core/auth.js"></script>
-  <script src="/js/core/client.js"></script>
-  <script src="/js/pages/team-invitation.js"></script>
+  <script src="js/core/includes.js" defer></script>
+  <script src="js/core/auth.js" defer></script>
+  <script src="js/core/client.js" defer></script>
+  <script src="js/pages/team-invitation.js" defer></script>
 </body>
 </html>

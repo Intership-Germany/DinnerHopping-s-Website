@@ -104,8 +104,8 @@
       
       <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p class="text-blue-900">
-          <strong>Note:</strong> You have been automatically registered for this event as part of this team. 
-          If you decline, the team creator will be notified and can find a replacement partner.
+          <strong>Note:</strong> You have been invited to join this team. An invitation email with an accept link has been sent to your address.
+          To accept, follow the link in that email. If you cannot find the email, check your spam folder or contact the creator. If you decline, the team creator will be notified and can find a replacement partner.
         </p>
       </div>
     `;

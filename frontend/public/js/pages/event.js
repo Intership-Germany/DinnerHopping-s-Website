@@ -434,7 +434,24 @@
     // Event must be open for registration
     if (!eventData) return;
     const status = (eventData.status || '').toLowerCase();
-    if (!['open', 'coming_soon'].includes(status)) return; // conservative: only open
+    // If event is not open or coming soon, do not show the form and ensure register button is disabled
+    if (!['open', 'coming_soon'].includes(status)) {
+      // Hide solo form and show a helpful message
+      soloRegSection.classList.add('hidden');
+      pushMessage('Registration for this event is not open.', 'warn');
+      return; // conservative: only open
+    }
+    // If registration_deadline passed, don't show the form
+    if (eventData.registration_deadline) {
+      try {
+        const dl = new Date(eventData.registration_deadline);
+        if (!isNaN(dl) && dl.getTime() < Date.now()) {
+          soloRegSection.classList.add('hidden');
+          pushMessage('Registration deadline has passed for this event.', 'warn');
+          return;
+        }
+      } catch (e) {}
+    }
     // Prefill values
     if (profileData) {
       if (srDiet && profileData.default_dietary_preference) {
@@ -515,6 +532,26 @@
         });
         const body = await resp.json().catch(() => ({}));
         if (!resp.ok) {
+          // Handle blocked re-registration (HTTP 409) specially
+          if (resp.status === 409) {
+            const msg = body.detail || body.message || 'You already have a registration in another event.';
+            // Show message and disable submit to prevent repeat attempts
+            srStatus.textContent = msg;
+            srStatus.classList.remove('text-gray-500');
+            srStatus.classList.add('text-red-600');
+            // Optionally show link to existing registration if provided
+            if (body.existing_registration && body.existing_registration.registration_id) {
+              const rid = body.existing_registration.registration_id;
+              const link = document.createElement('a');
+              link.href = `/registration.html?id=${encodeURIComponent(rid)}`;
+              link.textContent = 'View your existing registration';
+              link.className = 'ml-2 text-sm text-indigo-600 underline';
+              srStatus.appendChild(document.createElement('br'));
+              srStatus.appendChild(link);
+            }
+            // Keep submit disabled and exit
+            return;
+          }
           const msg = body.detail || body.message || `Registration failed (HTTP ${resp.status})`;
           throw new Error(msg);
         }
@@ -541,7 +578,10 @@
         srStatus.classList.add('text-red-600');
         console.error(err);
       } finally {
-        srSubmit.disabled = false;
+        // If srStatus indicates a blocking condition (e.g., 409) we keep the button disabled to avoid retries
+        if (!srStatus.textContent || !/already have a registration|already in an event/i.test(srStatus.textContent)) {
+          srSubmit.disabled = false;
+        }
       }
     });
   }
@@ -675,14 +715,25 @@
           /paid|succeeded/i.test(registrationData.payment_status || '') ||
           /paid|succeeded/i.test(registrationData.status || '')
         );
+      // If event is closed or registration deadline passed, disable payment actions
+      let registrationAllowed = true;
+      const status = (eventData?.status || '').toLowerCase();
+      if (!['open', 'coming_soon'].includes(status)) registrationAllowed = false;
+      if (eventData?.registration_deadline) {
+        try {
+          const dl = new Date(eventData.registration_deadline);
+          if (!isNaN(dl) && dl.getTime() < Date.now()) registrationAllowed = false;
+        } catch (e) {}
+      }
+
       if (unpaid && payNowBtn) {
         payNowBtn.classList.remove('hidden');
-        payNowBtn.disabled = false;
+        payNowBtn.disabled = !registrationAllowed;
         payNowBtn.onclick = () => startPaymentFlow({ quick: true });
       }
       if (unpaid && chooseProviderBtn) {
         chooseProviderBtn.classList.remove('hidden');
-        chooseProviderBtn.disabled = false;
+        chooseProviderBtn.disabled = !registrationAllowed;
         chooseProviderBtn.onclick = () => startPaymentFlow({ quick: false });
       } else {
         // Paid -> hide buttons

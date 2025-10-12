@@ -28,6 +28,7 @@ def test_stripe_forwards_idempotency_key(monkeypatch):
     # Adapter checks STRIPE_API_KEY at runtime; set a dummy key for the test
     monkeypatch.setenv('STRIPE_API_KEY', 'sk_test_dummy')
 
+    # call with the same positional args; provider accepts new kwargs but they are optional
     res = stripe_mod.create_checkout_session(2500, 'payment-id-1', idempotency_key='my-server-key')
 
     assert captured.get('idempotency_key') == 'my-server-key'

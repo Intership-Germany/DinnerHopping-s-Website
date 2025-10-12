@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Header, Request, Depends
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 import os, datetime, logging, re
 from enum import Enum
@@ -437,7 +438,26 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
             )
 
         try:
-            session = stripe_provider.create_checkout_session(canonical_amount_cents, payment_id, canonical_idempotency)
+            # Determine a human-friendly payer name to show in Stripe checkout where available
+            payer_name = None
+            try:
+                payer_name = reg.get('user_name_snapshot') or reg.get('user_email_snapshot')
+            except Exception:
+                payer_name = None
+
+            # registration_type: 'team' when team_size > 1 else 'solo'
+            try:
+                registration_type = 'team' if int((reg or {}).get('team_size') or 1) > 1 else 'solo'
+            except Exception:
+                registration_type = None
+
+            session = stripe_provider.create_checkout_session(
+                canonical_amount_cents,
+                payment_id,
+                canonical_idempotency,
+                payer_name=payer_name,
+                registration_type=registration_type,
+            )
         except Exception as exc:  # noqa: BLE001
             try:
                 await db_mod.db.payments.delete_one({"_id": payment_id, "provider_payment_id": {"$exists": False}})
@@ -519,8 +539,6 @@ async def payment_cancel(payment_id: str):
     
     Redirects to frontend after marking payment as cancelled.
     """
-    from fastapi.responses import RedirectResponse
-    
     try:
         oid = ObjectId(payment_id)
     except InvalidId as exc:
@@ -537,13 +555,16 @@ async def payment_cancel(payment_id: str):
     # Defensive normalization: remove trailing '/api' if present (common misconfig)
     if frontend_base.rstrip('/').endswith('/api'):
         frontend_base = frontend_base.rstrip('/')[:-4]
-    redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}&status=cancelled"
+    redirect_url = f"{frontend_base.rstrip('/')}/payement?payment_id={payment_id}&status=cancelled"
     return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @router.get('/{payment_id}/success')
 async def payment_success(payment_id: str):
-    """Generic success landing endpoint for providers that redirect. Does not mark paid by itself (Stripe uses webhook)."""
+    """Generic success landing endpoint for providers that redirect. Does not mark paid by itself (Stripe uses webhook).
+    
+    Redirects to frontend after checking payment status.
+    """
     try:
         oid = ObjectId(payment_id)
     except InvalidId as exc:
@@ -552,8 +573,14 @@ async def payment_success(payment_id: str):
     if not p:
         raise HTTPException(status_code=404, detail='Payment not found')
     log.info('payment.success.landing payment_id=%s status=%s', payment_id, p.get('status'))
-    return {"status": p.get('status')}
-
+    
+    # Redirect to frontend
+    frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+    # Defensive normalization: remove trailing '/api' if present (common misconfig)
+    if frontend_base.rstrip('/').endswith('/api'):
+        frontend_base = frontend_base.rstrip('/')[:-4]
+    redirect_url = f"{frontend_base.rstrip('/')}/payment?payment_id={payment_id}&status={p.get('status') or 'unknown'}"
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 @router.get('/{payment_id}')
 async def payment_details(payment_id: str, current_user=Depends(get_current_user)):
@@ -662,14 +689,14 @@ async def paypal_return(payment_id: str, token: Optional[str] = None):
                     if captured_cents is not None and captured_cents != expected:
                         log.warning('paypal.return.mismatch_amount payment_id=%s order_id=%s expected_cents=%s captured_cents=%s', payment_id, order_id, expected, captured_cents)
                         await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
-                        redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}&status=failed"
+                        redirect_url = f"{frontend_base.rstrip('/')}/payement?payment_id={payment_id}&status=failed"
                         return RedirectResponse(url=redirect_url, status_code=303)
                 matched = True
                 break
         if not matched:
             log.warning('paypal.return.reference_mismatch payment_id=%s order_id=%s', payment_id, order_id)
             await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
-            redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}&status=failed"
+            redirect_url = f"{frontend_base.rstrip('/')}/payement?payment_id={payment_id}&status=failed"
             return RedirectResponse(url=redirect_url, status_code=303)
     except Exception:
         log.exception('paypal.return.validation_error payment_id=%s order_id=%s', payment_id, order_id)
@@ -678,13 +705,13 @@ async def paypal_return(payment_id: str, token: Optional[str] = None):
         log.info('paypal.return.completed payment_id=%s order_id=%s', payment_id, order_id)
         await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now, "meta.capture": capture}})
         await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
-        redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}"
-        return RedirectResponse(url=redirect_url, status_code=303)
+    redirect_url = f"{frontend_base.rstrip('/')}/payement?payment_id={payment_id}"
+    return RedirectResponse(url=redirect_url, status_code=303)
     
     log.warning('paypal.return.failed payment_id=%s order_id=%s status=%s', payment_id, order_id, status)
     await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
     # For failed payments, redirect to a cancel/error page or back to payment selection
-    redirect_url = f"{frontend_base.rstrip('/')}/payment-success.html?payment_id={payment_id}&status=failed"
+    redirect_url = f"{frontend_base.rstrip('/')}/payement?payment_id={payment_id}&status=failed"
     return RedirectResponse(url=redirect_url, status_code=303)
 
 
