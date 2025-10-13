@@ -279,8 +279,8 @@
     function fetchProfile() {
       var base = window.BACKEND_BASE_URL;
       if (!base) return;
-      profileFetched = true; // avoid repeated attempts; we can expose manual refresh
-      var url = base.replace(/\/$/, '') + '/profile';
+
+      // Check if there are valid tokens or cookies before attempting fetch
       var lsBearer = null;
       try {
   // Avoid reading bearer token from localStorage; rely on cookie checks.
@@ -288,6 +288,14 @@
       } catch {}
       var dhBearer = null;
         // legacy dh_token not displayed
+
+      if (!lsBearer && !dhBearer) {
+        console.warn('No valid tokens or cookies available. Skipping profile fetch.');
+        return;
+      }
+
+      profileFetched = true; // avoid repeated attempts; we can expose manual refresh
+      var url = base.replace(/\/$/, '') + '/profile';
 
       var triedCookie = false;
       var triedBearer = false;
