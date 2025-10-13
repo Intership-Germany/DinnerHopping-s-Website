@@ -22,6 +22,7 @@
 	<script src="js/components/register-modal.js" defer></script>
 	<script src="js/components/my-registrations.js" defer></script>
 	<script src="js/pages/home.js" defer></script>
+	<script src="js/utils/kitchen-toggle.js" defer></script>
 	<style>
 		body {
 			font-family: 'Inter', sans-serif;
@@ -245,7 +246,7 @@
 							<label class="flex flex-col">
 								<span class="text-xs font-medium text-gray-600">Dietary preference</span>
 								<select name="dietary" class="mt-1 rounded-lg border-gray-300">
-									<option value="">Use profile default</option>
+									<option value="" selected>Use profile default</option>
 									<option value="vegan">Vegan</option>
 									<option value="vegetarian">Vegetarian</option>
 									<option value="omnivore">Omnivore</option>
@@ -255,7 +256,7 @@
 								<label class="flex flex-col">
 									<span class="text-xs font-medium text-gray-600">Kitchen available?</span>
 									<select name="kitchen" class="mt-1 rounded-lg border-gray-300">
-										<option value="">Use profile default</option>
+										<option value="" selected>Use profile default</option>
 										<option value="yes">Yes</option>
 										<option value="no">No</option>
 									</select>
@@ -263,7 +264,7 @@
 								<label class="flex flex-col">
 									<span class="text-xs font-medium text-gray-600">Main course possible?</span>
 									<select name="main_course" class="mt-1 rounded-lg border-gray-300">
-										<option value="">Use profile default</option>
+										<option value="" selected>Use profile default</option>
 										<option value="yes">Yes</option>
 										<option value="no">No</option>
 									</select>
@@ -272,7 +273,7 @@
 							<label class="flex flex-col">
 								<span class="text-xs font-medium text-gray-600">Course preference</span>
 								<select name="course" class="mt-1 rounded-lg border-gray-300">
-									<option value="">No preference</option>
+									<option value="" selected>No preference</option>
 									<option value="starter">Starter</option>
 									<option value="main">Main</option>
 									<option value="dessert">Dessert</option>
@@ -333,6 +334,50 @@
 										<option value="dessert">Dessert</option>
 									</select>
 								</label>
+							</div>
+
+							<!-- Kitchen & main-course availability fields shown when partner location selected -->
+							<div id="team-kitchen-fields" class="team-kitchen-fields hidden mt-3 rounded-lg border p-3">
+								<div class="grid grid-cols-2 gap-3">
+									<div>
+										<strong class="text-sm">You (creator)</strong>
+										<label class="flex flex-col mt-2">
+											<span class="text-xs font-medium text-gray-600">Kitchen available?</span>
+											<select name="creator_kitchen" class="mt-1 rounded-lg border-gray-300">
+												<option value="" selected>Use profile default</option>
+												<option value="yes">Yes</option>
+												<option value="no">No</option>
+											</select>
+										</label>
+										<label class="flex flex-col mt-2">
+											<span class="text-xs font-medium text-gray-600">Main course possible?</span>
+											<select name="creator_main_course" class="mt-1 rounded-lg border-gray-300">
+												<option value="" selected>Use profile default</option>
+												<option value="yes">Yes</option>
+												<option value="no">No</option>
+											</select>
+										</label>
+									</div>
+									<div>
+										<strong class="text-sm">Partner</strong>
+										<label class="flex flex-col mt-2">
+											<span class="text-xs font-medium text-gray-600">Kitchen available?</span>
+											<select name="partner_kitchen" class="mt-1 rounded-lg border-gray-300">
+												<option value="">Unknown / provide if external</option>
+												<option value="yes">Yes</option>
+												<option value="no">No</option>
+											</select>
+										</label>
+										<label class="flex flex-col mt-2">
+											<span class="text-xs font-medium text-gray-600">Main course possible?</span>
+											<select name="partner_main_course" class="mt-1 rounded-lg border-gray-300">
+												<option value="">Unknown / provide if external</option>
+												<option value="yes">Yes</option>
+												<option value="no">No</option>
+											</select>
+										</label>
+									</div>
+								</div>
 							</div>
 							<div class="text-xs text-gray-600" id="team-diet-summary"></div>
 						</div>

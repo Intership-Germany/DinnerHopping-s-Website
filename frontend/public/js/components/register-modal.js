@@ -165,8 +165,21 @@
               dietary_preference: ext.dietary || ext.dietary_preference || undefined,
               field_of_study: ext.field_of_study || ext.field || undefined,
             };
+            // forward optional partner kitchen/main flags if provided
+            if (typeof ext.kitchen_available !== 'undefined') backendBody.partner_external.kitchen_available = !!ext.kitchen_available;
+            if (typeof ext.main_course_possible !== 'undefined') backendBody.partner_external.main_course_possible = !!ext.main_course_possible;
           } else if (Array.isArray(payload.body.invited_emails) && payload.body.invited_emails.length) {
             backendBody.partner_existing = { email: payload.body.invited_emails[0] };
+          }
+
+          // forward creator kitchen/main choices when present (top-level fields expected by backend)
+          const creatorKitchenVal = form.elements.creator_kitchen?.value;
+          const creatorMainVal = form.elements.creator_main_course?.value;
+          if (typeof creatorKitchenVal !== 'undefined' && creatorKitchenVal !== null && creatorKitchenVal !== '') {
+            backendBody.kitchen_available = creatorKitchenVal === 'yes';
+          }
+          if (typeof creatorMainVal !== 'undefined' && creatorMainVal !== null && creatorMainVal !== '') {
+            backendBody.main_course_possible = creatorMainVal === 'yes';
           }
 
           res = await api('/registrations/team', {

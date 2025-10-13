@@ -137,6 +137,7 @@
           showMessage('Logged in successfully');
           const urlParams = new URLSearchParams(location.search);
           const nextParam = urlParams.get('next');
+          const invitationState = urlParams.get('invitation_state');
           function isSafe(n) {
             if (!n) return false;
             if (n.includes('://')) return false;
@@ -144,6 +145,53 @@
             if (n.indexOf('//', 1) !== -1) return false;
             if (/\r|\n/.test(n)) return false;
             return true;
+          }
+          // If the login flow was started because of an invitation temporary state,
+          // redirect back to the invitation page which understands the state param.
+          if (invitationState) {
+            // invitationState should be a URL-safe token (no scheme). Do a simple safety check.
+            if (/^[A-Za-z0-9-_]+$/.test(invitationState)) {
+              const loc = window.location;
+              const basePath = loc.pathname.replace(/\/[^/]*$/, ''); // strip filename
+              const encoded = encodeURIComponent(invitationState);
+              const candidates = [
+                // same directory as current document: preserves /api/ prefix
+                `${loc.origin}${basePath}/invitation.html?state=${encoded}`,
+                // root-level invitation page
+                `${loc.origin}/invitation.html?state=${encoded}`,
+              ];
+
+              // Probe candidates via HEAD request and navigate to the first that returns OK.
+              for (const c of candidates) {
+                try {
+                  const r = await fetch(c, { method: 'HEAD' });
+                  if (r.ok) {
+                    location.href = c;
+                    return;
+                  }
+                } catch (_) {
+                  // ignore network/CORS errors and try next candidate
+                }
+              }
+
+              // As a last resort, try probing the backend API for the state directly. This helps
+              // when HEAD requests to static files are blocked (CORS/proxy).
+              try {
+                const backendCheck = await fetch((window.BACKEND_BASE_URL || '') + `/invitations/by-state/${invitationState}`, { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } });
+                if (backendCheck && backendCheck.ok) {
+                  // Backend knows about the state; redirect to root-level frontend invitation page.
+                  location.href = `${loc.origin}/invitation.html?state=${encoded}`;
+                  return;
+                }
+              } catch (e) {
+                // ignore and fall back to root navigation
+              }
+
+              // Fallback: navigate to root-level invitation page even if probes failed. User can then
+              // see the invitation UI (it may show expired/invalid state if the server rejects it).
+              location.href = `${loc.origin}/invitation.html?state=${encoded}`;
+              return;
+            }
           }
           if (nextParam && isSafe(nextParam)) {
             location.href = nextParam.startsWith('/') ? nextParam : '/' + nextParam;

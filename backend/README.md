@@ -191,7 +191,7 @@ Routers: users (`/register`, `/login`, `/logout`, `/refresh`, profile), events (
 	- Body: { username: <email>, password: <password> }
 	- Requires the user's email to be verified. Returns a JWT access token: { access_token }
 
-- GET /me (or GET /profile)
+- GET /profile
 - GET /events
 	- Returns a list of public events (supports query filters in the code).
 

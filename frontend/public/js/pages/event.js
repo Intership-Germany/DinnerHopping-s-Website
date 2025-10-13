@@ -666,6 +666,13 @@
       const existingRegBadge = badgesEl.querySelector('[data-badge="registration-mode"]');
       const statusLower = (registrationData.status || '').toLowerCase();
       let regText = 'Solo registered';
+      // If this solo registration was created via an invitation, show 'Invited' and the invited email
+      const invite = registrationData.invitation || null;
+      if (invite) {
+        regText = invite.invitation_status === 'pending' || invite.invitation_status === 'accepted' ? 'Invited' : 'Invited';
+        // If invited, do not show payment line (invited solo users don't pay)
+        payLine = '';
+      }
       let regCls =
         'inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-teal-50 text-teal-700 ring-1 ring-teal-200';
       if (/cancelled|expired|refunded/.test(statusLower)) {

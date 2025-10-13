@@ -42,9 +42,24 @@
 
   <div data-include="partials/footer.html"></div>
 
+  <template id="tpl-invitation-auth-modal">
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+      <div class="relative bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+        <button type="button" class="modal-close absolute top-3 right-3 text-gray-500 hover:text-gray-700" aria-label="Close">&times;</button>
+        <h2 class="text-xl font-semibold text-gray-900 mb-3">Sign in required</h2>
+        <p class="text-gray-600 mb-6">To accept or decline this invitation you need to register or log in so we can link it to your account.</p>
+        <div class="space-y-3">
+          <a data-role="register-link" class="block w-full px-5 py-3 text-center bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">Register</a>
+          <a data-role="login-link" class="block w-full px-5 py-3 text-center bg-blue-600 text-white rounded-lg hover:bg-blue-700">Log in</a>
+        </div>
+      </div>
+    </div>
+  </template>
+
   <script src="js/core/includes.js" defer></script>
   <script src="js/core/auth.js" defer></script>
   <script src="js/core/client.js" defer></script>
+  <script src="js/utils/dom.js" defer></script>
   <script src="js/pages/invitation.js" defer></script>
 </body>
 </html>

@@ -167,7 +167,7 @@
       // Load user profile to get kitchen/course info
       let userProfile = null;
       try {
-        const profileRes = await api('/users/me', { method: 'GET' });
+        const profileRes = await api('/users/profile', { method: 'GET' });
         if (profileRes.ok) {
           userProfile = await profileRes.json();
         }
