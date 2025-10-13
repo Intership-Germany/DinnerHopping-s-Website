@@ -24,7 +24,7 @@ async def persist_match_proposal(event_id: str, proposal: dict) -> dict:
         'status': 'proposed',
         'version': version,
         'algorithm': proposal.get('algorithm') or 'unknown',
-        'created_at': datetime.datetime.now(datetime.timezone.utc),
+        'created_at': datetime.now(timezone.utc),
     }
     res = await db_mod.db.matches.insert_one(doc)
     doc['id'] = str(res.inserted_id)
@@ -35,7 +35,7 @@ async def mark_finalized(event_id: str, version: int, finalized_by: Optional[str
     record = await db_mod.db.matches.find_one({'event_id': event_id, 'version': int(version)})
     if not record:
         raise ValueError('match version not found')
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.now(timezone.utc)
     await db_mod.db.matches.update_one({'_id': record['_id']}, {'$set': {'status': 'finalized', 'finalized_by': finalized_by, 'finalized_at': now}})
     await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'matching_status': 'finalized', 'updated_at': now}})
     return await db_mod.db.matches.find_one({'_id': record['_id']})
@@ -358,7 +358,7 @@ async def process_refunds(event_id: str, registration_ids: Optional[List[str]] =
         if already_refunded:
             if registration.get('status') != 'refunded':
                 try:
-                    await db_mod.db.registrations.update_one({'_id': registration_id}, {'$set': {'status': 'refunded', 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
+                    await db_mod.db.registrations.update_one({'_id': registration_id}, {'$set': {'status': 'refunded', 'updated_at': datetime.now(timezone.utc)}})
                 except Exception:
                     pass
             processed_items.append({'registration_id': str(registration_id), 'status': 'already_refunded', 'amount_cents': 0})
@@ -369,13 +369,13 @@ async def process_refunds(event_id: str, registration_ids: Optional[List[str]] =
         try:
             await db_mod.db.payments.update_one(
                 {'_id': payment.get('_id')},
-                {'$set': {'status': 'refunded', 'refunded': True, 'refund_amount_cents': amount_cents, 'refund_at': datetime.datetime.now(datetime.timezone.utc)}},
+                {'$set': {'status': 'refunded', 'refunded': True, 'refund_amount_cents': amount_cents, 'refund_at': datetime.now(timezone.utc)}},
             )
         except Exception:
             processed_items.append({'registration_id': str(registration_id), 'status': 'payment_update_failed', 'amount_cents': 0})
             continue
         try:
-            await db_mod.db.registrations.update_one({'_id': registration_id}, {'$set': {'status': 'refunded', 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
+            await db_mod.db.registrations.update_one({'_id': registration_id}, {'$set': {'status': 'refunded', 'updated_at': datetime.now(timezone.utc)}})
         except Exception:
             pass
         try:
@@ -403,10 +403,10 @@ def _should_check_payments(event: Optional[dict]) -> bool:
         return (event.get('status') or '').lower() not in ('draft', 'coming_soon')
     try:
         if deadline_dt and deadline_dt.tzinfo is None:
-            deadline_dt = deadline_dt.replace(tzinfo=datetime.timezone.utc)
+            deadline_dt = deadline_dt.replace(tzinfo=timezone.utc)
     except Exception:
         pass
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.now(timezone.utc)
     return bool(deadline_dt and now >= deadline_dt)
 
 
