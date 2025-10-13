@@ -80,21 +80,10 @@ async def get_access_token() -> str:
 async def create_order(amount_cents: int, currency: str, payment_id, idempotency_key: str | None = None) -> Dict[str, Any]:
     httpx = _import_httpx()
     token = await get_access_token()
-    # Prefer BACKEND_BASE_URL so provider redirects hit backend endpoints that can capture/cancel
-    # If no backend base is configured, fall back to FRONTEND_BASE_URL and point to the
-    # frontend landing page (/payement) which contains client-side logic to forward the
-    # provider token to backend endpoints.
-    backend_base = os.getenv('BACKEND_BASE_URL')
-    frontend_base = os.getenv('FRONTEND_BASE_URL')
-    if backend_base:
-        base = backend_base
-        return_url = f"{base.rstrip('/')}/payments/paypal/return?payment_id={str(payment_id)}"
-        cancel_url = f"{base.rstrip('/')}/payments/{str(payment_id)}/cancel"
-    else:
-        # Frontend fallback: direct user to the payment landing page which will forward token
-        base = frontend_base or 'http://localhost:8000'
-        return_url = f"{base.rstrip('/')}/payement?payment_id={str(payment_id)}"
-        cancel_url = f"{base.rstrip('/')}/payement?payment_id={str(payment_id)}&status=cancelled"
+    # Frontend fallback: direct user to the payment landing page which will forward token
+    base = os.getenv('FRONTEND_BASE_URL') or 'http://localhost:8000'
+    return_url = f"{base.rstrip('/')}/payement?payment_id={str(payment_id)}"
+    cancel_url = f"{base.rstrip('/')}/payement?payment_id={str(payment_id)}&status=cancelled"
     logger.info('paypal.create_order.start payment_id=%s amount_cents=%s currency=%s', payment_id, amount_cents, currency)
     payload = {
         'intent': 'CAPTURE',

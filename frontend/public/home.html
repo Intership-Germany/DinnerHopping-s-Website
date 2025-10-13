@@ -381,6 +381,29 @@
 				</div>
 			</div>
 		</template>
+
+				<!-- Invitation details modal -->
+				<template id="tpl-invitation-modal">
+					<div class="fixed inset-0 z-50 flex items-center justify-center">
+						<div class="absolute inset-0 bg-black/40" data-invitation-backdrop></div>
+						<div class="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 p-6">
+							<div class="flex items-start justify-between mb-3">
+								<h3 class="text-lg font-bold text-[#172a3a]">Invitation details</h3>
+								<button type="button" class="inv-close text-gray-500 hover:text-gray-700">✕</button>
+							</div>
+							<div class="space-y-3">
+								<p class="inv-event-title text-xl font-semibold text-[#006666]"></p>
+								<p class="inv-event-date text-sm text-gray-600"></p>
+								<p class="inv-body text-sm text-gray-800"></p>
+								<div class="flex gap-2 mt-4 justify-end">
+									<button class="inv-decline px-3 py-2 rounded bg-red-50 border border-red-200 text-red-700">Decline</button>
+									<button class="inv-accept px-3 py-2 rounded bg-[#008080] text-white">Accept</button>
+								</div>
+								<p class="inv-note text-xs text-gray-500">You cannot register for other events while you have a pending invitation. Accept or decline to continue.</p>
+							</div>
+						</div>
+					</div>
+				</template>
 	</main>
 
 	<!-- Footer -->

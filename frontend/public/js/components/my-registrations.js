@@ -37,8 +37,8 @@
     if (!reg)
       return { label: 'registered', cancelled: false, refunded: false, refundPending: false };
     const s = (reg.status || '').toLowerCase();
-    // Normalize invited state to a friendly label
-    if (s === 'invited') return { label: 'Invited', cancelled: false, refunded: false, refundPending: false };
+    // Normalize invited/pending state to a friendly label
+    if (s === 'invited' || s === 'pending') return { label: 'Invited', cancelled: false, refunded: false, refundPending: false };
     const pay = (reg.payment_status || reg.payment?.status || '').toLowerCase();
     const refunded = s === 'refunded' || pay === 'refunded';
     const cancelled = [
@@ -72,6 +72,12 @@
     }
   }
 
+  function isInvitedStatus(regInfo) {
+    if (!regInfo) return false;
+    const s = (regInfo.status || '').toLowerCase();
+    return s === 'invited' || s === 'pending';
+  }
+
   // ---------- Fetch helpers (new backend endpoints) ----------
   async function fetchRegistrations() {
     if (!window.dh?.apiGet) return [];
@@ -80,6 +86,16 @@
       if (!res.ok) return [];
       const regs = data?.registrations || [];
       return Array.isArray(regs) ? regs : [];
+    } catch {
+      return [];
+    }
+  }
+  async function fetchInvitations() {
+    if (!window.dh?.apiGet) return [];
+    try {
+      const { res, data } = await window.dh.apiGet('/invitations/');
+      if (!res.ok) return [];
+      return Array.isArray(data) ? data : (Array.isArray(data?.invitations) ? data.invitations : []);
     } catch {
       return [];
     }
@@ -233,6 +249,40 @@
       }
     }
 
+      // Also include standalone invitations (invitations that may not have a registration yet)
+      let invs = [];
+      try {
+        invs = await fetchInvitations();
+      } catch {}
+      if (Array.isArray(invs) && invs.length) {
+        for (const inv of invs) {
+          // skip invitations already represented by a registration in the combined list
+          const already = combined.some((c) => {
+            const rr = c.regInfo || {};
+            const rid = inv.registration_id || inv.registraton_id || inv.registrationId || inv.registration;
+            if (!rid) return false;
+            return (
+              String(rr.registration_id || rr._id || rr.id || '') === String(rid) ||
+              String(rr.id || rr._id || '') === String(rid)
+            );
+          });
+          if (already) continue;
+          const rid = inv.event_id;
+          let ev = rid ? evMap.get(String(rid)) : null;
+          if (!ev && rid) {
+            try {
+              const detail = await fetchEventDetail(rid);
+              if (detail) {
+                ev = detail;
+                evMap.set(String(rid), detail);
+              }
+            } catch {}
+          }
+          const regLike = { status: inv.status || 'invited', invitation_id: inv.id || inv._id || inv.id_str, invitation: inv, event_title: (ev && ev.title) || inv.event_title };
+          combined.push({ event: ev || { id: rid, title: inv.event_title }, regInfo: regLike });
+        }
+      }
+
     // Partition future/past by event start/date
     const nowTs = Date.now();
     const future = [];
@@ -260,6 +310,35 @@
       if (aGo) aGo.href = `/event?id=${encodeURIComponent(eventId)}`;
       if (titleEl)
         titleEl.textContent = ev.title || ev.name || (regInfo && regInfo.event_title) || 'Event';
+      // add a small view-invitation action when invited
+      if (isInvitedStatus(regInfo)) {
+        const view = document.createElement('button');
+        view.type = 'button';
+        view.className = 'text-xs text-[#008080] underline ml-2';
+        view.textContent = 'View invitation';
+        view.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const inv = regInfo.invitation || (regInfo.invitation_id ? { id: regInfo.invitation_id } : null);
+          // If we only have an id, try to fetch details via /invitations?registration_id or id
+          let invData = inv;
+          try {
+            if (!invData || !invData.event_id) {
+              // try to fetch the invitation by registration id if present
+              if (regInfo.registration_id) {
+                const { res, data } = await window.dh.apiGet(`/invitations?registration_id=${encodeURIComponent(regInfo.registration_id)}`);
+                if (res.ok && Array.isArray(data) && data.length) invData = data[0];
+              }
+              // or by listing invitations and matching id
+              if ((!invData || !invData.event_id) && regInfo.invitation && regInfo.invitation.id) {
+                const { res, data } = await window.dh.apiGet(`/invitations`);
+                if (res.ok && Array.isArray(data)) invData = data.find(x => String(x.id || x._id) === String(regInfo.invitation.id)) || invData;
+              }
+            }
+          } catch (e) {}
+          openInvitationModal(invData || regInfo.invitation || { id: regInfo.invitation_id });
+        });
+        if (titleEl && titleEl.parentNode) titleEl.parentNode.appendChild(view);
+      }
       if (dateEl) {
         const d = ev.start_at ? new Date(ev.start_at) : ev.date ? new Date(ev.date) : null;
         dateEl.textContent = d && !isNaN(d) ? d.toLocaleString() : '';
@@ -267,11 +346,11 @@
 
       const meta = computeStatus(regInfo);
       applyBadge(badge, meta);
-      // Show an explanatory note for invited registrations
-      if (regInfo && (regInfo.status || '').toLowerCase() === 'invited') {
+      // Show an explanatory note for invited/pending registrations
+      if (isInvitedStatus(regInfo)) {
         if (note) {
           note.classList.remove('hidden');
-          note.innerHTML = 'You were invited to this event. Check your email for the invitation link to accept. If you already have an account, log in and accept the invitation while authenticated.';
+          note.innerHTML = 'You were invited to this event. You can accept or decline the invitation below.';
           note.classList.remove('text-red-600');
           note.classList.add('text-blue-600');
         }
@@ -305,6 +384,7 @@
               // otherwise refresh page or registrations
               if (window.dh?.components?.renderMyRegistrations) {
                 try { window.dh.apiGet('/registrations/registration-status').then(({res,data})=> window.dh.components.renderMyRegistrations(data?.registrations || [])); } catch(e){}
+                try { window.dh.apiGet('/invitations/').then(()=> window.dh.components.renderMyRegistrations()); } catch(e){}
               } else location.reload();
             } catch (e) { alert(e.message || 'Accept failed'); }
           });
@@ -375,6 +455,52 @@
       list.appendChild(wrapPast);
     }
     wrap.classList.remove('hidden');
+  }
+
+  // -------- Invitation modal helpers --------
+  function openInvitationModal(inv) {
+    const tpl = document.getElementById('tpl-invitation-modal');
+    if (!tpl) return;
+    const node = tpl.content.cloneNode(true);
+    const root = node.querySelector('[data-invitation-backdrop]')?.parentNode || node.firstElementChild;
+    const elTitle = node.querySelector('.inv-event-title');
+    const elDate = node.querySelector('.inv-event-date');
+    const elBody = node.querySelector('.inv-body');
+    const btnClose = node.querySelector('.inv-close');
+    const btnAccept = node.querySelector('.inv-accept');
+    const btnDecline = node.querySelector('.inv-decline');
+    const backdrop = node.querySelector('[data-invitation-backdrop]');
+    const invId = inv && (inv.id || inv._id || inv.invitation_id);
+    // populate minimal fields
+    elTitle && (elTitle.textContent = inv.event_title || (inv.event && inv.event.title) || 'Event');
+    elDate && (elDate.textContent = inv.event_date || (inv.event && inv.event.start_at) || '');
+    elBody && (elBody.textContent = inv.message || inv.note || `Invited by ${inv.created_by || ''}`);
+    function closeModal() { try { document.body.removeChild(root); } catch (e) {} }
+    btnClose && btnClose.addEventListener('click', closeModal);
+    backdrop && backdrop.addEventListener('click', closeModal);
+    btnAccept && btnAccept.addEventListener('click', async () => {
+      try {
+        if (!invId) return alert('Invitation id missing');
+        const resp = await window.dh.apiPost(`/invitations/by-id/${encodeURIComponent(invId)}/accept`, {});
+        if (!resp.res.ok) return alert(resp.data?.detail || 'Failed to accept');
+        closeModal();
+        // refresh registrations & invitations
+        try { await window.dh.apiGet('/registrations/registration-status'); } catch {}
+        try { await window.dh.apiGet('/invitations/'); } catch {}
+        if (window.dh?.components?.renderMyRegistrations) window.dh.components.renderMyRegistrations();
+      } catch (e) { alert(e.message || 'Accept failed'); }
+    });
+    btnDecline && btnDecline.addEventListener('click', async () => {
+      try {
+        if (!invId) return alert('Invitation id missing');
+        const resp = await window.dh.apiPost(`/invitations/${encodeURIComponent(invId)}/revoke`, {});
+        if (!resp.res.ok) return alert(resp.data?.detail || 'Failed to decline');
+        closeModal();
+        try { await window.dh.apiGet('/invitations/'); } catch {}
+        if (window.dh?.components?.renderMyRegistrations) window.dh.components.renderMyRegistrations();
+      } catch (e) { alert(e.message || 'Decline failed'); }
+    });
+    document.body.appendChild(root);
   }
 
   C.renderMyRegistrations = renderMyRegistrations;

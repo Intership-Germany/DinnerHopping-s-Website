@@ -45,6 +45,34 @@
     }
   }
 
+  async function fetchUserInvitations() {
+    const api =
+      window.dh && window.dh.apiFetch
+        ? window.dh.apiFetch
+        : (p, opts) => fetch(BASE + p, { ...(opts || {}), credentials: 'include' });
+    try {
+      // Try with and without trailing slash to be tolerant
+      const paths = ['/invitations', '/invitations/'];
+      for (const p of paths) {
+        try {
+          const res = await api(p, { method: 'GET' });
+          if (!res.ok) continue;
+          const data = await res.json().catch(() => ({}));
+          // The backend may return an array or { invitations: [...] }
+          const arr = Array.isArray(data) ? data : Array.isArray(data?.invitations) ? data.invitations : null;
+          if (Array.isArray(arr)) {
+            if (arr.length) console.info('registration: found invitations', arr.length);
+            return arr;
+          }
+        } catch (e) { /* try next path */ }
+      }
+      return [];
+    } catch (e) {
+      console.warn('registration: failed to fetch invitations', e);
+      return [];
+    }
+  }
+
   function hasActiveRegistration(registrations) {
     if (!Array.isArray(registrations)) return false;
     const cancelledStatuses = ['cancelled_by_user', 'cancelled_admin'];
@@ -403,13 +431,24 @@
     const list = document.getElementById('events-list');
     if (!list) return;
     try {
-      // Fetch both events and user's current registrations
-      const [events, userRegistrations] = await Promise.all([
+      // Fetch events, user registrations and invitations
+      const [events, userRegistrations, userInvitations] = await Promise.all([
         fetchActiveEvents(),
-        fetchUserRegistrations()
+        fetchUserRegistrations(),
+        fetchUserInvitations()
       ]);
 
-      const hasActive = hasActiveRegistration(userRegistrations);
+      const hasActiveReg = hasActiveRegistration(userRegistrations);
+      // Consider any invitation that is not in a terminal state as a blocking pending invitation.
+      const isTerminal = (s) => {
+        if (!s) return false;
+        const t = s.toLowerCase();
+        return ['accepted', 'revoked', 'expired', 'cancelled', 'declined'].includes(t);
+      };
+      const hasPendingInvitation = Array.isArray(userInvitations) && userInvitations.some(inv => !isTerminal(inv.status));
+      const hasActive = hasActiveReg || hasPendingInvitation;
+      // Debug: log counts so we can inspect in browser console when troubleshooting
+      try { console.debug('registration:init', { regs: (userRegistrations || []).length, invitations: (userInvitations || []).length, hasActiveReg, hasPendingInvitation, hasActive }); } catch(e) {}
       
       if (hasActive && Array.isArray(userRegistrations)) {
         // User has active registration - show warning message
@@ -433,6 +472,22 @@
           )
         );
         list.appendChild(warningDiv);
+      }
+      // If user is blocked because of a pending invitation (no active regs), show a different message
+      if (!hasActiveReg && hasPendingInvitation) {
+        const warningInv = el(
+          'div',
+          { class: 'p-4 mb-4 border-l-4 border-blue-500 bg-blue-50 rounded' },
+          el('div', { class: 'flex items-start' },
+            el('div', { class: 'ml-3' },
+              el('h3', { class: 'text-sm font-medium text-blue-800' }, 'Pending Invitation'),
+              el('div', { class: 'mt-2 text-sm text-blue-700' },
+                'You have a pending invitation for an event. You cannot register for another event until you accept or decline that invitation. Please visit My registrations to manage your invitations.'
+              )
+            )
+          )
+        );
+        list.appendChild(warningInv);
       }
 
       if (!events.length) {

@@ -707,12 +707,6 @@ async def paypal_return(payment_id: str, token: Optional[str] = None):
         await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
     redirect_url = f"{frontend_base.rstrip('/')}/payement?payment_id={payment_id}"
     return RedirectResponse(url=redirect_url, status_code=303)
-    
-    log.warning('paypal.return.failed payment_id=%s order_id=%s status=%s', payment_id, order_id, status)
-    await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "failed", "meta.capture": capture}})
-    # For failed payments, redirect to a cancel/error page or back to payment selection
-    redirect_url = f"{frontend_base.rstrip('/')}/payement?payment_id={payment_id}&status=failed"
-    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @router.post('/{payment_id}/capture')
