@@ -1,4 +1,4 @@
-// Simple toast utility for bottom-left notifications
+// Simple toast utility for bottom-right notifications
 (function(){
   if (typeof window === 'undefined') return;
   window.dh = window.dh || {};
@@ -8,7 +8,7 @@
     if (!c){
       c = document.createElement('div');
       c.id = containerId;
-      c.className = 'fixed bottom-4 left-4 z-50 space-y-2 pointer-events-none';
+      c.className = 'fixed bottom-4 right-4 z-50 space-y-2 pointer-events-none';
       document.body.appendChild(c);
     }
     return c;

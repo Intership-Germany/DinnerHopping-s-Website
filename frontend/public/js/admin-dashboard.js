@@ -22,6 +22,7 @@
   let teamMap = null;
   let teamLayers = [];
   let teamMapCurrentId = null;
+  const teamNamesCache = {};
 
   async function ensureCsrf(){
     try{
@@ -81,6 +82,194 @@
     document.dispatchEvent(new CustomEvent('dh:event_form_loaded'));
   }
 
+  function computeTeamLabel(team, fallbackId){
+    if (!team) return fallbackId != null ? `Team ${fallbackId}` : 'Team';
+    const members = Array.isArray(team.members) ? team.members : [];
+    const names = members.map(m=>{
+      if (!m || typeof m !== 'object') return '';
+      const display = (m.display_name || '').trim();
+      if (display) return display;
+      const first = (m.first_name || '').trim();
+      const last = (m.last_name || '').trim();
+      const combined = [first, last].filter(Boolean).join(' ');
+      if (combined) return combined;
+      const email = (m.email || '').trim();
+      return email;
+    }).filter(Boolean);
+    if (names.length) return names.join(', ');
+    if (team.name && typeof team.name === 'string' && team.name.trim()) return team.name.trim();
+    return fallbackId != null ? `Team ${fallbackId}` : 'Team';
+  }
+
+  function versionKey(version){
+    return version != null ? String(version) : '__current__';
+  }
+
+  function updateTeamNameCache(version, teamMap){
+    const key = versionKey(version);
+    const cache = teamNamesCache[key] = teamNamesCache[key] || {};
+    Object.entries(teamMap || {}).forEach(([tid, team])=>{
+      const id = String(tid);
+      cache[id] = computeTeamLabel(team, id);
+    });
+    return cache;
+  }
+
+  function getTeamLabel(teamId, version){
+    if (teamId == null) return '—';
+    const id = String(teamId);
+    const key = versionKey(version);
+    if (teamNamesCache[key] && teamNamesCache[key][id]) return teamNamesCache[key][id];
+    if (teamDetails[id]){
+      const lbl = computeTeamLabel(teamDetails[id], id);
+      const cache = teamNamesCache[key] = teamNamesCache[key] || {};
+      cache[id] = lbl;
+      return lbl;
+    }
+    // try any other cached version as fallback
+    for (const otherKey of Object.keys(teamNamesCache)){
+      if (teamNamesCache[otherKey] && teamNamesCache[otherKey][id]) return teamNamesCache[otherKey][id];
+    }
+    return `Team ${id}`;
+  }
+
+  async function ensureTeamNames(evId, version){
+    const key = versionKey(version);
+    if (teamNamesCache[key]) return teamNamesCache[key];
+    const params = version != null ? `?version=${encodeURIComponent(version)}` : '';
+    try {
+      const res = await apiFetch(`/matching/${evId}/details${params}`);
+      if (!res.ok) return null;
+      const data = await res.json().catch(()=>null);
+      if (!data || !data.team_details) return null;
+      return updateTeamNameCache(data.version, data.team_details);
+    } catch (err){
+      return null;
+    }
+  }
+
+  async function confirmAndRelease(evId, version, btn){
+    if (!evId || version == null){
+      toast('No proposal loaded to release.', { type: 'warning' });
+      return false;
+    }
+    const button = btn || null;
+    const baseMsg = `Release proposal v${version}?`;
+    if (button) setBtnLoading(button, 'Checking...');
+    let prompt = baseMsg;
+    try {
+      await ensureTeamNames(evId, version);
+      const res = await apiFetch(`/matching/${evId}/issues?version=${version}`);
+      const data = await res.json().catch(()=>({ issues: [] }));
+      const items = Array.isArray(data.issues) ? data.issues : [];
+      if (items.length){
+        const counts = {};
+        items.forEach(entry=>{ (entry.issues||[]).forEach(kind=>{ counts[kind] = (counts[kind]||0) + 1; }); });
+        const summary = Object.entries(counts).map(([kind,total])=>`- ${kind.replace(/_/g,' ')}: ${total}`).join('\n');
+        const sample = items.slice(0,5).map(entry=>{
+          const g = entry.group || {};
+          const hostLabel = getTeamLabel(g.host_team_id, version);
+          const guestLabels = (g.guest_team_ids||[]).map(id=> getTeamLabel(id, version)).join(', ') || '—';
+          const tags = (entry.issues||[]).map(k=> k.replace(/_/g,' ')).join(', ');
+          return `• ${g.phase||'?'} host ${hostLabel} → guests ${guestLabels} (${tags})`;
+        }).join('\n');
+        prompt = `${baseMsg}\n\nMatching issues detected:\n${summary}${sample ? `\n\nExamples:\n${sample}` : ''}`;
+        if (items.length > 5){ prompt += `\n...and ${items.length - 5} more group(s)`; }
+      } else {
+        prompt = `${baseMsg}\n\nNo matching issues detected.`;
+      }
+    } catch(err){
+      prompt = `${baseMsg}\n\n(Unable to fetch matching issues. Proceed anyway?)`;
+    }
+    if (button) clearBtnLoading(button);
+    if (!confirm(prompt)) return false;
+    if (button) setBtnLoading(button, 'Releasing...');
+    const t = toastLoading('Releasing final plan...');
+    const res = await apiFetch(`/matching/${evId}/finalize?version=${version}`, { method: 'POST' });
+    if (res.ok){
+      t.update('Plan released');
+      await loadEvents();
+      await loadProposals();
+      await loadMatchDetails(version);
+      t.close();
+      if (button) clearBtnLoading(button);
+      return true;
+    }
+    const errText = await res.text().catch(()=> 'Release failed');
+    t.update('Release error'); t.close();
+    toast(errText || 'Release failed', { type: 'error' });
+    if (button) clearBtnLoading(button);
+    return false;
+  }
+
+  function formatMemberName(member){
+    if (!member || typeof member !== 'object') return '';
+    const display = (member.display_name || '').trim();
+    if (display) return display;
+    const first = (member.first_name || '').trim();
+    const last = (member.last_name || '').trim();
+    const combined = [first, last].filter(Boolean).join(' ');
+    if (combined) return combined;
+    const email = (member.email || '').trim();
+    if (email) return email;
+    return '';
+  }
+
+  function buildMemberPreview(member, team, fallbackLabel, teamId){
+    const lines = [];
+    const name = formatMemberName(member) || fallbackLabel || `Team ${teamId || ''}`;
+    lines.push(name);
+    const email = (member && member.email) ? member.email : null;
+    if (email) lines.push(`Email: ${email}`);
+    if (member && member.phone) lines.push(`Phone: ${member.phone}`);
+    if (team){
+      if (team.team_diet) lines.push(`Diet: ${team.team_diet}`);
+      if (team.course_preference) lines.push(`Preference: ${team.course_preference}`);
+      if (team.can_host_main != null) lines.push(`Can host main: ${team.can_host_main ? 'yes' : 'no'}`);
+    }
+    return lines.join('\n');
+  }
+
+  function buildTeamPreview(team, fallbackLabel, teamId){
+    const lines = [];
+    const label = fallbackLabel || computeTeamLabel(team, teamId);
+    lines.push(label);
+    if (team){
+      if (team.team_diet) lines.push(`Diet: ${team.team_diet}`);
+      if (team.course_preference) lines.push(`Preference: ${team.course_preference}`);
+      if (team.can_host_main != null) lines.push(`Can host main: ${team.can_host_main ? 'yes' : 'no'}`);
+      if (Array.isArray(team.host_allergies) && team.host_allergies.length){
+        lines.push(`Host allergies: ${team.host_allergies.join(', ')}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
+  async function copyEmailToClipboard(email){
+    if (!email) throw new Error('No email provided');
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function'){
+      await navigator.clipboard.writeText(email);
+      return;
+    }
+    await new Promise((resolve, reject)=>{
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = email;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) resolve(); else reject(new Error('Copy command failed'));
+      } catch(err){
+        reject(err);
+      }
+    });
+  }
+
+
   // Admin menu toggle (if present on the page)
   (function bindAdminMenu(){
     try{
@@ -115,28 +304,6 @@
     return payload;
   }
 
-  function enterCreateMode(){
-    editingId = null;
-    $('#create-form-title').textContent = 'Create New Event';
-    const btn = $('#btn-submit-event');
-    btn.textContent = 'Create Event (Draft)';
-    $('#btn-cancel-edit').classList.add('hidden');
-    $('#create-event-form').reset();
-    // Dispatch so that zip script can attempt enrichment if needed
-    document.dispatchEvent(new CustomEvent('dh:event_form_loaded'));
-  }
-
-  function enterEditMode(ev){
-    editingId = ev.id;
-    $('#create-form-title').textContent = 'Edit Event';
-    const btn = $('#btn-submit-event');
-    btn.textContent = 'Update Event';
-    $('#btn-cancel-edit').classList.remove('hidden');
-    setForm(ev);
-    $('#create-event-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
-  // ----- Matching Details rendering & DnD -----
   function renderTeamCard(tid){
     const det = teamDetails[tid] || {};
     const pref = det.course_preference ? `pref: ${det.course_preference}` : '';
@@ -144,35 +311,171 @@
     const canMain = det.can_host_main ? 'main✔' : '';
     const pay = (det.payment)||{};
     const payStatus = pay.status; // 'paid'|'partial'|'unpaid'|'n/a'
-    let colorClasses = 'bg-white border';
-    let dot = '';
+    let colorClasses = 'bg-white border border-[#e5e7eb]';
+    let dotClass = null;
+    let dotTitle = '';
     if (payStatus === 'unpaid'){
       colorClasses = 'bg-[#fef2f2] border border-[#fecaca]';
-      dot = '<span class="inline-block w-2.5 h-2.5 rounded-full bg-[#dc2626]" title="Unpaid"></span>';
+      dotClass = 'bg-[#dc2626]';
+      dotTitle = 'Unpaid';
     } else if (payStatus === 'partial'){
       colorClasses = 'bg-[#fffbeb] border border-[#fde68a]';
-      dot = '<span class="inline-block w-2.5 h-2.5 rounded-full bg-[#f59e0b]" title="Partial payment"></span>';
+      dotClass = 'bg-[#f59e0b]';
+      dotTitle = 'Partial payment';
     } else if (payStatus === 'paid'){
       colorClasses = 'bg-[#f0fdf4] border border-[#bbf7d0]';
-      dot = '<span class="inline-block w-2.5 h-2.5 rounded-full bg-[#16a34a]" title="Paid"></span>';
-    } else {
-      colorClasses = 'bg-white border border-[#e5e7eb]';
+      dotClass = 'bg-[#16a34a]';
+      dotTitle = 'Paid';
     }
-    const names = Array.isArray(det.members) && det.members.length
-      ? det.members.map(m=> (m.display_name || [m.first_name, m.last_name].filter(Boolean).join(' ') || m.email)).join(', ')
-      : null;
-    const header = names ? names : tid;
-    const meta = [pref, diet, canMain].filter(Boolean).join(' · ');
+
     const el = document.createElement('div');
     el.className = `team-card ${colorClasses} rounded-lg p-2 text-xs cursor-move shadow-sm flex items-start justify-between gap-2 transition-colors duration-150`;
     el.draggable = true;
     el.dataset.teamId = tid;
-    el.innerHTML = `<div class="min-w-0">
-      <div class="flex items-center gap-1 font-semibold text-sm truncate">${header}${dot}</div>
-      ${meta?`<div class=\"text-[#4a5568] truncate\">${meta}</div>`:''}
-      ${payStatus && payStatus!=='n/a'?`<div class=\"mt-0.5 text-[10px] uppercase tracking-wide ${payStatus==='unpaid'?'text-[#b91c1c]':'text-[#92400e]'}\">${payStatus}</div>`:''}
-    </div><button class="team-map-btn text-[13px]" title="View path" data-team-id="${tid}">🗺️</button>`;
+
+    const infoWrap = document.createElement('div');
+    infoWrap.className = 'min-w-0 flex-1';
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'flex items-center gap-1 font-semibold text-sm flex-wrap';
+
+    const members = Array.isArray(det.members) ? det.members : [];
+    if (members.length){
+      members.forEach((member, idx)=>{
+        const label = formatMemberName(member) || `Member ${idx+1}`;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'team-member-btn truncate text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2563eb]';
+        btn.dataset.teamId = tid;
+        btn.dataset.memberIndex = String(idx);
+        btn.textContent = label;
+  btn.style.background = 'transparent';
+  btn.style.border = 'none';
+  btn.style.padding = '0';
+  btn.style.margin = '0';
+  btn.style.cursor = 'pointer';
+        const email = (member && member.email) ? member.email : '';
+        if (email) btn.dataset.email = email;
+        btn.title = buildMemberPreview(member, det, label, tid);
+        nameRow.appendChild(btn);
+        if (idx < members.length - 1){
+          const comma = document.createElement('span');
+          comma.textContent = ',';
+          comma.className = 'text-[#4a5568]';
+          nameRow.appendChild(comma);
+        }
+      });
+    } else {
+      const label = computeTeamLabel(det, tid);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'team-name-btn truncate text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2563eb]';
+      btn.dataset.teamId = tid;
+      btn.textContent = label;
+  btn.style.background = 'transparent';
+  btn.style.border = 'none';
+  btn.style.padding = '0';
+  btn.style.margin = '0';
+  btn.style.cursor = 'pointer';
+      btn.title = buildTeamPreview(det, label, tid);
+      const primaryEmail = members.length ? (members.find(m=> (m.email||'').trim()) || {}).email : null;
+      if (primaryEmail) btn.dataset.email = primaryEmail;
+      nameRow.appendChild(btn);
+    }
+
+    if (dotClass){
+      const dotEl = document.createElement('span');
+      dotEl.className = `inline-block w-2.5 h-2.5 rounded-full ${dotClass}`;
+      if (dotTitle) dotEl.title = dotTitle;
+      nameRow.appendChild(dotEl);
+    }
+
+    infoWrap.appendChild(nameRow);
+
+    const meta = [pref, diet, canMain].filter(Boolean).join(' · ');
+    if (meta){
+      const metaEl = document.createElement('div');
+      metaEl.className = 'text-[#4a5568] truncate';
+      metaEl.textContent = meta;
+      infoWrap.appendChild(metaEl);
+    }
+
+    if (payStatus && payStatus !== 'n/a'){
+      const statusEl = document.createElement('div');
+      statusEl.className = `mt-0.5 text-[10px] uppercase tracking-wide ${payStatus==='unpaid'?'text-[#b91c1c]':'text-[#92400e]'}`;
+      statusEl.textContent = payStatus;
+      infoWrap.appendChild(statusEl);
+    }
+
+    const allergyList = Array.isArray(det.allergies) ? det.allergies.map(v=> (v == null ? '' : String(v).trim())).filter(Boolean) : [];
+    if (allergyList.length){
+      const allergyEl = document.createElement('div');
+      allergyEl.className = 'mt-1 text-[11px] text-[#0f172a] truncate';
+      allergyEl.textContent = `allergies: ${allergyList.join(', ')}`;
+      infoWrap.appendChild(allergyEl);
+    }
+
+    const mapBtn = document.createElement('button');
+    mapBtn.className = 'team-map-btn text-[13px]';
+    mapBtn.title = 'View path';
+    mapBtn.dataset.teamId = tid;
+    mapBtn.textContent = '🗺️';
+
+    el.appendChild(infoWrap);
+    el.appendChild(mapBtn);
     return el;
+  }
+
+  function bindTeamNameButtons(){
+    const root = $('#match-details');
+    if (!root || root.dataset.nameBound) return;
+    root.addEventListener('click', async (ev)=>{
+      const btn = ev.target.closest('.team-member-btn, .team-name-btn');
+      if (!btn || !root.contains(btn)) return;
+      const email = (btn.dataset.email || '').trim();
+      if (!email){
+        toast('No email available for this contact.', { type: 'info' });
+        return;
+      }
+      try {
+        await copyEmailToClipboard(email);
+        toast(`Copied ${email} to clipboard.`, { type: 'success' });
+      } catch (err){
+        toast('Unable to copy email to clipboard.', { type: 'error' });
+      }
+    });
+    root.dataset.nameBound = '1';
+  }
+
+  function bindWeightInfo(){
+    if (bindWeightInfo._bound) return;
+    document.addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('.weight-info');
+      if (!btn) return;
+      ev.preventDefault();
+      const info = (btn.dataset && btn.dataset.info) ? btn.dataset.info : 'No description available.';
+      alert(info);
+    });
+    bindWeightInfo._bound = true;
+  }
+
+  function bindAdvancedWeightsToggle(){
+    if (bindAdvancedWeightsToggle._bound) return;
+    const btn = document.getElementById('advanced-weight-toggle');
+    const panel = document.getElementById('advanced-weight-panel');
+    if (!btn || !panel) return;
+    const icon = document.getElementById('advanced-weight-toggle-icon');
+    const syncState = ()=>{
+      const hidden = panel.classList.contains('hidden');
+      btn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+      if (icon) icon.textContent = hidden ? '▼' : '▲';
+    };
+    btn.addEventListener('click', ()=>{
+      panel.classList.toggle('hidden');
+      syncState();
+    });
+    syncState();
+    bindAdvancedWeightsToggle._bound = true;
   }
 
   function groupsByPhase(){
@@ -189,6 +492,31 @@
     const by = groupsByPhase();
     const phases = ['appetizer','main','dessert'];
     box.innerHTML = '';
+    const normalizeList = (value)=>{
+      const arr = Array.isArray(value) ? value : [];
+      const out = [];
+      const seen = new Set();
+      arr.forEach(item=>{
+        if (item == null) return;
+        const s = String(item).trim();
+        if (!s || seen.has(s)) return;
+        seen.add(s);
+        out.push(s);
+      });
+      return out;
+    };
+    const teamAllergies = (tid)=>{
+      if (tid == null) return [];
+      const det = teamDetails[String(tid)] || {};
+      return normalizeList(det.allergies);
+    };
+    const hostFallbackAllergies = (tid)=>{
+      if (tid == null) return [];
+      const det = teamDetails[String(tid)] || {};
+      const hostVals = normalizeList(det.host_allergies);
+      if (hostVals.length) return hostVals;
+      return normalizeList(det.allergies);
+    };
     // Legend (payment coloring)
     const legend = document.createElement('div');
     legend.className = 'flex flex-wrap gap-4 items-center text-[11px] bg-[#f8fafc] p-2 rounded-lg border border-[#e2e8f0]';
@@ -209,6 +537,8 @@
         const hostZone = document.createElement('div'); hostZone.className = 'host-zone mb-2 p-2 rounded border border-dashed bg-white/40';
         hostZone.dataset.phase = phase; hostZone.dataset.groupIdx = String(g._idx); hostZone.dataset.role = 'host';
         hostZone.innerHTML = '<div class="text-xs text-[#4a5568] mb-1 flex items-center justify-between"><span>Host</span></div>';
+        const hostTeamId = g.host_team_id != null ? String(g.host_team_id) : null;
+        const hostAllergies = normalizeList(Array.isArray(g.host_allergies) && g.host_allergies.length ? g.host_allergies : hostFallbackAllergies(hostTeamId));
         const hostCard = g.host_team_id ? renderTeamCard(String(g.host_team_id)) : null;
         if (hostCard){ hostCard.dataset.phase = phase; hostCard.dataset.groupIdx = String(g._idx); hostCard.dataset.role = 'host'; hostZone.appendChild(hostCard); }
         // host address (public) if available
@@ -217,6 +547,12 @@
         addrEl.className = 'text-[11px] text-[#4a5568] mt-1 truncate';
         addrEl.textContent = `Host address: ${addr ? addr : '—'}`;
         hostZone.appendChild(addrEl);
+        if (hostAllergies.length){
+          const allergyEl = document.createElement('div');
+          allergyEl.className = 'text-[11px] text-[#334155] mt-1 truncate';
+          allergyEl.textContent = `Host allergies: ${hostAllergies.join(', ')}`;
+          hostZone.appendChild(allergyEl);
+        }
         card.appendChild(hostZone);
         // guests
         const guestZone = document.createElement('div'); guestZone.className = 'guest-zone p-2 rounded border border-dashed min-h-10 bg-white/40';
@@ -228,6 +564,20 @@
           guestZone.appendChild(t);
         });
         card.appendChild(guestZone);
+        const guestUnionSet = new Set(normalizeList(g.guest_allergies_union));
+        const guestMap = (g.guest_allergies && typeof g.guest_allergies === 'object') ? g.guest_allergies : {};
+        Object.values(guestMap).forEach(list=>{
+          normalizeList(list).forEach(item=> guestUnionSet.add(item));
+        });
+        (g.guest_team_ids || []).forEach(tid=>{
+          teamAllergies(tid).forEach(item=> guestUnionSet.add(item));
+        });
+        const guestUnion = Array.from(guestUnionSet);
+        let uncovered = normalizeList(g.uncovered_allergies);
+        if (!uncovered.length && guestUnion.length){
+          const hostSet = new Set(hostAllergies);
+          uncovered = guestUnion.filter(item=> !hostSet.has(item));
+        }
         // metrics line
         const metLine = document.createElement('div'); metLine.className = 'mt-2 text-xs text-[#4a5568]';
         const travel = (g.travel_seconds!=null) ? `${(g.travel_seconds||0).toFixed(0)}s` : '—';
@@ -235,24 +585,54 @@
         const warns = (g.warnings && g.warnings.length) ? ` · warnings: ${g.warnings.join(', ')}` : '';
         metLine.textContent = `Travel: ${travel} · Score: ${score}${warns}`;
         card.appendChild(metLine);
+        const allergySummary = document.createElement('div');
+        allergySummary.className = 'mt-2 text-[11px] leading-snug text-[#4a5568]';
+        if (guestUnion.length){
+          const guestLine = document.createElement('div');
+          guestLine.textContent = `Guest allergies: ${guestUnion.join(', ')}`;
+          allergySummary.appendChild(guestLine);
+        }
+        if (uncovered.length){
+          const uncoveredLine = document.createElement('div');
+          uncoveredLine.className = 'mt-1 text-[#b91c1c]';
+          uncoveredLine.textContent = `Uncovered: ${uncovered.join(', ')}`;
+          allergySummary.appendChild(uncoveredLine);
+          card.classList.remove('border-[#f0f4f7]');
+          card.classList.remove('bg-[#fcfcfd]');
+          card.classList.add('border-[#fecaca]', 'bg-[#fef2f2]');
+        } else if (guestUnion.length){
+          const coveredLine = document.createElement('div');
+          coveredLine.className = 'mt-1 text-[#16a34a]';
+          coveredLine.textContent = 'Host covers listed allergies';
+          allergySummary.appendChild(coveredLine);
+        }
+        if (allergySummary.childNodes.length){
+          card.appendChild(allergySummary);
+        }
         wrap.appendChild(card);
       });
       section.appendChild(wrap);
       box.appendChild(section);
     });
     // controls
-    const ctrl = document.createElement('div'); ctrl.className = 'flex gap-2 items-center';
+    const ctrl = document.createElement('div'); ctrl.className = 'flex gap-2 items-center flex-wrap';
     ctrl.innerHTML = `
       <button id="btn-save-groups" class="bg-[#008080] text-white px-3 py-2 rounded-xl text-sm font-semibold hover:bg-[#00b3b3]">Save changes</button>
       <button id="btn-validate-groups" class="bg-[#ffc241] text-[#172a3a] px-3 py-2 rounded-xl text-sm font-semibold hover:bg-[#ffe5d0]">Validate</button>
+      <button id="btn-release-groups" class="bg-[#2563eb] text-white px-3 py-2 rounded-xl text-sm font-semibold hover:bg-[#1d4ed8]">Release</button>
       <button id="btn-reload-details" class="bg-[#4a5568] text-white px-3 py-2 rounded-xl text-sm font-semibold hover:opacity-90">Reload</button>
       <span id="details-issues" class="text-sm"></span>
     `;
+    if (unsaved){
+      const releaseBtn = ctrl.querySelector('#btn-release-groups');
+      if (releaseBtn){ releaseBtn.disabled = true; releaseBtn.classList.add('opacity-60'); releaseBtn.title = 'Save changes before releasing'; }
+    }
     box.appendChild(ctrl);
 
     bindDnD();
     bindDetailsControls();
     bindTeamMapButtons();
+    bindTeamNameButtons();
     // async fetch payment issues summary
     fetchIssuesForDetails();
   }
@@ -399,8 +779,14 @@
     const res = await apiFetch(`/matching/${evId}/validate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groups: detailsGroups }) });
     const data = await res.json().catch(()=>({ violations:[], phase_issues:[], group_issues:[] }));
     const issues = [];
-    (data.violations||[]).forEach(v=> issues.push(`pair ${v.pair[0]}↔${v.pair[1]} ${v.count} times`));
-    (data.phase_issues||[]).forEach(v=> issues.push(`[${v.phase}] team ${v.team_id}: ${v.issue}`));
+    (data.violations||[]).forEach(v=>{
+      const names = (v.pair||[]).map(id=> getTeamLabel(id, detailsVersion));
+      issues.push(`pair ${names[0]||'—'} ↔ ${names[1]||'—'} ${v.count} times`);
+    });
+    (data.phase_issues||[]).forEach(v=>{
+      const teamLabel = getTeamLabel(v.team_id, detailsVersion);
+      issues.push(`[${v.phase}] team ${teamLabel}: ${v.issue}`);
+    });
     (data.group_issues||[]).forEach(v=> issues.push(`[${v.phase||'?'}] group#${v.group_idx}: ${v.issue}`));
     $('#details-issues').textContent = issues.length ? `Issues: ${issues.join(' · ')}` : 'No issues detected.';
     if (issues.length){ toast(`Warnings: ${issues.length} issue(s) detected.`, { type: 'warning' }); }
@@ -409,6 +795,17 @@
   function bindDetailsControls(){
     $('#btn-reload-details').addEventListener('click', async ()=>{ const t = toastLoading('Loading details...'); await loadMatchDetails(detailsVersion); t.close(); });
     $('#btn-validate-groups').addEventListener('click', validateCurrentGroups);
+    const releaseBtn = $('#btn-release-groups');
+    if (releaseBtn){
+      releaseBtn.addEventListener('click', async (e)=>{
+        if (unsaved){
+          toast('Please save changes before releasing.', { type: 'warning' });
+          return;
+        }
+        const evId = $('#matching-event-select').value;
+        await confirmAndRelease(evId, detailsVersion, e.currentTarget);
+      });
+    }
     $('#btn-save-groups').addEventListener('click', async (e)=>{
       const btn = e.currentTarget; setBtnLoading(btn, 'Saving...');
       const evId = $('#matching-event-select').value;
@@ -416,7 +813,13 @@
       if (r.ok){
         const res = await r.json().catch(()=>({}));
         if (res.status === 'warning'){
-          const msgs = [].concat((res.violations||[]).map(v=>`pair ${v.pair[0]}↔${v.pair[1]} ${v.count} times`), (res.phase_issues||[]).map(v=>`[${v.phase}] ${v.team_id} ${v.issue}`));
+          const msgs = [].concat(
+            (res.violations||[]).map(v=>{
+              const names = (v.pair||[]).map(id=> getTeamLabel(id, detailsVersion));
+              return `pair ${names[0]||'—'} ↔ ${names[1]||'—'} ${v.count} times`;
+            }),
+            (res.phase_issues||[]).map(v=>`[${v.phase}] ${getTeamLabel(v.team_id, detailsVersion)} ${v.issue}`)
+          );
           toast(`Warnings (${msgs.length})`, { type: 'warning' });
           if (confirm(`Warnings detected:\n${msgs.join('\n')}\nProceed anyway?`)){
             r = await apiFetch(`/matching/${evId}/set_groups`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: detailsVersion, groups: detailsGroups, force: true }) });
@@ -449,7 +852,11 @@
     if (!res.ok){ $('#match-details').innerHTML = ''; $('#match-details-msg').textContent = 'No details available.'; t.update('No details.'); t.close(); return; }
     const data = await res.json().catch(()=>null);
     if (!data){ $('#match-details').innerHTML = ''; t.update('Load error.'); t.close(); return; }
-    detailsVersion = data.version; detailsGroups = data.groups || []; teamDetails = data.team_details || {}; unsaved = false;
+    detailsVersion = data.version;
+    detailsGroups = data.groups || [];
+    teamDetails = data.team_details || {};
+    unsaved = false;
+    updateTeamNameCache(detailsVersion, teamDetails);
     renderMatchDetailsBoard();
     t.update('Details loaded'); t.close();
   }
@@ -546,10 +953,33 @@
   }
 
   function readWeights(){
+    const defaults = {
+      dist: 1,
+      pref: 5,
+      allergy: 3,
+      desired_host: 10,
+      trans: 0.5,
+      final_party: 0.5,
+      phase_order: 0,
+      cap_penalty: 5,
+      dup: 1000,
+    };
+    const get = (id, key)=>{
+      const el = document.getElementById(id);
+      if (!el) return defaults[key];
+      const val = parseFloat(el.value);
+      return Number.isFinite(val) ? val : defaults[key];
+    };
     return {
-      dist: Number($('#w-dist').value||1),
-      pref: Number($('#w-pref').value||5),
-      allergy: Number($('#w-allergy').value||3),
+      dist: get('w-dist', 'dist'),
+      pref: get('w-pref', 'pref'),
+      allergy: get('w-allergy', 'allergy'),
+      desired_host: get('w-desired-host', 'desired_host'),
+      trans: get('w-trans', 'trans'),
+      final_party: get('w-final-party', 'final_party'),
+      phase_order: get('w-phase-order', 'phase_order'),
+      cap_penalty: get('w-cap-penalty', 'cap_penalty'),
+      dup: get('w-dup', 'dup'),
     };
   }
 
@@ -607,43 +1037,83 @@
     const res = await apiFetch(`/matching/${evId}/matches`);
     const list = await res.json().catch(()=>[]);
     const box = $('#proposals'); box.innerHTML = '';
+    const finalizedRecord = list.find(m=> (m.status||'').toLowerCase() === 'finalized');
+    const finalizedVersion = finalizedRecord ? Number(finalizedRecord.version) : null;
     list.forEach(m=>{
-      const d = document.createElement('div');
-      d.className = 'p-3 rounded-xl border border-[#f0f4f7]';
-      const met = m.metrics || {}; const alg = m.algorithm||'';
-      d.innerHTML = `
-        <div class=\"flex items-center justify-between\">
-          <div class=\"font-semibold\">v${m.version} · ${alg}</div>
-          <div class=\"text-sm text-[#4a5568]\">Travel: ${(met.total_travel_seconds||0).toFixed(0)}s · Score: ${(met.aggregate_group_score||0).toFixed(1)}</div>
+      const version = Number(m.version);
+      const metrics = m.metrics || {};
+      const algorithm = m.algorithm || '';
+      const isFinalized = (m.status||'').toLowerCase() === 'finalized';
+      const isCurrent = detailsVersion === version;
+      const wasEdited = Boolean(m.updated_at && (!m.created_at || m.updated_at !== m.created_at));
+      const classes = ['p-3','rounded-xl','border','transition','shadow-sm','proposal-card'];
+      if (isFinalized){
+        classes.push('border-[#bbf7d0]','bg-[#f0fdf4]');
+      } else {
+        classes.push('border-[#f0f4f7]','bg-white');
+        if (finalizedVersion != null && version !== finalizedVersion){
+          classes.push('opacity-70');
+        }
+      }
+      if (isCurrent){ classes.push('ring-2','ring-offset-1','ring-[#2563eb]'); }
+      const card = document.createElement('div');
+      card.className = classes.join(' ');
+
+      const createdAt = m.created_at ? fmtDate(m.created_at) : null;
+      const updatedAt = m.updated_at ? fmtDate(m.updated_at) : null;
+      const finalizedAt = m.finalized_at ? fmtDate(m.finalized_at) : null;
+      const metaParts = [];
+      if (createdAt) metaParts.push(`Created ${createdAt}`);
+      if (updatedAt && (!createdAt || updatedAt !== createdAt)) metaParts.push(`Updated ${updatedAt}`);
+      if (finalizedAt) metaParts.push(`Released ${finalizedAt}`);
+      const badges = [];
+      if (isFinalized) badges.push('<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#bbf7d0] text-[#065f46]">Released</span>');
+      if (wasEdited && !isFinalized) badges.push('<span class="px-2 py-0.5 rounded-full text-[11px] bg-[#fee2e2] text-[#b91c1c]">Edited</span>');
+
+      const travel = (metrics.total_travel_seconds||0).toFixed(0);
+      const score = (metrics.aggregate_group_score||0).toFixed(1);
+      const releaseDisabled = isFinalized || (unsaved && detailsVersion === version);
+      let releaseClasses = isFinalized ? 'bg-[#9ca3af] cursor-not-allowed' : 'bg-[#1b5e20] hover:bg-[#166534]';
+      let releaseLabel = isFinalized ? 'Released' : 'Release';
+      if (!isFinalized && unsaved && detailsVersion === version){
+        releaseClasses = 'bg-[#9ca3af] cursor-not-allowed';
+        releaseLabel = 'Save first';
+      }
+      card.innerHTML = `
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="font-semibold flex items-center gap-2">v${version}${algorithm?` · ${algorithm}`:''}${badges.length ? ` <span class=\"flex gap-1\">${badges.join('')}</span>` : ''}</div>
+          <div class="text-sm text-[#4a5568]">Travel: ${travel}s · Score: ${score}</div>
         </div>
-        <div class=\"mt-2 flex gap-2\">
-          <button data-view=\"${m.version}\" class=\"bg-[#4a5568] text-white rounded-xl px-3 py-1 text-sm\">View</button>
-          <button data-finalize=\"${m.version}\" class=\"bg-[#1b5e20] text-white rounded-xl px-3 py-1 text-sm\">Release</button>
-          <button data-issues=\"${m.version}\" class=\"bg-[#008080] text-white rounded-xl px-3 py-1 text-sm\">View issues</button>
-          <button data-delete=\"${m.version}\" class=\"bg-[#e53e3e] text-white rounded-xl px-3 py-1 text-sm\">Delete</button>`;
-      box.appendChild(d);
+        ${metaParts.length ? `<div class="mt-1 text-xs text-[#475569]">${metaParts.join(' · ')}</div>` : ''}
+        <div class="mt-2 flex flex-wrap gap-2">
+          <button data-view="${version}" class="bg-[#4a5568] text-white rounded-xl px-3 py-1 text-sm">${isCurrent ? 'Viewing' : 'View'}</button>
+          <button data-release="${version}" class="${releaseClasses} text-white rounded-xl px-3 py-1 text-sm" ${releaseDisabled ? 'disabled' : ''}>${releaseLabel}</button>
+          <button data-issues="${version}" class="bg-[#008080] text-white rounded-xl px-3 py-1 text-sm">View issues</button>
+          <button data-delete="${version}" class="bg-[#e53e3e] text-white rounded-xl px-3 py-1 text-sm">Delete</button>
+        </div>`;
+      box.appendChild(card);
     });
     box.onclick = async (e)=>{
-      const vbtn = e.target.closest('button[data-view]');
-      const f = e.target.closest('button[data-finalize]');
-      const i = e.target.closest('button[data-issues]');
-      const del = e.target.closest('button[data-delete]');
+      const viewBtn = e.target.closest('button[data-view]');
+      const releaseBtn = e.target.closest('button[data-release]');
+      const issuesBtn = e.target.closest('button[data-issues]');
+      const deleteBtn = e.target.closest('button[data-delete]');
       const evId = $('#matching-event-select').value;
-      if (vbtn){
-        setBtnLoading(vbtn, 'Opening...');
-        const v = Number(vbtn.getAttribute('data-view'));
+      if (viewBtn){
+        setBtnLoading(viewBtn, 'Opening...');
+        const v = Number(viewBtn.getAttribute('data-view'));
         await loadMatchDetails(v);
-        clearBtnLoading(vbtn);
-      } else if (f){
-        const v = Number(f.getAttribute('data-finalize'));
-        const t = toastLoading('Releasing final plan...');
-        const r = await apiFetch(`/matching/${evId}/finalize?version=${v}`, { method: 'POST' });
-        if (r.ok) { t.update('Plan released'); await loadEvents(); await loadProposals(); await loadMatchDetails(v); }
-        else { t.update('Release error'); }
-        t.close();
-      } else if (i){
-        const v = Number(i.getAttribute('data-issues'));
-        const card = i.closest('div.p-3');
+        clearBtnLoading(viewBtn);
+      } else if (releaseBtn){
+        const v = Number(releaseBtn.getAttribute('data-release'));
+        if (unsaved && detailsVersion === v){
+          toast('Save changes before releasing this proposal.', { type: 'warning' });
+          return;
+        }
+        await confirmAndRelease(evId, v, releaseBtn);
+      } else if (issuesBtn){
+        const v = Number(issuesBtn.getAttribute('data-issues'));
+        const card = issuesBtn.closest('.proposal-card');
         const existing = card.querySelector('.issues-panel');
         if (existing) { existing.remove(); return; }
         const t = toastLoading('Analyzing issues...');
@@ -652,6 +1122,7 @@
         const items = data.issues||[];
         const count = items.length;
         if (!count){ t.update('No issues detected'); t.close(); return; }
+        await ensureTeamNames(evId, v);
         t.update(`${count} group(s) with issues`); t.close();
         // Build grouped counts
         const counts = {};
@@ -663,11 +1134,13 @@
           <div class=\"mb-2 flex flex-wrap gap-2\">${Object.entries(counts).map(([k,v])=>badge(k,v)).join('')}</div>
           <div class=\"space-y-1 max-h-60 overflow-auto pr-1\">${items.map(it=>{
             const g = it.group || {}; const tags = (it.issues||[]).map(isu=>`<span class=\"inline-block px-1.5 py-0.5 mr-1 mb-1 rounded text-[11px] ${isu==='payment_missing'?'bg-[#fee2e2] text-[#991b1b]':isu==='payment_partial'?'bg-[#fef3c7] text-[#92400e]':isu==='faulty_team_cancelled'?'bg-[#fecaca] text-[#7f1d1d]':isu==='team_incomplete'?'bg-[#e0f2fe] text-[#075985]':'bg-[#e2e8f0] text-[#334155]'}\">${isu.replace(/_/g,' ')}</span>`).join('');
-            return `<div class=\"py-1 border-b last:border-b-0 border-[#f0d4d3]\"><div class=\"text-xs text-[#475569]\"><span class=\"font-semibold\">${g.phase||''}</span> · host <code>${g.host_team_id}</code> → guests ${(g.guest_team_ids||[]).map(x=>`<code>${x}</code>`).join(', ')} </div><div class=\"mt-1\">${tags}</div></div>`;
+            const hostName = getTeamLabel(g.host_team_id, v);
+            const guestNames = (g.guest_team_ids||[]).map(x=> getTeamLabel(x, v)).join(', ');
+            return `<div class=\"py-1 border-b last:border-b-0 border-[#f0d4d3]\"><div class=\"text-xs text-[#475569]\"><span class=\"font-semibold\">${g.phase||''}</span> · host ${hostName} → guests ${guestNames || '—'} </div><div class=\"mt-1\">${tags}</div></div>`;
           }).join('')}</div>`;
         card.appendChild(panel);
-      } else if (del){
-        const v = Number(del.getAttribute('data-delete'));
+      } else if (deleteBtn){
+        const v = Number(deleteBtn.getAttribute('data-delete'));
         if (!confirm(`Delete proposal v${v}?`)) return;
         const r = await apiFetch(`/matching/${evId}/matches?version=${v}`, { method: 'DELETE' });
         if (r.ok){
@@ -921,6 +1394,8 @@
     await handleCreate();
     await startMatching();
     await bindRefunds();
+    bindWeightInfo();
+    bindAdvancedWeightsToggle();
     bindMaps();
     // Do not auto-load matching proposals or details on page load.
     // Users must click "Start Matching" or "Refresh Proposals" to fetch them.

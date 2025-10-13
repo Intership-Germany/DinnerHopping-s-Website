@@ -144,32 +144,95 @@
     <!-- Matching Panel -->
     <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
       <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Matching and Comparison</h2>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div>
           <label class="block text-sm font-semibold mb-1">Select Event</label>
           <select id="matching-event-select" class="border border-[#f0f4f7] rounded-xl p-3 w-full"></select>
         </div>
-        <div>
-          <label class="block text-sm">Weights: Travel</label>
-          <input id="w-dist" type="number" step="0.1" value="1" class="border border-[#f0f4f7] rounded-xl p-2 w-full">
+        <div class="md:col-span-3">
+          <div class="flex justify-center md:justify-center md:items-center mt-2 md:mt-7">
+            <button id="advanced-weight-toggle" type="button" class="flex items-center gap-2 text-sm font-semibold px-3 py-2 rounded-xl border border-[#cbd5f5] bg-white shadow-sm hover:bg-[#f1f5ff] transition" aria-expanded="false" aria-controls="advanced-weight-panel">
+              <span>Options avancées</span>
+              <span id="advanced-weight-toggle-icon" class="text-xs">▼</span>
+            </button>
+          </div>
+          <div id="advanced-weight-panel" class="mt-3 hidden">
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            <div class="p-3 rounded-xl border border-[#f0f4f7] bg-[#f8fafc]">
+              <div class="flex items-center justify-between text-sm font-semibold mb-2">
+                <span>Travel distance penalty</span>
+                <button type="button" class="weight-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8]" data-info="Distance penalty (dist). Multiplies total travel seconds when scoring a proposal. Typical range: 0 - 5." aria-label="Info on travel weight">i</button>
+              </div>
+              <input id="w-dist" type="number" step="0.1" value="1" class="border border-[#e2e8f0] rounded-xl p-2 w-full bg-white">
+            </div>
+            <div class="p-3 rounded-xl border border-[#f0f4f7] bg-[#f8fafc]">
+              <div class="flex items-center justify-between text-sm font-semibold mb-2">
+                <span>Preference bonus</span>
+                <button type="button" class="weight-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8]" data-info="Preference bonus (pref). Added when teams receive preferred courses. Typical range: 2 - 8." aria-label="Info on preference weight">i</button>
+              </div>
+              <input id="w-pref" type="number" step="0.1" value="5" class="border border-[#e2e8f0] rounded-xl p-2 w-full bg-white">
+            </div>
+            <div class="p-3 rounded-xl border border-[#f0f4f7] bg-[#f8fafc]">
+              <div class="flex items-center justify-between text-sm font-semibold mb-2">
+                <span>Allergy penalty</span>
+                <button type="button" class="weight-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8]" data-info="Allergy penalty (allergy). Deducted per allergy conflict or uncovered diet. Typical range: 2 - 10." aria-label="Info on allergy weight">i</button>
+              </div>
+              <input id="w-allergy" type="number" step="0.1" value="3" class="border border-[#e2e8f0] rounded-xl p-2 w-full bg-white">
+            </div>
+            <div class="p-3 rounded-xl border border-[#f0f4f7] bg-[#f8fafc]">
+              <div class="flex items-center justify-between text-sm font-semibold mb-2">
+                <span>Desired host bonus</span>
+                <button type="button" class="weight-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8]" data-info="Desired host bonus. Rewards assigning a team that asked to host. Typical range: 5 - 20." aria-label="Info on desired host weight">i</button>
+              </div>
+              <input id="w-desired-host" type="number" step="0.1" value="10" class="border border-[#e2e8f0] rounded-xl p-2 w-full bg-white">
+            </div>
+            <div class="p-3 rounded-xl border border-[#f0f4f7] bg-[#f8fafc]">
+              <div class="flex items-center justify-between text-sm font-semibold mb-2">
+                <span>Transition time penalty</span>
+                <button type="button" class="weight-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8]" data-info="Transition penalty (trans). Penalizes long gaps between phases. Typical range: 0 - 1." aria-label="Info on transition weight">i</button>
+              </div>
+              <input id="w-trans" type="number" step="0.1" value="0.5" class="border border-[#e2e8f0] rounded-xl p-2 w-full bg-white">
+            </div>
+            <div class="p-3 rounded-xl border border-[#f0f4f7] bg-[#f8fafc]">
+              <div class="flex items-center justify-between text-sm font-semibold mb-2">
+                <span>After-party travel penalty</span>
+                <button type="button" class="weight-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8]" data-info="After-party penalty (final_party). Penalizes distance to the after-party. Typical range: 0 - 1." aria-label="Info on after-party weight">i</button>
+              </div>
+              <input id="w-final-party" type="number" step="0.1" value="0.5" class="border border-[#e2e8f0] rounded-xl p-2 w-full bg-white">
+            </div>
+            <div class="p-3 rounded-xl border border-[#f0f4f7] bg-[#f8fafc]">
+              <div class="flex items-center justify-between text-sm font-semibold mb-2">
+                <span>Phase order penalty</span>
+                <button type="button" class="weight-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8]" data-info="Phase order penalty. Discourages repeating the same visiting pattern. Typical range: 0 - 2." aria-label="Info on phase order weight">i</button>
+              </div>
+              <input id="w-phase-order" type="number" step="0.1" value="0" class="border border-[#e2e8f0] rounded-xl p-2 w-full bg-white">
+            </div>
+            <div class="p-3 rounded-xl border border-[#f0f4f7] bg-[#f8fafc]">
+              <div class="flex items-center justify-between text-sm font-semibold mb-2">
+                <span>Capability penalty</span>
+                <button type="button" class="weight-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8]" data-info="Capability penalty (cap_penalty). Applied when a host cannot deliver the assigned course. Typical range: 2 - 10." aria-label="Info on capability weight">i</button>
+              </div>
+              <input id="w-cap-penalty" type="number" step="0.1" value="5" class="border border-[#e2e8f0] rounded-xl p-2 w-full bg-white">
+            </div>
+            <div class="p-3 rounded-xl border border-[#f0f4f7] bg-[#f8fafc]">
+              <div class="flex items-center justify-between text-sm font-semibold mb-2">
+                <span>Duplicate pair penalty</span>
+                <button type="button" class="weight-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8]" data-info="Duplicate penalty (dup). Strong penalty to avoid repeating the same pair. Typical range: 500 - 2000." aria-label="Info on duplicate penalty weight">i</button>
+              </div>
+              <input id="w-dup" type="number" step="1" value="1000" class="border border-[#e2e8f0] rounded-xl p-2 w-full bg-white">
+            </div>
+            </div>
+          </div>
         </div>
-        <div>
-          <label class="block text-sm">Weights: Preference</label>
-          <input id="w-pref" type="number" step="0.1" value="5" class="border border-[#f0f4f7] rounded-xl p-2 w-full">
-        </div>
-        <div>
-          <label class="block text-sm">Weights: Allergy/Diet</label>
-          <input id="w-allergy" type="number" step="0.1" value="3" class="border border-[#f0f4f7] rounded-xl p-2 w-full">
-        </div>
-        <div class="md:col-span-4 flex flex-wrap gap-3 items-center">
-          <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-greedy" checked> Greedy</label>
-          <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-random" checked> Random</label>
-          <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-local" > Local search</label>
-          <button id="btn-start-matching" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Start Matching</button>
-          <button id="btn-refresh-matches" class="bg-[#ffc241] text-[#172a3a] rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#ffe5d0] transition">Refresh Proposals</button>
-          <button id="btn-delete-all-matches" class="bg-[#e53e3e] text-white rounded-xl px-4 py-2 font-semibold shadow hover:opacity-90 transition">Delete All Matches</button>
-          <span id="matching-msg" class="text-sm"></span>
-        </div>
+      </div>
+      <div class="mt-4 flex flex-wrap gap-3 items-center">
+        <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-greedy" checked> Greedy</label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-random" checked> Random</label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-local" > Local search</label>
+        <button id="btn-start-matching" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Start Matching</button>
+        <button id="btn-refresh-matches" class="bg-[#ffc241] text-[#172a3a] rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#ffe5d0] transition">Refresh Proposals</button>
+        <button id="btn-delete-all-matches" class="bg-[#e53e3e] text-white rounded-xl px-4 py-2 font-semibold shadow hover:opacity-90 transition">Delete All Matches</button>
+        <span id="matching-msg" class="text-sm"></span>
       </div>
       <div class="mt-4">
         <h3 class="font-semibold mb-2">Proposals</h3>
