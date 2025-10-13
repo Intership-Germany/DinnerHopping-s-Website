@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Set
 
 from bson.objectid import ObjectId
@@ -125,40 +125,162 @@ async def refunds_overview(event_id: str) -> dict:
     return {'enabled': True, 'total_refund_cents': total, 'items': items}
 
 
+async def _team_emails_map(event_id: str) -> Dict[str, List[str]]:
+    """Return mapping team_id(str)->list of member emails; include pseudo-team for solo regs.
+    Also supports split units: keys of the form 'split:<email>' map to [email].
+    """
+    out: Dict[str, List[str]] = {}
+    # real teams
+    async for t in db_mod.db.teams.find({'event_id': ObjectId(event_id)}):
+        emails = [m.get('email') for m in (t.get('members') or []) if m.get('email')]
+        out[str(t['_id'])] = emails
+    # solo registrations
+    async for r in db_mod.db.registrations.find({'event_id': ObjectId(event_id)}):
+        if not r.get('team_id'):
+            tid = f"solo:{str(r.get('_id'))}"
+            em = r.get('user_email_snapshot')
+            if em:
+                out.setdefault(tid, []).append(em)
+    return out
+
+
+def _augment_emails_map_with_splits(base: Dict[str, List[str]], groups: List[dict]) -> Dict[str, List[str]]:
+    """Extend mapping with any split:<email> and pair:<a+b> ids seen in groups."""
+    out = dict(base)
+    for g in groups:
+        ids = [g.get('host_team_id'), *(g.get('guest_team_ids') or [])]
+        for tid in ids:
+            if not isinstance(tid, str):
+                continue
+            if tid.startswith('split:'):
+                email = tid.split(':', 1)[1]
+                out.setdefault(tid, []).append(email)
+            elif tid.startswith('pair:'):
+                part = tid.split(':', 1)[1]
+                ems = part.split('+') if '+' in part else []
+                if ems:
+                    out.setdefault(tid, []).extend([e for e in ems if e])
+    return out
+
+
 async def generate_plans_from_matches(event_id: str, version: int) -> int:
-    match_doc = await db_mod.db.matches.find_one({'event_id': event_id, 'version': int(version)})
-    if not match_doc:
+    """Generate per-user plans documents from a proposed/finalized match version.
+
+    Overwrites existing plans for (event_id, user_email). Returns number of plans written.
+    """
+    m = await db_mod.db.matches.find_one({'event_id': event_id, 'version': int(version)})
+    if not m:
         return 0
-    base_map = await team_emails_map(event_id)
-    groups = match_doc.get('groups') or []
-    team_to_emails = augment_emails_map_with_splits(base_map, groups)
-    meal_times = meal_time_defaults()
-    sections_by_email: Dict[str, List[dict]] = {}
-    for group in groups:
-        meal = group.get('phase')
-        host = group.get('host_team_id')
-        guests = group.get('guest_team_ids') or []
+    base_map = await _team_emails_map(event_id)
+    groups = m.get('groups') or []
+    team_to_emails = _augment_emails_map_with_splits(base_map, groups)
+
+    # Preload user profiles for first names, allergies, dietary
+    all_emails = set()
+    for g in groups:
+        host = g.get('host_team_id')
+        guests = g.get('guest_team_ids') or []
         host_emails = team_to_emails.get(str(host), [])
         guest_emails: List[str] = []
-        for team_id in guests:
-            guest_emails.extend(team_to_emails.get(str(team_id), []))
-        host_email = host_emails[0] if host_emails else None
-        section = {
-            'meal': meal,
-            'time': meal_times.get(meal, '20:00'),
-            'host': {'email': host_email, 'emails': host_emails},
-            'guests': guest_emails,
+        for tid in guests:
+            guest_emails.extend(team_to_emails.get(str(tid), []))
+        for em in host_emails + guest_emails:
+            all_emails.add(em)
+    profiles = {}
+    async for u in db_mod.db.users.find({"email": {"$in": list(all_emails)}}):
+        profiles[u['email']] = {
+            "first_name": u.get('first_name', ''),
+            "allergies": u.get('allergies', []),
+            "dietary": u.get('default_dietary_preferences', []),
+            "lat": u.get('lat'),
+            "lon": u.get('lon'),
+            "address_full": u.get('address_struct', {}).get('address_full'),
         }
-        for email in set((host_emails or []) + guest_emails):
-            sections_by_email.setdefault(email, []).append(section)
+
+    # Get event config for chat and address unlock
+    event = await db_mod.db.events.find_one({"_id": ObjectId(event_id)}) if event_id else None
+    chat_enabled = event.get('chat_enabled', False) if event else False
+    unlock_minutes = event.get('address_unlock_minutes', 30) if event else 30
+
+    now = datetime.now(timezone.utc)
+
+    def _meal_time(meal: str) -> str:
+        return '20:00' if meal=='main' else ('18:00' if meal=='appetizer' else '22:00')
+
+    sections_by_email: Dict[str, List[dict]] = {}
+    for g in groups:
+        meal = g.get('phase')
+        host = g.get('host_team_id')
+        guests = g.get('guest_team_ids') or []
+        host_emails = team_to_emails.get(str(host), [])
+        guest_emails: List[str] = []
+        for tid in guests:
+            guest_emails.extend(team_to_emails.get(str(tid), []))
+        host_email = host_emails[0] if host_emails else None
+
+        # Compose section
+        sec = {
+            'meal': meal,
+            'time': _meal_time(meal),
+            'host_email': host_email,
+            'host_location': None,
+            'guests': [profiles.get(g, {}).get('first_name', '') for g in guest_emails],
+            'chat_room_id': None
+        }
+        # Address unlock logic
+        unlock_dt = None
+        try:
+            unlock_dt = datetime.fromisoformat(sec['time'])
+        except Exception:
+            pass
+        lat = profiles.get(host_email, {}).get('lat')
+        lon = profiles.get(host_email, {}).get('lon')
+        if lat is not None and lon is not None:
+            if unlock_dt and (now >= unlock_dt - timedelta(minutes=unlock_minutes)):
+                sec['host_location'] = profiles.get(host_email, {}).get('address_full', None)
+            else:
+                from ...utils import anonymize_address
+                sec['host_location'] = anonymize_address(lat, lon)
+
+        # Add chat room info if enabled
+        if chat_enabled:
+            from ...utils import create_chat_group
+            chat_id = None
+            try:
+                await create_chat_group(str(event_id), [host_email] + guest_emails, 'system', section_ref=meal)
+                chat_group = await db_mod.db.chat_groups.find_one({
+                    'event_id': str(event_id),
+                    'section_ref': meal,
+                    'participant_emails': { '$all': [e for e in [host_email] + guest_emails if e] },
+                })
+                if chat_group:
+                    chat_id = str(chat_group.get('_id'))
+            except Exception:
+                chat_id = None
+            sec['chat_room_id'] = chat_id
+
+        # If current user is host, show allergies/dietary for guests
+        if host_email:
+            sec['guests_info'] = [
+                {
+                    'first_name': profiles.get(g, {}).get('first_name', ''),
+                    'allergies': profiles.get(g, {}).get('allergies', []),
+                    'dietary': profiles.get(g, {}).get('dietary', [])
+                } for g in guest_emails
+            ]
+
+        for em in set((host_emails or []) + guest_emails):
+            sections_by_email.setdefault(em, []).append(sec)
+
+    # write plans
     written = 0
-    for email, sections in sections_by_email.items():
-        await db_mod.db.plans.delete_many({'event_id': ObjectId(event_id), 'user_email': email})
+    for em, secs in sections_by_email.items():
+        await db_mod.db.plans.delete_many({'event_id': ObjectId(event_id), 'user_email': em})
         doc = {
             'event_id': ObjectId(event_id),
-            'user_email': email,
-            'sections': sections,
-            'created_at': datetime.datetime.now(datetime.timezone.utc),
+            'user_email': em,
+            'sections': secs,
+            'created_at': datetime.now(timezone.utc),
         }
         await db_mod.db.plans.insert_one(doc)
         written += 1
@@ -166,39 +288,37 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
 
 
 async def finalize_and_generate_plans(event_id: str, version: int, finalized_by: Optional[str]) -> dict:
-    record = await mark_finalized(event_id, version, finalized_by)
+    rec = await mark_finalized(event_id, version, finalized_by)
     count = await generate_plans_from_matches(event_id, version)
+    # create chats: per-dinner groups and ensure general chat has all participants
     try:
-        await ensure_chats_from_matches(event_id, version)
+        from ...utils import ensure_chats_from_matches, ensure_general_chat_full
+        _ = await ensure_chats_from_matches(event_id, version)
         await ensure_general_chat_full(event_id)
     except Exception:
         pass
+    # notify participants (best-effort)
     sent = 0
-    event = await get_event(event_id)
-    event_title = event.get('title') if event else None
-    async for plan in db_mod.db.plans.find({'event_id': ObjectId(event_id)}):
-        email = plan.get('user_email')
-        if not email:
+    async for p in db_mod.db.plans.find({'event_id': ObjectId(event_id)}):
+        em = p.get('user_email')
+        if not em:
             continue
-        subject = 'Your DinnerHopping schedule is ready'
-        body_lines = [
+        title = 'Your DinnerHopping schedule is ready'
+        lines = [
             'Hello,',
             'Your schedule for the event is ready. Log in to see details.',
             'Have a great time!',
             '— DinnerHopping Team',
         ]
         try:
-            ok = await send_email(
-                to=email,
-                subject=subject,
-                body='\n'.join(body_lines),
-                category='final_plan',
-                template_vars={'event_title': event_title, 'email': email},
-            )
+            # include event title if available so template can use it
+            ev = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
+            ev_title = ev.get('title') if ev else None
+            ok = await send_email(to=em, subject=title, body='\n'.join(lines), category='final_plan', template_vars={'event_title': ev_title, 'email': em})
             sent += 1 if ok else 0
         except Exception:
             pass
-    return {'finalized_version': record.get('version'), 'plans_written': count, 'emails_attempted': sent}
+    return {'finalized_version': rec.get('version'), 'plans_written': count, 'emails_attempted': sent}
 
 
 async def process_refunds(event_id: str, registration_ids: Optional[List[str]] = None) -> dict:

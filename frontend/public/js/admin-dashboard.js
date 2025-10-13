@@ -478,6 +478,110 @@
     bindAdvancedWeightsToggle._bound = true;
   }
 
+  const ISSUE_METADATA = {
+    payment_missing: { label: 'Missing payment', description: 'At least one team assigned to this group has not completed payment.', tone: 'error' },
+    payment_partial: { label: 'Partial payment', description: 'A team recorded a partial payment; verify before confirmation.', tone: 'warning' },
+    faulty_team_cancelled: { label: 'Cancelled team', description: 'A cancelled team is still assigned in this proposal.', tone: 'error' },
+    team_incomplete: { label: 'Incomplete team', description: 'A team has missing participants or required information.', tone: 'warning' },
+    uncovered_allergy: { label: 'Uncovered allergy', description: 'Some guest allergies are not covered by the host.', tone: 'error' },
+    capacity_mismatch: { label: 'Capacity mismatch', description: 'The assigned host cannot serve the current number of guests.', tone: 'warning' },
+  };
+
+  const ISSUE_TONE_STYLES = {
+    error: { chipBg: '#fee2e2', chipText: '#7f1d1d', chipBorder: '#fecaca', cardBg: '#fff5f5', cardBorder: '#fecaca', accent: '#dc2626' },
+    warning: { chipBg: '#fef3c7', chipText: '#92400e', chipBorder: '#fde68a', cardBg: '#fffbeb', cardBorder: '#fde68a', accent: '#f59e0b' },
+    info: { chipBg: '#dbeafe', chipText: '#1d4ed8', chipBorder: '#bfdbfe', cardBg: '#eff6ff', cardBorder: '#bfdbfe', accent: '#2563eb' },
+    neutral: { chipBg: '#e2e8f0', chipText: '#334155', chipBorder: '#cbd5f5', cardBg: '#f8fafc', cardBorder: '#e2e8f0', accent: '#94a3b8' },
+  };
+
+  const ISSUE_TONE_RANK = { neutral: 0, info: 1, warning: 2, error: 3 };
+
+  function resolveIssueMeta(type){
+    return ISSUE_METADATA[type] || { label: type.replace(/_/g, ' '), description: 'See detailed logs for more information.', tone: 'info' };
+  }
+
+  function toneForIssues(issueTypes){
+    let selected = 'neutral';
+    let best = -1;
+    issueTypes.forEach(type=>{
+      const tone = resolveIssueMeta(type).tone || 'neutral';
+      const rank = ISSUE_TONE_RANK[tone] != null ? ISSUE_TONE_RANK[tone] : ISSUE_TONE_RANK.neutral;
+      if (rank > best){
+        best = rank;
+        selected = tone;
+      }
+    });
+    return selected;
+  }
+
+  function createIssueChip(type, total){
+    const meta = resolveIssueMeta(type);
+    const tone = meta.tone || 'neutral';
+    const styles = ISSUE_TONE_STYLES[tone] || ISSUE_TONE_STYLES.neutral;
+    const chip = document.createElement('span');
+    chip.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold shadow-sm';
+    chip.style.background = styles.chipBg;
+    chip.style.color = styles.chipText;
+    chip.style.border = `1px solid ${styles.chipBorder}`;
+    chip.textContent = `${meta.label}: ${total}`;
+    chip.title = meta.description;
+    return chip;
+  }
+
+  function createIssueCard(item, version){
+    const group = item.group || {};
+    const issueTypes = Array.isArray(item.issues) ? item.issues : [];
+    const tone = toneForIssues(issueTypes);
+    const styles = ISSUE_TONE_STYLES[tone] || ISSUE_TONE_STYLES.neutral;
+    const card = document.createElement('div');
+    card.className = 'issue-item rounded-xl border p-3 text-xs space-y-2 shadow-sm';
+    card.style.background = styles.cardBg;
+    card.style.borderColor = styles.cardBorder;
+    card.style.borderLeftWidth = '4px';
+    card.style.borderLeftStyle = 'solid';
+    card.style.borderLeftColor = styles.accent;
+
+    const phase = document.createElement('div');
+    phase.className = 'font-semibold text-[#1f2937] uppercase tracking-wide text-[11px]';
+    phase.textContent = group.phase ? group.phase : 'Unknown phase';
+    card.appendChild(phase);
+
+    const hostName = getTeamLabel(group.host_team_id, version);
+    const hostLine = document.createElement('div');
+    hostLine.className = 'text-[#1f2937]';
+    hostLine.innerHTML = `<span class="font-medium">Host</span>: ${hostName}`;
+    card.appendChild(hostLine);
+
+    const guestNames = (group.guest_team_ids || []).map(id=> getTeamLabel(id, version));
+    const guestLine = document.createElement('div');
+    guestLine.className = 'text-[#334155]';
+    guestLine.innerHTML = `<span class="font-medium">Guests</span>: ${guestNames.length ? guestNames.join(', ') : '—'}`;
+    card.appendChild(guestLine);
+
+    if (issueTypes.length){
+      const list = document.createElement('ul');
+      list.style.paddingLeft = '16px';
+      list.style.color = '#334155';
+      list.style.marginTop = '4px';
+      issueTypes.forEach(type=>{
+        const meta = resolveIssueMeta(type);
+        const li = document.createElement('li');
+        li.textContent = `${meta.label} – ${meta.description}`;
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+    }
+
+    if (Array.isArray(group.warnings) && group.warnings.length){
+      const warn = document.createElement('div');
+      warn.className = 'text-[#ca8a04]';
+      warn.textContent = `Warnings: ${group.warnings.join(', ')}`;
+      card.appendChild(warn);
+    }
+
+    return card;
+  }
+
   function groupsByPhase(){
     const by = { appetizer: [], main: [], dessert: [] };
     detailsGroups.forEach((g, idx)=>{ by[g.phase] = by[g.phase] || []; by[g.phase].push({ ...g, _idx: idx }); });
@@ -522,7 +626,6 @@
     legend.className = 'flex flex-wrap gap-4 items-center text-[11px] bg-[#f8fafc] p-2 rounded-lg border border-[#e2e8f0]';
     legend.innerHTML = `
       <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#dc2626]"></span> unpaid</div>
-      <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#f59e0b]"></span> partial</div>
       <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#16a34a]"></span> paid</div>
       <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#9ca3af]"></span> n/a</div>`;
     box.appendChild(legend);
@@ -1127,17 +1230,35 @@
         // Build grouped counts
         const counts = {};
         items.forEach(it=> (it.issues||[]).forEach(isu=>{ counts[isu] = (counts[isu]||0)+1; }));
-        const badge = (k, v)=>`<span class=\"px-2 py-0.5 rounded-full text-[11px] font-medium ${k==='payment_missing'?'bg-[#fee2e2] text-[#991b1b]':k==='payment_partial'?'bg-[#fef3c7] text-[#92400e]':k==='faulty_team_cancelled'?'bg-[#fecaca] text-[#7f1d1d]':k==='team_incomplete'?'bg-[#e0f2fe] text-[#075985]':'bg-[#e2e8f0] text-[#334155]'}\">${k.replace(/_/g,' ')}: ${v}</span>`;
+
         const panel = document.createElement('div');
-        panel.className = 'issues-panel mt-2 border border-[#fde2e1] bg-[#fff7f7] rounded-xl p-3 text-sm';
-        panel.innerHTML = `
-          <div class=\"mb-2 flex flex-wrap gap-2\">${Object.entries(counts).map(([k,v])=>badge(k,v)).join('')}</div>
-          <div class=\"space-y-1 max-h-60 overflow-auto pr-1\">${items.map(it=>{
-            const g = it.group || {}; const tags = (it.issues||[]).map(isu=>`<span class=\"inline-block px-1.5 py-0.5 mr-1 mb-1 rounded text-[11px] ${isu==='payment_missing'?'bg-[#fee2e2] text-[#991b1b]':isu==='payment_partial'?'bg-[#fef3c7] text-[#92400e]':isu==='faulty_team_cancelled'?'bg-[#fecaca] text-[#7f1d1d]':isu==='team_incomplete'?'bg-[#e0f2fe] text-[#075985]':'bg-[#e2e8f0] text-[#334155]'}\">${isu.replace(/_/g,' ')}</span>`).join('');
-            const hostName = getTeamLabel(g.host_team_id, v);
-            const guestNames = (g.guest_team_ids||[]).map(x=> getTeamLabel(x, v)).join(', ');
-            return `<div class=\"py-1 border-b last:border-b-0 border-[#f0d4d3]\"><div class=\"text-xs text-[#475569]\"><span class=\"font-semibold\">${g.phase||''}</span> · host ${hostName} → guests ${guestNames || '—'} </div><div class=\"mt-1\">${tags}</div></div>`;
-          }).join('')}</div>`;
+        panel.className = 'issues-panel mt-3 rounded-xl border border-[#e2e8f0] bg-white p-3 text-sm shadow-sm space-y-3';
+
+        const header = document.createElement('div');
+        header.className = 'flex items-center justify-between gap-2 flex-wrap';
+        header.innerHTML = `<span class="font-semibold text-[#111827]">Issues overview</span><span class="text-xs text-[#6b7280]">Proposal v${v}</span>`;
+        panel.appendChild(header);
+
+        const summary = document.createElement('div');
+        summary.className = 'flex flex-wrap gap-2';
+        Object.entries(counts).sort((a,b)=> (b[1]-a[1])).forEach(([type,total])=>{
+          summary.appendChild(createIssueChip(type, total));
+        });
+        if (!summary.children.length){
+          const empty = document.createElement('span');
+          empty.className = 'text-xs text-[#64748b]';
+          empty.textContent = 'No grouped issues reported.';
+          summary.appendChild(empty);
+        }
+        panel.appendChild(summary);
+
+        const list = document.createElement('div');
+        list.className = 'space-y-2 max-h-60 overflow-auto pr-1';
+        items.forEach(item=>{
+          list.appendChild(createIssueCard(item, v));
+        });
+        panel.appendChild(list);
+
         card.appendChild(panel);
       } else if (deleteBtn){
         const v = Number(deleteBtn.getAttribute('data-delete'));

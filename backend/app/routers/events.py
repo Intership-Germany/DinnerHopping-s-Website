@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Literal, List
 from datetime import timezone, timedelta
 from app import db as db_mod
@@ -793,6 +794,131 @@ async def recount_attendees(event_id: str, _=Depends(require_admin)):
         count += 1
     await db_mod.db.events.update_one({'_id': oid}, {'$set': {'attendee_count': count, 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
     return {'attendee_count': count}
+
+@router.get('/{event_id}/my_plan')
+async def get_my_plan(event_id: str, current_user=Depends(get_current_user)):
+    """Get the current user's plan."""
+
+
+    # 1. Fetch the user's plan
+    plan = await db_mod.db.plans.find_one({"user_email": current_user['email']})
+    if not plan:
+        return {"message": "No plan yet (matching not run)"}
+
+    # 2. Fetch the event details
+    event_id = plan.get('event_id')
+    event = await db_mod.db.events.find_one({"_id": event_id}) if event_id else None
+    event_date_str = event.get('date') if event else None
+
+    unlock_minutes = 120  # Unlock window in minutes
+    now = datetime.datetime.now(timezone.utc)
+
+    # 3. Parse event date
+    event_date = None
+    if event_date_str:
+        try:
+            event_date = (
+                datetime.datetime.fromisoformat(event_date_str).date()
+                if isinstance(event_date_str, str)
+                else event_date_str
+            )
+        except Exception as e:
+            print(f"[DEBUG] Failed to parse event date: {e}")
+
+    # 4. Pre-fetch all user data for hosts
+    host_emails = [
+        section.get('host_email')
+        for section in plan.get('sections', [])
+        if section.get('host_email')
+    ]
+    
+    users = {
+        u['email']: u
+        for u in await db_mod.db.users.find({"email": {"$in": host_emails}}).to_list(None)
+    }
+
+    # 5. Build the response
+    out = {
+        "id": str(plan.get('_id')) if plan.get('_id') is not None else None,
+        "event_id": str(event_id) if event_id is not None else None,
+        "user_email": plan.get('user_email'),
+        "sections": [],
+    }
+
+    for section in plan.get('sections', []):
+
+        # 6. Initialize section output
+        sec = {
+            'meal': section.get('meal'),
+            'time': section.get('time'),
+            'host_first_name': None,
+            'host_location': section.get('host_location'),
+            'guests': section.get('guests') or [],
+            'chat_room_id': section.get('chat_room_id'),
+        }
+
+        # 7. Set host first name
+        host_email = section.get('host_email')
+        if host_email and host_email in users:
+            sec['host_first_name'] = users[host_email].get('first_name')
+
+        # 8. Parse section time
+        section_time = section.get('time')
+        unlock_time = None
+        if section_time and event_date:
+            try:
+                if isinstance(section_time, str):
+                    dt_str = f"{event_date}T{section_time}"
+                    unlock_time = datetime.datetime.fromisoformat(dt_str).replace(tzinfo=timezone.utc)
+                elif isinstance(section_time, datetime.datetime):
+                    unlock_time = (
+                        section_time
+                        if section_time.tzinfo
+                        else section_time.replace(tzinfo=timezone.utc)
+                    )
+            except Exception as e:
+                print(f"[DEBUG] Failed to parse section time: {e}")
+
+        # 9. Determine address visibility
+        show_full_address = False
+        if unlock_time:
+            unlock_start = unlock_time - timedelta(minutes=unlock_minutes)
+            unlock_end = unlock_time + timedelta(days=1)
+
+            if unlock_start <= now <= unlock_end:
+                show_full_address = True
+            elif now > unlock_end:
+                sec['host_location'] = None
+                out['sections'].append(sec)
+                continue
+
+
+        # 10. Adjust host_location based on unlock logic
+        if sec['host_location']:
+            if show_full_address and host_email in users:
+                # Fetch full address from user data
+                user = users[host_email].get("address_struct", {})
+                full_address = {
+                    "street": user.get("street"),
+                    "street_no": user.get("street_no"),
+                    "postal_code": user.get("postal_code"),
+                    "city": user.get("city"),
+                    "center": sec['host_location'].get("center"),  # Keep coordinates
+                    "approx_radius_m": 0,  # Full address
+                }
+                sec['host_location'] = full_address
+            else:
+                # Keep only approximate coordinates
+                sec['host_location']['approx_radius_m'] = 500
+
+        # 11. Add guests_info if current user is the host
+        if host_email and current_user['email'] == host_email and section.get('guests_info'):
+            sec['guests_info'] = section.get('guests_info')
+
+        out['sections'].append(sec)
+    
+    return JSONResponse(content=out)
+
 
 @router.get('/{event_id}/my_plan')
 async def get_my_plan(event_id: str, current_user=Depends(get_current_user)):

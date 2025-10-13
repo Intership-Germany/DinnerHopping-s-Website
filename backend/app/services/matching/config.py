@@ -2,7 +2,17 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Dict, List
+
+try:  # best effort: load local .env so defaults mirror backend/app/.env
+    from dotenv import load_dotenv  # type: ignore
+
+    _ENV_PATH = Path(__file__).resolve().parents[2] / '.env'
+    if _ENV_PATH.exists():
+        load_dotenv(dotenv_path=_ENV_PATH, override=False)
+except Exception:
+    pass
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 
@@ -35,20 +45,20 @@ def weight_defaults() -> Dict[str, float]:
     """Return default scoring weights sourced from the environment."""
     return {
         "dup": _float_env("MATCH_W_DUP", "1000"),
-        "dist": _float_env("MATCH_W_DIST", "1"),
-        "pref": _float_env("MATCH_W_PREF", "5"),
-        "allergy": _float_env("MATCH_W_ALLERGY", "3"),
+        "dist": _float_env("MATCH_W_DIST", "0.5"),
+        "pref": _float_env("MATCH_W_PREF", "2"),
+        "allergy": _float_env("MATCH_W_ALLERGY", "2"),
         "desired_host": _float_env("MATCH_W_DESIRED_HOST", "10"),
-        "trans": _float_env("MATCH_W_TRANS", "0.5"),
-        "final_party": _float_env("MATCH_W_FINAL_PARTY", "0.5"),
-        "phase_order": _float_env("MATCH_W_PHASE_ORDER", "0.0"),
+        "trans": _float_env("MATCH_W_TRANS", "0"),
+        "final_party": _float_env("MATCH_W_FINAL_PARTY", "0.3"),
+        "phase_order": _float_env("MATCH_W_PHASE_ORDER", "1"),
         "cap_penalty": _float_env("MATCH_W_CAPABILITY", "5"),
     }
 
 
 @lru_cache(maxsize=1)
 def host_candidate_limit() -> int:
-    return max(0, _int_env("MATCH_HOST_CANDIDATES", "0"))
+    return max(0, _int_env("MATCH_HOST_CANDIDATES", "4"))
 
 
 def geocode_missing_enabled() -> bool:
