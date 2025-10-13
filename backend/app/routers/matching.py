@@ -218,6 +218,8 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
             'can_host_main': t.get('can_host_main'),
             'lat': t.get('lat'),
             'lon': t.get('lon'),
+            'allergies': list(t.get('allergies') or []),
+            'host_allergies': list(t.get('host_allergies') or []),
         }
         active_ids = team_active_regs.get(tid) or []
         paid_count = 0
@@ -312,7 +314,7 @@ async def recompute_metrics(event_id: str, version: int, _=Depends(require_admin
         guest_ids = [str(x) for x in (g.get('guest_team_ids') or [])]
         host = tmap.get(host_id, {})
         guests = [tmap.get(tid, {}) for tid in guest_ids]
-        base_score, warns = _score_group_phase(host, guests, phase, {})
+        base_score, warns, allergy_details = _score_group_phase(host, guests, phase, {})
         travel = await _travel_time_for_phase(host, guests)
         host_email = _get_host_email(host)
         addr_full = addr_pub = None
@@ -330,6 +332,10 @@ async def recompute_metrics(event_id: str, version: int, _=Depends(require_admin
             'warnings': warns,
             'host_address': addr_full if addr_full is not None else g.get('host_address'),
             'host_address_public': addr_pub if addr_pub is not None else g.get('host_address_public'),
+            'host_allergies': allergy_details.get('host_allergies', []),
+            'guest_allergies': allergy_details.get('guest_allergies', {}),
+            'guest_allergies_union': allergy_details.get('guest_allergies_union', []),
+            'uncovered_allergies': allergy_details.get('uncovered_allergies', []),
         })
     metrics = _compute_metrics(new_groups, {})
     await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'metrics': metrics, 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
@@ -360,7 +366,7 @@ async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin))
         guest_ids = [str(x) for x in (g.get('guest_team_ids') or [])]
         host = tmap.get(host_id, {}) if host_id else {}
         guests = [tmap.get(tid, {}) for tid in guest_ids]
-        base_score, warns = _score_group_phase(host, guests, phase, {})
+        base_score, warns, allergy_details = _score_group_phase(host, guests, phase, {})
         travel = await _travel_time_for_phase(host, guests)
         host_email = _get_host_email(host)
         addr_full = addr_pub = None
@@ -378,6 +384,10 @@ async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin))
             'warnings': warns,
             'host_address': addr_full if addr_full is not None else g.get('host_address'),
             'host_address_public': addr_pub if addr_pub is not None else g.get('host_address_public'),
+            'host_allergies': allergy_details.get('host_allergies', []),
+            'guest_allergies': allergy_details.get('guest_allergies', {}),
+            'guest_allergies_union': allergy_details.get('guest_allergies_union', []),
+            'uncovered_allergies': allergy_details.get('uncovered_allergies', []),
         })
     metrics = _compute_metrics(new_groups, {})
     return { 'groups': new_groups, 'metrics': metrics }
@@ -663,7 +673,7 @@ async def set_groups(event_id: str, payload: dict, _=Depends(require_admin)):
         guest_ids = [str(x) for x in (g.get('guest_team_ids') or [])]
         host = tmap.get(host_id, {}) if host_id else {}
         guests = [tmap.get(tid, {}) for tid in guest_ids]
-        base_score, warns = _score_group_phase(host, guests, phase, {})
+        base_score, warns, allergy_details = _score_group_phase(host, guests, phase, {})
         travel = await _travel_time_for_phase(host, guests)
         host_email = _get_host_email(host)
         addr_full = addr_pub = None
@@ -683,6 +693,10 @@ async def set_groups(event_id: str, payload: dict, _=Depends(require_admin)):
             'warnings': warns,
             'host_address': addr_full,
             'host_address_public': addr_pub,
+            'host_allergies': allergy_details.get('host_allergies', []),
+            'guest_allergies': allergy_details.get('guest_allergies', {}),
+            'guest_allergies_union': allergy_details.get('guest_allergies_union', []),
+            'uncovered_allergies': allergy_details.get('uncovered_allergies', []),
         })
     metrics = _compute_metrics(new_groups, {})
     await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'metrics': metrics, 'updated_at': datetime.datetime.utcnow()}})
