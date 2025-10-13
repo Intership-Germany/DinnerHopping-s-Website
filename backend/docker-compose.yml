@@ -1,16 +1,16 @@
 # Compose services for local development: mongo, backend, MailHog (SMTP dev), and nginx HTTPS proxy
 services:
-  #mongo:
-  #  image: mongodb/mongodb-community-server:6.0-ubi8
-  #  restart: unless-stopped
-  #  ports:
-  #    - "27017:27017"
-  #  environment:
-  #    - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
-  #    - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
-  #  volumes:
-  #    # Persist MongoDB data inside the repo under backend/app/data
-  #    - ../../data/mongo:/data/db
+  mongo:
+    image: mongodb/mongodb-community-server:6.0-ubi8
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
+      - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
+    volumes:
+      # Persist MongoDB data inside the repo under backend/app/data
+      - ../../data/mongo:/data/db
 
   backend:
     build: .
@@ -25,7 +25,7 @@ services:
       - SMTP_HOST=mailhog
       - SMTP_PORT=1025
     depends_on:
-    #  - mongo
+      - mongo
       - mailhog
     volumes:
       # expose logs directory on host for persistence and inspection
@@ -48,8 +48,7 @@ services:
     volumes:
       - ../deploy/nginx/conf.d:/etc/nginx/conf.d:ro
       - ../deploy/nginx/certs:/etc/nginx/certs:ro
-      # Mount the static frontend assets so nginx can serve them directly
-      - ../frontend/public:/usr/share/nginx/html:ro
+      
     ports:
       - "443:443"
     restart: unless-stopped
