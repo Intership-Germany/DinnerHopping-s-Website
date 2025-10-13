@@ -147,7 +147,15 @@
       // CSRF is exempt for /logout on the backend.
       const opts = { method: 'POST', headers, credentials: 'include' };
       await fetch(base + '/logout', opts);
-    } catch {}
+
+      // Clear client-side tokens and local storage
+      if (window.localStorage) {
+        window.localStorage.removeItem('dh_access_token');
+      }
+      document.cookie = 'dh_token=; Max-Age=0; path=/;';
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
     clearStored();
     // Best-effort: clear non-HttpOnly CSRF cookies client-side too (prevent reuse).
     // Note: HttpOnly cookies (access_token, refresh_token) can ONLY be cleared by the server.

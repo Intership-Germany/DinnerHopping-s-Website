@@ -269,12 +269,6 @@ app.include_router(geo.router, prefix="/geo", tags=["geo"])
 
 api_router = APIRouter()
 
-@api_router.get('/api/my-plan', tags=["plan"]) 
-async def my_plan(current_user=Depends(get_current_user)):
-    """Get the current user's plan."""
-    # proxy to events module
-    return await events.get_my_plan(current_user)
-
 app.include_router(api_router)
 
 # Fast healthcheck (no heavy DB access). Optionally: add a DB ping.

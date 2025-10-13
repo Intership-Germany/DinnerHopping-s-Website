@@ -16,6 +16,8 @@
 	<script src="js/core/includes.js" defer></script>
 	<script src="js/components/register-modal.js" defer></script>
 	<script src="js/pages/event.js" defer></script>
+	<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+	<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 	<style>
 		body {
 			font-family: 'Inter', sans-serif;
@@ -25,6 +27,25 @@
 		.map-preview {
 			height: 140px;
 			background: repeating-linear-gradient(45deg, #e5e7eb, #e5e7eb 10px, #f3f4f6 10px, #f3f4f6 20px);
+		}
+
+		#appetizer-map,
+		#main-map,
+		#dessert-map {
+			height: 200px;
+			width: 100%;
+			min-height: 200px;
+			border-radius: 0.75rem;
+		}
+
+		.leaflet-container {
+			width: 100%;
+			height: 100%;
+			border-radius: 0.75rem;
+		}
+
+		section[data-meal-type] {
+			overflow: hidden;
 		}
 	</style>
 </head>
@@ -49,55 +70,56 @@
 						<div class="h-full bg-[#008080] transition-all duration-500"></div>
 					</div>
 				</div>
+
 			</div>
-			<div id="afterPartySection" class="hidden mt-4 pt-4 border-t border-gray-100">
-				<h3 class="text-sm font-semibold text-gray-700 mb-1">After Party</h3>
-				<div id="afterPartyBody" class="text-sm text-gray-600"></div>
+			<section class="bg-white rounded-2xl shadow p-6" id="registrationStatusSection">
+				<div id="registrationStatusBody" class="text-sm text-gray-700"></div>
+				<div class="mt-4 flex flex-wrap gap-3" id="actionButtons" hidden>
+					<button id="payNowBtn"
+						class="hidden px-5 py-2 rounded-xl font-bold shadow-lg transition-transform duration-300 bg-[#008080] text-white text-sm hover:bg-[#006d6d] focus:outline-none focus:ring-4 focus:ring-[#008080]/40 disabled:opacity-50">Pay
+						now</button>
+					<button id="chooseProviderBtn"
+						class="hidden px-5 py-2 rounded-xl font-bold shadow-lg transition-transform duration-300 bg-[#f46f47] text-white text-sm hover:bg-[#d95c36] focus:outline-none focus:ring-4 focus:ring-[#f46f47]/40 disabled:opacity-50">Choose
+						provider</button>
+			</section>
 			</div>
+
 		</section>
-				<!-- Static Cancellation Box (wired dynamically in event.js when eligible) -->
-				<div id="solo-cancel-box" class="hidden mb-6 p-4 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm flex flex-col gap-2">
-					<div class="scb-intro"><strong>Need to cancel?</strong> <span class="scb-deadline-text">You can cancel your solo registration before the deadline.</span></div>
-					<div class="scb-refund text-red-600/90 text-xs"></div>
-					<div class="scb-controls flex flex-col gap-2">
-						<button id="scb-start" type="button" class="self-start px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold shadow focus:outline-none focus:ring-4 focus:ring-red-300">Cancel my participation</button>
-						<div id="scb-confirm" class="hidden mt-1 p-3 rounded-lg border border-red-300 bg-white/70 text-xs flex flex-col gap-2">
-							<div class="text-red-700 font-semibold">Confirm cancellation?</div>
-							<div class="text-red-600">This cannot be undone and your spot might go to someone else.</div>
-							<div class="flex gap-2">
-								<button id="scb-yes" type="button" class="px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow focus:outline-none focus:ring-2 focus:ring-red-300">Yes, cancel</button>
-								<button id="scb-no" type="button" class="px-3 py-1.5 rounded-md bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-gray-300">Keep my spot</button>
-							</div>
-						</div>
-						<div id="scb-error" class="hidden px-3 py-2 rounded-lg bg-red-600/10 border border-red-300 text-red-700 text-xs" role="alert"></div>
-						<div id="scb-success" class="hidden px-3 py-2 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-700 text-xs" role="status"></div>
+		<!-- Static Cancellation Box -->
+		<div id="solo-cancel-box"
+			class="hidden mb-6 p-4 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm flex flex-col gap-2">
+			<div class="scb-intro"><strong>Need to cancel?</strong> <span class="scb-deadline-text">You can cancel your
+					solo registration before the deadline.</span></div>
+			<div class="scb-refund text-red-600/90 text-xs"></div>
+			<div class="scb-controls flex flex-col gap-2">
+				<button id="scb-start" type="button"
+					class="self-start px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold shadow focus:outline-none focus:ring-4 focus:ring-red-300">Cancel
+					my participation</button>
+				<div id="scb-confirm"
+					class="hidden mt-1 p-3 rounded-lg border border-red-300 bg-white/70 text-xs flex flex-col gap-2">
+					<div class="text-red-700 font-semibold">Confirm cancellation?</div>
+					<div class="text-red-600">This cannot be undone and your spot might go to someone else.</div>
+					<div class="flex gap-2">
+						<button id="scb-yes" type="button"
+							class="px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow focus:outline-none focus:ring-2 focus:ring-red-300">Yes,
+							cancel</button>
+						<button id="scb-no" type="button"
+							class="px-3 py-1.5 rounded-md bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-gray-300">Keep
+							my spot</button>
 					</div>
 				</div>
-
+				<div id="scb-error"
+					class="hidden px-3 py-2 rounded-lg bg-red-600/10 border border-red-300 text-red-700 text-xs"
+					role="alert"></div>
+				<div id="scb-success"
+					class="hidden px-3 py-2 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-700 text-xs"
+					role="status"></div>
+			</div>
+		</div>
 		<!-- Status / messages -->
 		<section class="space-y-3" id="statusMessages"></section>
 
-		<!-- Registration & Actions -->
-		<section class="bg-white rounded-2xl shadow p-6" id="registrationStatusSection">
-			<h2 class="text-lg font-semibold mb-3">Your Registration</h2>
-			<div id="registrationStatusBody" class="text-sm text-gray-700"></div>
-			<div class="mt-4 flex flex-wrap gap-3" id="actionButtons" hidden>
-				<button id="payNowBtn"
-					class="hidden px-4 py-2 rounded bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-50">Pay
-					now</button>
-				<button id="chooseProviderBtn"
-					class="hidden px-4 py-2 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">Choose
-					provider</button>
-				<button id="refreshPlanBtn"
-					class="px-4 py-2 rounded bg-[#008080] text-white text-sm font-medium hover:bg-[#006d6d]">Refresh
-					plan</button>
-				<button id="openChatsBtn"
-					class="px-4 py-2 rounded bg-gray-800 text-white text-sm font-medium hover:bg-gray-900">Open
-					chats</button>
-			</div>
-		</section>
-
-		<!-- Solo Registration Form (progressive) -->
+		<!-- Solo Registration Form -->
 		<section id="soloRegistrationSection" class="hidden bg-white rounded-2xl shadow p-6">
 			<h2 class="text-lg font-semibold mb-4">Register Solo</h2>
 			<form id="soloRegistrationForm" class="space-y-4">
@@ -127,14 +149,14 @@
 					<legend class="text-xs font-semibold uppercase text-gray-500 tracking-wide">Course preference
 						(optional)</legend>
 					<div class="flex flex-wrap gap-4 mt-2 text-sm">
-						<label class="flex items-center gap-1"><input type="radio" name="coursePref" value="" checked />
-							<span>No preference</span></label>
-						<label class="flex items-center gap-1"><input type="radio" value="starter" name="coursePref" />
-							<span>Starter</span></label>
-						<label class="flex items-center gap-1"><input type="radio" value="main" name="coursePref" />
-							<span>Main</span></label>
-						<label class="flex items-center gap-1"><input type="radio" value="dessert" name="coursePref" />
-							<span>Dessert</span></label>
+						<label class="flex items-center gap-1"><input type="radio" name="coursePref" value=""
+								checked /><span>No preference</span></label>
+						<label class="flex items-center gap-1"><input type="radio" value="starter"
+								name="coursePref" /><span>Starter</span></label>
+						<label class="flex items-center gap-1"><input type="radio" value="main"
+								name="coursePref" /><span>Main</span></label>
+						<label class="flex items-center gap-1"><input type="radio" value="dessert"
+								name="coursePref" /><span>Dessert</span></label>
 					</div>
 					<p id="srMainHint" class="mt-2 text-xs text-gray-500">Select "Main" only if you can host a main
 						course.</p>
@@ -146,17 +168,143 @@
 				</div>
 			</form>
 		</section>
+		<div class="space-y-8">
+			<!-- Appetizer Section -->
+			<section data-meal-type="appetizer"
+				class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#008080]">
+				<div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
+					<div>
+						<h2 data-meal-title class="text-xl font-bold text-[#008080] mb-1">Appetizer</h2>
+						<p class="text-sm text-gray-600">Time: <span data-meal-time class="font-semibold"></span></p>
+					</div>
+					<button
+						class="mt-4 md:mt-0 px-5 py-2 bg-[#008080] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-[#008080]/40">Open
+						Appetizer Group Chat</button>
+				</div>
+				<div class="mb-2">
+					<p class="text-sm">You are invited to dinner at <span data-host-name class="font-semibold"></span>'s
+						place.</p>
+					<p class="text-sm">Your co-guests: <span data-co-guests class="font-semibold"></span></p>
+				</div>
+				<div class="flex flex-col md:flex-row md:items-center gap-4">
+					<div id="appetizer-map"
+						class="w-full max-w-xs h-40 md:h-48 rounded-xl overflow-hidden border border-[#008080]/30">
+					</div>
+					<div class="flex-1">
+						<p class="text-xs text-gray-500 mb-1">Location: <span data-location-label
+								class="font-semibold"></span></p>
+						<div data-radius-banner
+							class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-2 rounded mb-1 text-xs flex items-center">
+							<svg class="w-4 h-4 mr-1 text-yellow-500" fill="none" stroke="currentColor"
+								viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+									d="M13 16h-1v-4h-1m1-4h.01" />
+							</svg>
+							The exact address will be revealed 2 hours before the start.
+						</div>
+					</div>
+				</div>
+			</section>
+			<!-- Main Course Section -->
+			<section data-meal-type="main" class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#f46f47]">
+				<div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
+					<div>
+						<h2 data-meal-title class="text-xl font-bold text-[#f46f47] mb-1">Main Course</h2>
+						<p class="text-sm text-gray-600">Time: <span data-meal-time class="font-semibold"></span></p>
+					</div>
+					<button
+						class="mt-4 md:mt-0 px-5 py-2 bg-[#f46f47] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-[#f46f47]/40">Open
+						Main Course Group Chat</button>
+				</div>
+				<div class="mb-2">
+					<p class="text-sm">You are invited to dinner at <span data-host-name class="font-semibold"></span>'s
+						place.</p>
+					<p class="text-sm">Your co-guests: <span data-co-guests class="font-semibold"></span></p>
+				</div>
+				<div class="flex flex-col md:flex-row md:items-center gap-4">
+					<div id="main-map"
+						class="w-full max-w-xs h-40 md:h-48 rounded-xl overflow-hidden border border-[#f46f47]/30">
+					</div>
+					<div class="flex-1">
+						<p class="text-xs text-gray-500 mb-1">Location: <span data-location-label
+								class="font-semibold"></span></p>
+						<div data-radius-banner
+							class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-2 rounded mb-1 text-xs flex items-center">
+							<svg class="w-4 h-4 mr-1 text-yellow-500" fill="none" stroke="currentColor"
+								viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+									d="M13 16h-1v-4h-1m1-4h.01" />
+							</svg>
+							The exact address will be revealed 2 hours before the start.
+						</div>
+					</div>
+				</div>
+			</section>
+			<!-- Dessert Section -->
+			<section data-meal-type="dessert" class="bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#ffc241]">
+				<div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
+					<div>
+						<h2 data-meal-title class="text-xl font-bold text-[#ffc241] mb-1">Dessert</h2>
+						<p class="text-sm text-gray-600">Time: <span data-meal-time class="font-semibold"></span></p>
+					</div>
+					<button
+						class="mt-4 md:mt-0 px-5 py-2 bg-[#ffc241] text-white font-bold rounded-xl shadow-lg transition-transform duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-[#ffc241]/40">Open
+						Dessert Group Chat</button>
+				</div>
+				<div class="mb-2">
+					<p class="text-sm">You are invited to dinner at <span data-host-name class="font-semibold"></span>'s
+						place.</p>
+					<p class="text-sm">Your co-guests: <span data-co-guests class="font-semibold"></span></p>
+				</div>
+				<div class="flex flex-col md:flex-row md:items-center gap-4">
+					<div id="dessert-map"
+						class="w-full max-w-xs h-40 md:h-48 rounded-xl overflow-hidden border border-[#ffc241]/30">
+					</div>
+					<div class="flex-1">
+						<p class="text-xs text-gray-500 mb-1">Location: <span data-location-label
+								class="font-semibold"></span></p>
+						<div data-radius-banner
+							class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-2 rounded mb-1 text-xs flex items-center">
+							<svg class="w-4 h-4 mr-1 text-yellow-500" fill="none" stroke="currentColor"
+								viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+									d="M13 16h-1v-4h-1m1-4h.01" />
+							</svg>
+							The exact address will be revealed 2 hours before the start.
+						</div>
+					</div>
+				</div>
+			</section>
+			<!-- Closing Party Section -->
+			<section id="afterPartySection"
+				class="hidden bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-[#172a3a]">
+				<div class="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
+					<div>
+						<h2 class="text-xl font-bold text-[#172a3a] mb-1">Closing Party</h2>
+						<p class="text-sm text-gray-600">Time: <span class="font-semibold">from 23:30</span></p>
+					</div>
+				</div>
+				<div class="mb-2">
+					<p class="text-sm">Where: <span id="afterPartyAddress" class="font-semibold"></span></p>
+					<p class="text-xs text-gray-500">The exact address is shown here directly.</p>
+				</div>
+			</section>
 
-		<!-- Plan / Schedule -->
-		<section id="planSection" class="hidden bg-white rounded-2xl shadow p-6">
-			<div class="flex items-center justify-between mb-4">
-				<h2 class="text-lg font-semibold">Your Schedule</h2>
-				<span class="text-xs text-gray-500" id="planLegend">Times & approximate locations. Exact addresses
-					unlock later.</span>
-			</div>
-			<div id="planContainer" class="grid gap-4 md:grid-cols-2"></div>
+		</div>
+
+
+
+		<!-- No Plan Yet Section (hidden by default) -->
+		<section id="noPlanSection"
+			class="hidden bg-white/90 p-6 rounded-2xl shadow-xl border-l-4 border-gray-300 text-center">
+			<h2 class="text-xl font-bold text-gray-500 mb-4">No Plan Yet</h2>
+			<p class="text-gray-600">The matching process has not run yet. Check back later for your dinner plan!</p>
 		</section>
-
+		<!-- Event Plan Section -->
+		<section id="eventPlanSection" class="hidden bg-white rounded-2xl shadow p-6 border-l-4 border-[#008080]">
+			<h2 class="text-xl font-bold mb-4">Event Plan</h2>
+			<div id="eventPlanContent" class="text-sm text-gray-600"></div>
+		</section>
 		<div id="loadingSpinner" class="flex items-center gap-3 text-sm text-gray-600">
 			<svg class="animate-spin h-5 w-5 text-[#008080]" xmlns="http://www.w3.org/2000/svg" fill="none"
 				viewBox="0 0 24 24">
