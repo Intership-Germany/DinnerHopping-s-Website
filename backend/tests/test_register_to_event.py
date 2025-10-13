@@ -1,4 +1,9 @@
 import logging
+import pytest
+
+# This file is a helper script for manual registration and not a pytest test.
+# Skip collection by pytest to avoid fixture errors.
+pytest.skip("Skipping manual registration script", allow_module_level=True)
 import json
 from pathlib import Path
 import requests

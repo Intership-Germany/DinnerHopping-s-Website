@@ -39,3 +39,4 @@ Certbot plugin apache le fait automatiquement; sinon:
 systemctl reload apache2
 ```
 Donner droits d'exécution: `chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-apache.sh`
+

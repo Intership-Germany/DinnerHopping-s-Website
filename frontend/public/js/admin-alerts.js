@@ -55,15 +55,17 @@ async function requestJson(path, opts, contextLabel = 'Request') {
   }
 }
 
-function formatCurrency(amountCents) {
+function formatCurrency(amountCents, currencyCode = 'EUR') {
   if (typeof amountCents !== 'number') return '-';
   const amount = amountCents / 100;
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR' }).format(
+    const code = (currencyCode || 'EUR').toUpperCase();
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(
       amount
     );
   } catch {
-    return `${amount.toFixed(2)} €`;
+    const suffix = currencyCode && currencyCode.toUpperCase() !== 'EUR' ? ` ${currencyCode.toUpperCase()}` : ' €';
+    return `${amount.toFixed(2)}${suffix}`;
   }
 }
 
@@ -102,8 +104,10 @@ function renderAlert(container, alertItem) {
   const heading = document.createElement('div');
   heading.className = 'fw-bold';
   const status = alertItem.status || 'open';
-  heading.textContent = `${alertItem.type || 'Alert'} — ${formatCurrency(
-    alertItem.amount_cents
+  const headingTitle = alertItem.event_title || alertItem.type || 'Alert';
+  heading.textContent = `${headingTitle} — ${formatCurrency(
+    alertItem.amount_cents,
+    alertItem.currency
   )} — ${status}`;
   wrapper.appendChild(heading);
 
@@ -112,7 +116,21 @@ function renderAlert(container, alertItem) {
   meta.appendChild(createMeta('Payment', alertItem.payment_id));
   meta.appendChild(createMeta('Registration', alertItem.registration_id));
   meta.appendChild(createMeta('User', alertItem.user_email));
+  if (alertItem.user_name) meta.appendChild(createMeta('Name', alertItem.user_name));
+  if (alertItem.team_size !== undefined && alertItem.team_size !== null)
+    meta.appendChild(createMeta('Team size', alertItem.team_size));
+  if (alertItem.event_id) meta.appendChild(createMeta('Event id', alertItem.event_id));
   wrapper.appendChild(meta);
+  if (alertItem.user_message) {
+    const msgWrap = document.createElement('div');
+    msgWrap.className = 'mt-2 p-2 bg-white border rounded text-sm';
+    const pre = document.createElement('pre');
+    pre.style.whiteSpace = 'pre-wrap';
+    pre.style.margin = '0';
+    pre.textContent = alertItem.user_message;
+    msgWrap.appendChild(pre);
+    wrapper.appendChild(msgWrap);
+  }
 
   const actions = document.createElement('div');
   actions.className = 'mt-2';

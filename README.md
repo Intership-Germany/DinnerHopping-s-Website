@@ -93,7 +93,7 @@ This starts:
 * Backend at http://localhost:8000 (Swagger UI at /docs)
 * MongoDB container (if defined in compose)
 
-To also run the frontend container (if you add it to the compose file) it would expose http://localhost.
+To also run the frontend container (if you add it to the compose file) it would expose http://localhost
 
 ### Lightweight Backend Only (In-Memory Fake DB)
 ```bash

@@ -22,6 +22,10 @@ const ERROR_MESSAGES = {
 let eventData = null;
 let registrationData = null;
 let profileData = null;
+let paymentProvidersState = { providers: [], defaultProvider: null, fetched: false, lastError: null };
+
+const MANUAL_MESSAGE_MIN_LEN = 12;
+const MANUAL_MESSAGE_MAX_LEN = 800;
 
 /**
  * Adds a status message to the UI.
@@ -63,6 +67,95 @@ async function fetchJson(path, options) {
     .clone()
     .json()
     .catch(() => ({}));
+}
+
+function providerLabel(key) {
+  const map = {
+    paypal: 'PayPal',
+    stripe: 'Stripe',
+    others: 'Manual review',
+  };
+  const normalized = (key || '').toLowerCase();
+  if (map[normalized]) return map[normalized];
+  if (!normalized) return '';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatList(items) {
+  if (!Array.isArray(items) || items.length === 0) return '';
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  const head = items.slice(0, -1).join(', ');
+  return `${head}, and ${items[items.length - 1]}`;
+}
+
+function describePaymentOptions(providers) {
+  if (!Array.isArray(providers) || providers.length === 0) return '';
+  const hasManual = providers.includes('others');
+  const online = providers.filter((p) => p !== 'others');
+  if (!online.length && hasManual) {
+    return '<p class="mt-1 text-xs text-gray-600">Online payments are unavailable. Use "Request manual review" to notify the organizers.</p>';
+  }
+  if (!online.length) return '';
+  const labels = online.map(providerLabel).filter(Boolean);
+  if (!labels.length) return '';
+  let text = `Pay online via ${formatList(labels)}.`;
+  if (hasManual) {
+    text += ' Prefer a different method? Choose manual review to leave a note for the organizers.';
+  }
+  return `<p class="mt-1 text-xs text-gray-600">${text}</p>`;
+}
+
+async function fetchPaymentProviders(force = false) {
+  if (!force && paymentProvidersState.fetched) return paymentProvidersState;
+  let providers = [];
+  let defaultProvider = null;
+  let lastError = null;
+  try {
+    const res = await apiFetch('/payments/providers', { credentials: 'include' });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.clone().json().catch(() => ({}));
+    const raw = Array.isArray(data?.providers)
+      ? data.providers
+      : Array.isArray(data)
+      ? data
+      : [];
+    providers = raw.filter((p) => typeof p === 'string');
+    if (typeof data?.default === 'string') {
+      defaultProvider = data.default.toLowerCase();
+    }
+  } catch (err) {
+    lastError = err;
+    providers = [];
+    defaultProvider = null;
+  }
+
+  const allowed = new Set(['paypal', 'stripe', 'others']);
+  const normalized = Array.from(
+    new Set(
+      (providers || [])
+        .map((p) => (p || '').toString().toLowerCase())
+        .filter((p) => allowed.has(p))
+    )
+  );
+
+  if (!normalized.includes('others')) normalized.push('others');
+  if (!normalized.length) normalized.push('others');
+
+  let activeDefault = defaultProvider ? defaultProvider.toLowerCase() : null;
+  if (!activeDefault || !normalized.includes(activeDefault)) {
+    activeDefault = normalized.find((p) => p !== 'others') || normalized[0];
+  }
+
+  paymentProvidersState = {
+    providers: normalized,
+    defaultProvider: activeDefault,
+    fetched: true,
+    lastError,
+  };
+  return paymentProvidersState;
 }
 
 /**
@@ -424,6 +517,19 @@ function renderRegistration() {
   const soloCancelBox = document.getElementById('solo-cancel-box');
   const teamCancelBox = document.getElementById('team-cancel-box');
 
+  if (payNowBtn && !payNowBtn.dataset.baseText) {
+    payNowBtn.dataset.baseText = (payNowBtn.textContent || '').trim() || 'Pay now';
+  }
+  if (chooseProviderBtn && !chooseProviderBtn.dataset.baseText) {
+    chooseProviderBtn.dataset.baseText = (chooseProviderBtn.textContent || '').trim() || 'Choose provider';
+  }
+
+  const providerInfo = paymentProvidersState || {};
+  const providers = Array.isArray(providerInfo.providers) ? providerInfo.providers : [];
+  const hasManualProvider = providers.includes('others');
+  const onlineProviders = providers.filter((p) => p !== 'others');
+  const manualOnly = providers.length === 1 && providers[0] === 'others';
+
   soloCancelBox?.classList.add('hidden');
   teamCancelBox?.classList.add('hidden');
 
@@ -436,7 +542,9 @@ function renderRegistration() {
   }
 
   if (registrationData.mode === 'team' && !registrationData.registration_id) {
-    regBody.innerHTML = `<div class="text-sm">You are registered as part of a <strong>team</strong>. Detailed team registration data (and payment initiation) isn't yet available on this page without backend support.<br><br><em>Workaround:</em> The team creator can open the registration modal again or an organizer can assist with payment if required.</div>`;
+    const teamSizeText = registrationData.team_size ? `Team size: ${registrationData.team_size}` : '';
+    const paidSummary = registrationData.payment_status ? `Status: ${registrationData.payment_status}` : '';
+    regBody.innerHTML = `<div class="text-sm">You are registered as part of a <strong>team</strong>. ${teamSizeText ? `<div class="text-xs text-gray-600">${teamSizeText}</div>` : ''}${paidSummary ? `<div class="text-xs text-gray-600">${paidSummary}</div>` : ''}<br><br>Detailed team registration data (and payment initiation) isn't yet available on this page without backend support.<br><br><em>Workaround:</em> The team creator can open the registration modal again or an organizer can assist with payment if required.</div>`;
     const existingRegBadge = badgesEl.querySelector('[data-badge="registration-mode"]');
     const teamText = 'Team registered';
     if (existingRegBadge) {
@@ -457,10 +565,45 @@ function renderRegistration() {
       /paid|succeeded/i.test(registrationData.payment_status || '') ||
       /paid|succeeded/i.test(registrationData.status || '');
     let payLine = '';
+    let paymentSummary = '';
     if ((eventData?.fee_cents || 0) > 0 && !paid) {
       payLine = `<div class="mt-2 text-xs ${payNowBtn && !payNowBtn.classList.contains('hidden') ? 'text-amber-700' : 'text-gray-600'}">Event fee: €${amount.toFixed(2)}</div>`;
+      paymentSummary = describePaymentOptions(providers);
     }
-    regBody.innerHTML = `<div class="text-sm">${payLine || ' '}</div>`;
+    const payContent = [payLine, paymentSummary].filter(Boolean).join('');
+
+    // Build registration summary block
+    const paidText = (eventData?.fee_cents || 0) > 0
+      ? paid
+        ? `Paid €${amount.toFixed(2)}${registrationData.payment_provider ? ` via ${registrationData.payment_provider}` : ''}`
+        : `Unpaid — €${amount.toFixed(2)}`
+      : 'No fee';
+
+    const refundStatus = (() => {
+      if (/refunded/.test((registrationData.status || '').toLowerCase())) return 'Refunded';
+      if (registrationData.refund_flag) return 'Refund pending';
+      if (eventData?.refund_on_cancellation) return 'Refund eligible on cancellation';
+      return 'No refund available';
+    })();
+
+    const modeText = registrationData.mode === 'solo' ? 'Solo' : (registrationData.mode || 'Registration');
+
+    const teamSizeText = registrationData.team_size ? `Team size: ${registrationData.team_size}` : '';
+
+    const summaryHtml = `
+      <div class="text-sm space-y-2">
+        <div class="flex items-center justify-between text-sm">
+          <div><span class="font-medium">${modeText} registration</span>${teamSizeText ? ` — <span class="text-gray-600">${teamSizeText}</span>` : ''}</div>
+          <div class="text-xs text-gray-500">Status: <span class="font-semibold">${registrationData.status || 'unknown'}</span></div>
+        </div>
+        <div class="flex items-center justify-between text-sm">
+          <div class="text-xs text-gray-700">${paidText}</div>
+          <div class="text-xs text-gray-500">${refundStatus}</div>
+        </div>
+        ${payContent}
+      </div>`;
+
+    regBody.innerHTML = summaryHtml;
     const existingRegBadge = badgesEl.querySelector('[data-badge="registration-mode"]');
     const statusLower = (registrationData.status || '').toLowerCase();
     let regText = 'Solo registered';
@@ -523,15 +666,31 @@ function renderRegistration() {
     if (unpaid && payNowBtn) {
       payNowBtn.classList.remove('hidden');
       payNowBtn.disabled = false;
+      if (manualOnly) {
+        payNowBtn.textContent = 'Request manual review';
+      } else if (providerInfo.defaultProvider && providerInfo.defaultProvider !== 'others') {
+        payNowBtn.textContent = `Pay with ${providerLabel(providerInfo.defaultProvider)}`;
+      } else {
+        payNowBtn.textContent = payNowBtn.dataset.baseText || 'Pay now';
+      }
       payNowBtn.onclick = () => startPaymentFlow({ quick: true });
+    } else if (payNowBtn) {
+      payNowBtn.classList.add('hidden');
+      payNowBtn.textContent = payNowBtn.dataset.baseText || 'Pay now';
     }
+
     if (unpaid && chooseProviderBtn) {
-      chooseProviderBtn.classList.remove('hidden');
-      chooseProviderBtn.disabled = false;
-      chooseProviderBtn.onclick = () => startPaymentFlow({ quick: false });
-    } else {
-      payNowBtn?.classList.add('hidden');
-      chooseProviderBtn?.classList.add('hidden');
+      const showChooser = providers.length > 1;
+      if (showChooser) {
+        chooseProviderBtn.classList.remove('hidden');
+        chooseProviderBtn.disabled = false;
+        chooseProviderBtn.textContent = chooseProviderBtn.dataset.baseText || 'Choose provider';
+        chooseProviderBtn.onclick = () => startPaymentFlow({ quick: false });
+      } else {
+        chooseProviderBtn.classList.add('hidden');
+      }
+    } else if (chooseProviderBtn) {
+      chooseProviderBtn.classList.add('hidden');
     }
   } else {
     // no registration id -> hide payment initiation controls
@@ -618,6 +777,12 @@ async function logEventPlan() {
         afterPartyAddressSpan.textContent =
           eventData.after_party_location.address_public || 'Location not yet published';
       }
+    }
+
+    if ((eventData?.fee_cents || 0) > 0) {
+      await fetchPaymentProviders();
+    } else {
+      paymentProvidersState = { providers: [], defaultProvider: null, fetched: true, lastError: null };
     }
     renderRegistration();
     if (planData.message === ERROR_MESSAGES.noPlanYet) {
@@ -849,11 +1014,307 @@ async function loadRegistration() {
   }
 }
 
-/**
- * Placeholder for payment flow.
- */
+async function startProviderPayment(provider, options = {}) {
+  if (!registrationData || !registrationData.registration_id) {
+    throw new Error('Registration not ready for payment.');
+  }
+
+  const payload = {
+    registration_id: registrationData.registration_id,
+    provider,
+  };
+
+  if (provider === 'others' && typeof options.message === 'string') {
+    const cleaned = sanitizeManualMessage(options.message);
+    if (cleaned) payload.message = cleaned;
+  }
+
+  const apiPost = window.dh?.apiPost;
+  let res;
+  let data;
+  if (apiPost) {
+    ({ res, data } = await apiPost('/payments/create', payload));
+  } else {
+    res = await apiFetch('/payments/create', {
+      method: 'POST',
+      credentials: 'include',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload),
+    });
+    try {
+      data = await res.clone().json();
+    } catch {
+      data = {};
+    }
+  }
+
+  if (!res || !res.ok) {
+    let detail = data?.detail || data?.message || data?.error;
+    if (!detail && res) {
+      try {
+        const text = await res.text();
+        if (text) detail = text;
+      } catch {}
+    }
+    throw new Error(detail || 'Could not create the payment request.');
+  }
+
+  const created = data || {};
+  if (provider === 'others') {
+    pushMessage('Manual payment request sent. The organizing team will reach out to you soon.', 'success');
+    await loadRegistration();
+    renderRegistration();
+    return created;
+  }
+
+  const next = created.next_action || {};
+  if (next.type === 'redirect' && next.url) {
+    window.location.href = next.url;
+    return created;
+  }
+  if (next.type === 'paypal_order' && next.approval_link) {
+    window.location.href = next.approval_link;
+    return created;
+  }
+  if (created.payment_link) {
+    window.location.href = created.payment_link;
+    return created;
+  }
+
+  pushMessage('Payment initiated; follow the provider instructions.', 'info');
+  return created;
+}
+
+function sanitizeManualMessage(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (trimmed.length > MANUAL_MESSAGE_MAX_LEN) {
+    return trimmed.slice(0, MANUAL_MESSAGE_MAX_LEN);
+  }
+  return trimmed;
+}
+
+function openPaymentDialog({ providers, defaultProvider }) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center px-4';
+    const backdrop = document.createElement('div');
+    backdrop.className = 'absolute inset-0 bg-black/40';
+    const panel = document.createElement('div');
+    panel.className = 'relative z-10 bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6';
+    overlay.appendChild(backdrop);
+    overlay.appendChild(panel);
+
+    const close = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    backdrop.addEventListener('click', () => close(false));
+
+    const header = document.createElement('div');
+    header.className = 'flex items-start justify-between mb-4';
+    header.innerHTML = '<h3 class="text-lg font-bold text-[#172a3a]">Complete your payment</h3>';
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'text-gray-500 hover:text-gray-700';
+  closeBtn.setAttribute('aria-label', 'Close payment dialog');
+  closeBtn.textContent = 'X';
+    closeBtn.addEventListener('click', () => close(false));
+    header.appendChild(closeBtn);
+    panel.appendChild(header);
+
+    const intro = document.createElement('p');
+    intro.className = 'text-sm text-gray-600 mb-3';
+    intro.textContent = 'Choose how you would like to complete your payment.';
+    panel.appendChild(intro);
+
+    const feedbackEl = document.createElement('p');
+    feedbackEl.className = 'hidden text-sm text-red-600 mb-3';
+    panel.appendChild(feedbackEl);
+
+    let selected = defaultProvider && providers.includes(defaultProvider) ? defaultProvider : providers[0];
+    const list = document.createElement('div');
+    list.className = 'space-y-2';
+    const buttons = new Map();
+
+    const manualWrap = document.createElement('div');
+    manualWrap.className = 'hidden mt-4';
+    manualWrap.innerHTML = `
+      <label class="block text-sm font-medium text-[#172a3a] mb-1" for="manual-message-input">
+        Message for the organizers <span class="text-red-500">*</span>
+      </label>
+      <textarea id="manual-message-input" class="w-full border rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#008080]" rows="4" maxlength="${MANUAL_MESSAGE_MAX_LEN}" placeholder="Let the organizers know how you plan to complete the payment."></textarea>
+      <div class="mt-1 flex items-center justify-between text-xs text-gray-500">
+        <span>Minimum ${MANUAL_MESSAGE_MIN_LEN} characters.</span>
+        <span data-counter>0/${MANUAL_MESSAGE_MAX_LEN}</span>
+      </div>
+      <p data-error class="hidden mt-2 text-xs text-red-600"></p>
+    `;
+
+    function updateSelection() {
+      buttons.forEach((btn, key) => {
+        if (key === selected) {
+          btn.classList.add('ring-2', 'ring-[#008080]', 'bg-[#008080]/5');
+        } else {
+          btn.classList.remove('ring-2', 'ring-[#008080]', 'bg-[#008080]/5');
+        }
+      });
+      const manualActive = selected === 'others';
+      manualWrap.classList.toggle('hidden', !manualActive);
+      if (manualActive && manualInput) {
+        manualInput.focus();
+      }
+    }
+
+    providers.forEach((key) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.provider = key;
+      btn.className = 'w-full flex flex-col items-start gap-1 px-4 py-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition';
+      const title = document.createElement('span');
+      title.className = 'font-medium text-[#172a3a]';
+      title.textContent = providerLabel(key);
+      const hint = document.createElement('span');
+      hint.className = 'text-xs text-gray-500';
+      if (key === 'others') {
+        hint.textContent = 'Leave a note for the organizers to arrange payment manually.';
+      } else {
+        hint.textContent = 'Secure online checkout.';
+      }
+      btn.appendChild(title);
+      btn.appendChild(hint);
+      btn.addEventListener('click', () => {
+        selected = key;
+        feedbackEl.classList.add('hidden');
+        updateSelection();
+      });
+      buttons.set(key, btn);
+      list.appendChild(btn);
+    });
+
+    panel.appendChild(list);
+    panel.appendChild(manualWrap);
+
+    const manualInput = manualWrap.querySelector('#manual-message-input');
+    const manualCounter = manualWrap.querySelector('[data-counter]');
+    const manualError = manualWrap.querySelector('[data-error]');
+
+    if (manualInput && manualCounter) {
+      manualInput.addEventListener('input', () => {
+        const value = manualInput.value || '';
+        manualCounter.textContent = `${value.length}/${MANUAL_MESSAGE_MAX_LEN}`;
+        if (manualError) manualError.classList.add('hidden');
+      });
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'mt-6 flex flex-wrap gap-3 justify-end';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-100';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => close(false));
+    const confirmBtn = document.createElement('button');
+    confirmBtn.type = 'button';
+    confirmBtn.className = 'px-4 py-2 rounded-lg bg-[#008080] text-white text-sm font-semibold hover:bg-[#006d6d] focus:outline-none focus:ring-2 focus:ring-[#008080]/40';
+    confirmBtn.textContent = 'Continue';
+
+    let submitting = false;
+    async function handleSubmit() {
+      if (submitting) return;
+      if (!selected) {
+        feedbackEl.textContent = 'Please choose a payment option.';
+        feedbackEl.classList.remove('hidden');
+        return;
+      }
+      let manualMessage = '';
+      if (selected === 'others') {
+        if (!manualInput) {
+          throw new Error('Manual payment message field is unavailable.');
+        }
+        manualMessage = sanitizeManualMessage(manualInput.value);
+        if (manualMessage.length < MANUAL_MESSAGE_MIN_LEN) {
+          if (manualError) {
+            manualError.textContent = `Please add at least ${MANUAL_MESSAGE_MIN_LEN} characters so the organizers have sufficient details.`;
+            manualError.classList.remove('hidden');
+          }
+          manualInput.focus();
+          return;
+        }
+      }
+      submitting = true;
+      confirmBtn.disabled = true;
+  confirmBtn.textContent = 'Processing...';
+      try {
+        await startProviderPayment(selected, { message: manualMessage });
+        close(true);
+      } catch (err) {
+        submitting = false;
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Continue';
+        const message = err?.message || 'Payment request failed.';
+        if (selected === 'others') {
+          if (manualError) {
+            manualError.textContent = message;
+            manualError.classList.remove('hidden');
+          }
+        } else {
+          feedbackEl.textContent = message;
+          feedbackEl.classList.remove('hidden');
+        }
+      }
+    }
+
+    confirmBtn.addEventListener('click', handleSubmit);
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(confirmBtn);
+    panel.appendChild(actions);
+
+    document.body.appendChild(overlay);
+    updateSelection();
+  });
+}
+
 async function startPaymentFlow({ quick }) {
-  pushMessage('Functionality not implemented yet.', 'error');
+  try {
+    if (!registrationData || !registrationData.registration_id) {
+      pushMessage('Registration not ready for payment.', 'error');
+      return;
+    }
+
+    const info = await fetchPaymentProviders();
+    const providers = Array.isArray(info.providers) ? info.providers : [];
+    if (!providers.length) {
+      pushMessage('No payment providers are currently available.', 'warn');
+      return;
+    }
+
+    const defaultProvider = info.defaultProvider || providers[0];
+    const onlineProviders = providers.filter((p) => p !== 'others');
+    const manualOnly = providers.length === 1 && providers[0] === 'others';
+
+    if (quick) {
+      const preferred = defaultProvider && defaultProvider !== 'others'
+        ? defaultProvider
+        : onlineProviders[0];
+      if (preferred) {
+        await startProviderPayment(preferred);
+        return;
+      }
+      if (manualOnly) {
+        // fall through to dialog to capture required manual message
+      }
+    }
+
+    await openPaymentDialog({ providers, defaultProvider });
+  } catch (err) {
+    console.error(err);
+    const message = err?.message || 'Unexpected error during payment flow.';
+    pushMessage(`Payment error: ${message}`, 'error');
+  }
 }
 
 // Call the function on page load

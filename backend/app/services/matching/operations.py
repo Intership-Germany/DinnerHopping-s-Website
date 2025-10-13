@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+import datetime
 from typing import Any, Dict, List, Optional, Set
 
 from bson.objectid import ObjectId
@@ -202,7 +202,7 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
     chat_enabled = event.get('chat_enabled', False) if event else False
     unlock_minutes = event.get('address_unlock_minutes', 30) if event else 30
 
-    now = datetime.now(timezone.utc)
+    now = datetime.datetime.now(datetime.timezone.utc)
 
     def _meal_time(meal: str) -> str:
         return '20:00' if meal=='main' else ('18:00' if meal=='appetizer' else '22:00')
@@ -230,13 +230,13 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
         # Address unlock logic
         unlock_dt = None
         try:
-            unlock_dt = datetime.fromisoformat(sec['time'])
+            unlock_dt = datetime.datetime.fromisoformat(sec['time'])
         except Exception:
             pass
         lat = profiles.get(host_email, {}).get('lat')
         lon = profiles.get(host_email, {}).get('lon')
         if lat is not None and lon is not None:
-            if unlock_dt and (now >= unlock_dt - timedelta(minutes=unlock_minutes)):
+            if unlock_dt and (now >= unlock_dt - datetime.timedelta(minutes=unlock_minutes)):
                 sec['host_location'] = profiles.get(host_email, {}).get('address_full', None)
             else:
                 from ...utils import anonymize_address
@@ -280,7 +280,7 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
             'event_id': ObjectId(event_id),
             'user_email': em,
             'sections': secs,
-            'created_at': datetime.now(timezone.utc),
+                'created_at': datetime.datetime.now(datetime.timezone.utc),
         }
         await db_mod.db.plans.insert_one(doc)
         written += 1
