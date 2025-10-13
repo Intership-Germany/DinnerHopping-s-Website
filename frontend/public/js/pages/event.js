@@ -179,6 +179,153 @@
     box.classList.remove('hidden');
   }
 
+  // Team cancellation UI wiring (creator and partner)
+  function setupTeamCancelBox(regInfo, deadlineIso, refundMeta) {
+    const box = document.getElementById('team-cancel-box');
+    if (!box) return;
+    const intro = box.querySelector('.tcb-intro');
+    const refundEl = box.querySelector('.tcb-refund');
+    const btnStart = document.getElementById('tcb-start');
+    const confirmWrap = document.getElementById('tcb-confirm');
+    const btnYes = document.getElementById('tcb-yes');
+    const btnNo = document.getElementById('tcb-no');
+    const errEl = document.getElementById('tcb-error');
+    const okEl = document.getElementById('tcb-success');
+
+    function showError(msg) {
+      if (!errEl) return;
+      errEl.textContent = msg || 'Cancellation failed.';
+      errEl.classList.remove('hidden');
+    }
+    function showSuccess(msg) {
+      if (!okEl) return;
+      okEl.textContent = msg || 'Cancelled.';
+      okEl.classList.remove('hidden');
+    }
+
+    // If not a team registration or already cancelled, hide
+    const statusLower = (regInfo.status || '').toLowerCase();
+    if (regInfo.mode !== 'team' || /cancelled|expired|refunded/.test(statusLower)) {
+      box.classList.add('hidden');
+      return;
+    }
+
+    // Populate texts
+    let deadlineStr = 'the deadline';
+    if (deadlineIso) {
+      try {
+        const d = new Date(deadlineIso);
+        if (!isNaN(d)) deadlineStr = d.toLocaleString();
+      } catch {}
+    }
+    if (intro) intro.innerHTML = `<strong>Need to cancel?</strong> You can cancel your team participation until <span class="font-semibold">${deadlineStr}</span>.`;
+    if (refundEl) {
+      refundEl.textContent = '';
+      if (refundMeta && typeof refundMeta.feeCents === 'number' && refundMeta.feeCents > 0) {
+        if (refundMeta.refundFlag) refundEl.innerHTML = '<span class="font-semibold">Refund:</span> A refund will be initiated automatically after cancellation (processing may take a few days).';
+        else if (refundMeta.refundableOnCancellation) refundEl.innerHTML = '<span class="font-semibold">Refund:</span> Eligible if organizer approves (refund-on-cancellation enabled).';
+        else refundEl.innerHTML = '<span class="font-semibold">Refund:</span> No refund for this event.';
+      }
+    }
+
+    // Determine role: we need team details to know if current user is creator
+    async function determineRoleAndWire() {
+      try {
+        // Fetch team details if available via registrationData.team_id
+        const teamId = regInfo.team_id || registrationData.team_id;
+        if (!teamId) {
+          // If no team id, hide
+          box.classList.add('hidden');
+          return;
+        }
+        const team = await fetchJson(`/registrations/teams/${encodeURIComponent(teamId)}`);
+        // team JSON provides 'created_by_email' or members list; pick creator email
+  const creatorEmail = team.created_by_email || team.created_by || null;
+  const myEmail = (profileData && profileData.email) ? profileData.email : (window.__USER_EMAIL__ || null);
+        // Decide endpoint: if current user is creator -> call team cancel; else -> member cancel
+        let isCreator = false;
+        if (creatorEmail && myEmail) isCreator = creatorEmail.toLowerCase() === myEmail.toLowerCase();
+        // If we couldn't detect email, fall back to enabling partner cancel (safe)
+
+        function disableControls() {
+          btnStart && (btnStart.disabled = true);
+          btnYes && (btnYes.disabled = true);
+          btnNo && (btnNo.disabled = true);
+        }
+
+        async function doCancelAsCreator() {
+          disableControls();
+          btnYes.textContent = 'Cancelling…';
+          try {
+            const path = `/registrations/teams/${encodeURIComponent(teamId)}/cancel`;
+            const res = await apiFetch(path, { method: 'POST', headers: authHeaders({ Accept: 'application/json' }) });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            showSuccess('Team cancelled. Partner(s) notified.');
+            confirmWrap.classList.add('hidden');
+            btnStart.classList.add('hidden');
+            // update status locally
+            registrationData.status = 'cancelled_by_user';
+            renderRegistration();
+          } catch (e) {
+            showError(e.message || 'Cancellation failed');
+            btnYes.disabled = false;
+            btnNo.disabled = false;
+            btnStart.disabled = false;
+            btnYes.textContent = 'Yes, cancel';
+          }
+        }
+
+        async function doCancelAsMember() {
+          disableControls();
+          btnYes.textContent = 'Cancelling…';
+          try {
+            const path = `/registrations/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(regInfo.registration_id)}/cancel`;
+            const res = await apiFetch(path, { method: 'POST', headers: authHeaders({ Accept: 'application/json' }) });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            showSuccess('Your participation was cancelled. Creator has been notified.');
+            confirmWrap.classList.add('hidden');
+            btnStart.classList.add('hidden');
+            registrationData.status = 'cancelled_by_user';
+            renderRegistration();
+          } catch (e) {
+            showError(e.message || 'Cancellation failed');
+            btnYes.disabled = false;
+            btnNo.disabled = false;
+            btnStart.disabled = false;
+            btnYes.textContent = 'Yes, cancel';
+          }
+        }
+
+        if (btnStart) {
+          btnStart.onclick = () => {
+            btnStart.classList.add('hidden');
+            confirmWrap && confirmWrap.classList.remove('hidden');
+            btnYes && btnYes.focus();
+          };
+        }
+        if (btnNo) {
+          btnNo.onclick = () => {
+            confirmWrap.classList.add('hidden');
+            btnStart.classList.remove('hidden');
+          };
+        }
+        if (btnYes) {
+          btnYes.onclick = () => {
+            if (isCreator) return doCancelAsCreator();
+            return doCancelAsMember();
+          };
+        }
+        box.classList.remove('hidden');
+      } catch (e) {
+        console.warn('Team cancel wiring failed', e);
+        box.classList.add('hidden');
+      }
+    }
+
+    determineRoleAndWire();
+  }
+
+
   // If no event id -> show banner + redirect
   if (!eventId) {
     missingIdBanner.textContent = 'Missing event id (?id=EVENT_ID). Redirecting…';
@@ -714,7 +861,7 @@
       // Fallback generic
       regBody.innerHTML = `<div class="text-sm">Registration detected.</div>`;
     }
-    // Future: display status & payment
+  // Future: display status & payment
     if (registrationData.registration_id) {
       const unpaid =
         (eventData?.fee_cents || 0) > 0 &&
@@ -747,7 +894,7 @@
         payNowBtn && payNowBtn.classList.add('hidden');
         chooseProviderBtn && chooseProviderBtn.classList.add('hidden');
       }
-      // Inject cancellation UI (solo only, team handling TBD)
+      // Inject cancellation UI
       if (registrationData.mode === 'solo') {
         const deadline = eventData?.registration_deadline || eventData?.payment_deadline || null;
         const refundMeta = {
@@ -756,8 +903,37 @@
           refundableOnCancellation: !!eventData?.refund_on_cancellation,
         };
         setupStaticCancelBox(registrationData, deadline, refundMeta);
+      } else if (registrationData.mode === 'team') {
+        const deadline = eventData?.registration_deadline || eventData?.payment_deadline || null;
+        const refundMeta = {
+          feeCents: eventData?.fee_cents || 0,
+          refundFlag: !!registrationData.refund_flag,
+          refundableOnCancellation: !!eventData?.refund_on_cancellation,
+        };
+        setupTeamCancelBox(registrationData, deadline, refundMeta);
       }
     }
+    // Hide or show details buttons depending on cancellation status
+    function updateDetailsButtonVisibility() {
+      const statusLower = (registrationData.status || '').toLowerCase();
+      const isCancelled = /cancelled|expired|refunded/.test(statusLower);
+      // selectors to hide; adjust as needed for different frontends
+      const selectors = ['#detailsBtn', '.details-button', '[data-role="details"]'];
+      selectors.forEach((sel) => {
+        try {
+          const els = Array.from(document.querySelectorAll(sel));
+          els.forEach((el) => {
+            if (isCancelled) el.classList.add('hidden');
+            else el.classList.remove('hidden');
+          });
+        } catch (e) {
+          // ignore selector errors
+        }
+      });
+    }
+
+    // Run once after rendering
+    try { updateDetailsButtonVisibility(); } catch (e) {}
   }
 
   async function fetchProviders() {

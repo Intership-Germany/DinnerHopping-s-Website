@@ -112,6 +112,31 @@ async def send_payment_confirmation_emails(event_title: str, event_date, recipie
     return ok_any
 
 
+async def send_team_creator_cancelled(partner_email: str, event_title: str, creator_email: str) -> bool:
+    """Notify the partner that the team was cancelled by the creator.
+
+    This is used when the team leader cancels the team; the partner should be
+    informed so they don't expect to attend.
+    """
+    lines = [
+        f"Hello,",
+        "",
+        f"The team for '{event_title}' has been cancelled by the team creator ({creator_email}).",
+        "You are no longer registered for this event as part of that team.",
+        "If you believe this is an error, please contact the event organiser.",
+        "",
+        "— DinnerHopping Team",
+    ]
+    return await _send(
+        partner_email,
+        f"Team cancelled by creator - {event_title}",
+        lines,
+        "team_cancellation",
+        template_key="team_creator_cancelled",
+        variables={'event_title': event_title, 'creator_email': creator_email, 'email': partner_email}
+    )
+
+
 async def send_cancellation_confirmation(email: str, event_title: str, refund_flag: bool) -> bool:
     lines = [
         f"Your registration for '{event_title}' has been cancelled.",

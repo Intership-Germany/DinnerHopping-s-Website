@@ -107,6 +107,20 @@
     const teamRoot = modalFrag.querySelector('.form-team');
     const partnerExisting = teamRoot.querySelector('.partner-existing');
     const partnerExternal = teamRoot.querySelector('.partner-external');
+    // Partner search elements (from home.html modification)
+    const partnerEmailInput = partnerExisting.querySelector('.partner-email-input');
+    const partnerSearchBtn = partnerExisting.querySelector('.partner-search-btn');
+    const partnerStatusEl = partnerExisting.querySelector('.partner-search-status');
+
+    // Helper: show status message
+    const setPartnerStatus = (msg, kind) => {
+      if (!partnerStatusEl) return;
+      partnerStatusEl.textContent = msg || '';
+      partnerStatusEl.classList.remove('text-red-600', 'text-green-600', 'text-gray-600');
+      if (kind === 'error') partnerStatusEl.classList.add('text-red-600');
+      else if (kind === 'ok') partnerStatusEl.classList.add('text-green-600');
+      else partnerStatusEl.classList.add('text-gray-600');
+    };
     teamRoot.addEventListener('change', (e) => {
       if (e.target.name === 'partner_mode') {
         const isExternal = e.target.value === 'external';
@@ -114,6 +128,55 @@
         partnerExisting.classList.toggle('hidden', isExternal);
       }
     });
+
+    // Partner search click handler: call backend search-user endpoint
+    if (partnerSearchBtn && partnerEmailInput) {
+      partnerSearchBtn.addEventListener('click', async (ev) => {
+        ev.preventDefault();
+        const email = (partnerEmailInput.value || '').trim();
+        if (!email) {
+          setPartnerStatus('Please enter an email to search.', 'error');
+          return;
+        }
+        setPartnerStatus('Searching…', 'info');
+        try {
+          const apiGet = window.dh?.apiGet || (window.apiFetch ? async (p) => { const r = await window.apiFetch(p); return { res: r, data: await (r.ok ? r.json() : null) }; } : null);
+          if (!apiGet) {
+            // fallback to direct fetch
+            const q = new URL((window.BACKEND_BASE_URL || '') + '/registrations/search-user', window.location.origin);
+            q.searchParams.set('email', email);
+            const r = await fetch(q.toString(), { credentials: 'include' });
+            if (!r.ok) {
+              if (r.status === 404) throw new Error('User not found');
+              const t = await r.text(); throw new Error(t || `HTTP ${r.status}`);
+            }
+            const data = await r.json();
+            // store minimal profile snapshot on the input element for later use
+            partnerEmailInput.dataset.found = '1';
+            partnerEmailInput.dataset.fullName = data.full_name || '';
+            partnerEmailInput.dataset.kitchenAvailable = data.kitchen_available ? '1' : '0';
+            partnerEmailInput.dataset.mainCoursePossible = data.main_course_possible ? '1' : '0';
+            setPartnerStatus(`Found: ${data.full_name || data.email}`, 'ok');
+            return;
+          }
+          // use apiGet wrapper which returns { res, data }
+          const { res, data } = await apiGet(`/registrations/search-user?email=${encodeURIComponent(email)}`);
+          if (!res.ok) {
+            if (res.status === 404) throw new Error('User not found');
+            const detail = data?.detail || data?.message || `HTTP ${res.status}`;
+            throw new Error(detail);
+          }
+          partnerEmailInput.dataset.found = '1';
+          partnerEmailInput.dataset.fullName = data.full_name || '';
+          partnerEmailInput.dataset.kitchenAvailable = data.kitchen_available ? '1' : '0';
+          partnerEmailInput.dataset.mainCoursePossible = data.main_course_possible ? '1' : '0';
+          setPartnerStatus(`Found: ${data.full_name || data.email}`, 'ok');
+        } catch (err) {
+          setPartnerStatus(err.message || 'Search failed', 'error');
+          try { delete partnerEmailInput.dataset.found; } catch (e) {}
+        }
+      });
+    }
     const teamDietSummary = modalFrag.querySelector('#team-diet-summary');
     teamRoot.addEventListener('input', () => {
       const partnerDiet = teamRoot.querySelector('[name="partner_dietary"]').value || '';
@@ -142,8 +205,7 @@
           // Map client payload to backend expected TeamRegistrationIn shape
           // payload.body currently contains: { team_size:2, invited_emails, preferences }
           const pref = payload.body.preferences || {};
-          const cookAt = pref.cook_at || form.elements.cook_location?.value || 'self';
-          const mappedCook = cookAt === 'self' ? 'creator' : 'partner';
+          const cookAt = form.elements.cook_location?.value || pref.cook_at || 'self';
           // Normalize course names: 'starter' -> 'appetizer'
           let teamCourse = pref.course_preference || form.elements.team_course?.value || '';
           if (teamCourse === 'starter') teamCourse = 'appetizer';
@@ -151,7 +213,7 @@
           // Build backend body
           const backendBody = {
             event_id: payload.event_id,
-            cooking_location: mappedCook,
+            cooking_location: cookAt,
             course_preference: teamCourse || undefined,
           };
 

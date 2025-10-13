@@ -689,7 +689,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
 
     # Validate that cooking location has a kitchen (only enforce for the chosen location)
     cooking_location_idx = 0 if payload.cooking_location == 'creator' else 1
-    if not bool(team_doc['members'][cooking_location_idx].get('kitchen_available')):
+    if not team_doc['members'][cooking_location_idx].get('kitchen_available'):
         location_name = 'creator' if cooking_location_idx == 0 else 'partner'
         raise HTTPException(status_code=400, detail=f'Cooking location ({location_name}) must have a kitchen available')
 
@@ -1041,6 +1041,102 @@ async def decline_team(team_id: str, current_user=Depends(get_current_user)):
         pass
     
     return {'status': 'declined'}
+
+
+@router.post('/teams/{team_id}/cancel')
+async def cancel_team_by_creator(team_id: str, current_user=Depends(get_current_user)):
+    """Allow the team creator to cancel the team; notify partner and mark registrations cancelled.
+
+    This endpoint can be used by the team leader to cancel the whole team prior to the
+    event cancellation deadline. Both registrations will be marked 'cancelled_by_user'
+    and partner will receive a notification that the team was cancelled by the creator.
+    """
+    try:
+        tid = ObjectId(team_id)
+    except (InvalidId, TypeError) as exc:
+        raise HTTPException(status_code=400, detail='invalid team id') from exc
+    team = await db_mod.db.teams.find_one({'_id': tid})
+    if not team:
+        raise HTTPException(status_code=404, detail='Team not found')
+    # Only creator can cancel the team with this endpoint
+    if str(team.get('created_by_user_id')) != str(current_user.get('_id')):
+        raise HTTPException(status_code=403, detail='Only team creator may cancel the team')
+    ev = await db_mod.db.events.find_one({'_id': team.get('event_id')}) if team.get('event_id') else None
+    if not ev:
+        raise HTTPException(status_code=404, detail='Event not found')
+    if _cancellation_deadline_passed(ev):
+        raise HTTPException(status_code=400, detail='Cancellation deadline passed')
+
+    # Idempotent: if already cancelled, return current status
+    if team.get('status') == 'cancelled':
+        return {'status': 'cancelled'}
+
+    now = _now()
+    # Mark team cancelled
+    try:
+        await db_mod.db.teams.update_one({'_id': tid}, {'$set': {'status': 'cancelled', 'cancelled_by': current_user.get('email'), 'cancelled_at': now, 'updated_at': now}})
+    except Exception as exc:  # pragma: no cover - defensive
+        logging.getLogger('registrations').exception('Failed to mark team as cancelled: %s', exc)
+        raise HTTPException(status_code=500, detail='Failed to cancel team')
+
+    # Cancel all registrations for the team (creator and partner)
+    try:
+        res = await db_mod.db.registrations.update_many({'team_id': tid, 'status': {'$nin': ['cancelled_by_user', 'cancelled_admin']}}, {'$set': {'status': 'cancelled_by_user', 'updated_at': now, 'cancelled_at': now}})
+        cancelled_count = getattr(res, 'modified_count', 0)
+    except Exception as exc:  # pragma: no cover - defensive
+        logging.getLogger('registrations').exception('Failed to mark registrations cancelled for team %s: %s', team_id, exc)
+        cancelled_count = 0
+
+    # Adjust attendee_count (best-effort)
+    try:
+        if cancelled_count:
+            await db_mod.db.events.update_one({'_id': ev.get('_id'), 'attendee_count': {'$gte': cancelled_count}}, {'$inc': {'attendee_count': -cancelled_count}})
+    except Exception as exc:
+        logging.getLogger('registrations').warning('Failed to adjust attendee_count for event %s: %s', ev.get('_id'), exc)
+
+    # Attempt to mark refunds for any affected registrations (best-effort)
+    try:
+        async for reg in db_mod.db.registrations.find({'team_id': tid}):
+            try:
+                await _mark_refund_if_applicable(reg, ev)
+            except Exception as exc:
+                logging.getLogger('registrations').warning('Failed to mark refund for registration %s: %s', reg.get('_id'), exc)
+    except Exception as exc:
+        logging.getLogger('registrations').warning('Failed to iterate registrations for refund marking for team %s: %s', team_id, exc)
+
+    # Audit log
+    from app.utils import create_audit_log
+    await create_audit_log(
+        entity_type='team',
+        entity_id=str(tid),
+        action='cancelled',
+        actor=current_user.get('email'),
+        new_state={'status': 'cancelled'},
+        reason='Team cancelled by creator'
+    )
+
+    # Notify partner(s)
+    try:
+        from app import notifications
+        async for r in db_mod.db.registrations.find({'team_id': tid}):
+            # Skip notifying the creator themselves here (they will get a cancellation confirmation below)
+            if r.get('user_email_snapshot') and r.get('user_id') and str(r.get('user_id')) != str(current_user.get('_id')):
+                try:
+                    await notifications.send_team_creator_cancelled(r.get('user_email_snapshot'), ev.get('title'), current_user.get('email'))
+                except Exception as exc:
+                    logging.getLogger('registrations').warning('Failed to send creator-cancelled notification to %s: %s', r.get('user_email_snapshot'), exc)
+    except Exception as exc:
+        logging.getLogger('registrations').warning('Failed to notify partners for team %s: %s', team_id, exc)
+
+    # Notify creator with standard cancellation confirmation
+    try:
+        from app import notifications
+        refund_flag = bool(ev.get('refund_on_cancellation'))
+        _ = await notifications.send_cancellation_confirmation(current_user.get('email'), ev.get('title'), refund_flag)
+    except Exception as exc:
+        logging.getLogger('registrations').warning('Failed to send cancellation confirmation to creator %s: %s', current_user.get('email'), exc)
+
+    return {'status': 'cancelled', 'cancelled_count': cancelled_count}
 
 
 @router.get('/teams/{team_id}')
@@ -1624,3 +1720,30 @@ async def registration_status(registration_id: str | None = None, current_user=D
         })
 
     return {'registrations': out}
+
+@router.get('/search-user')
+async def search_user(email: EmailStr, current_user=Depends(get_current_user)):
+    """Search for a user by email for team invitation.
+
+    Returns only public info and prevents searching for yourself.
+    """
+    if not email or (isinstance(email, str) and not email.strip()):
+        raise HTTPException(status_code=400, detail='Email parameter required')
+
+    email_lower = str(email).strip().lower()
+
+    # Prevent searching for yourself
+    if email_lower == (current_user.get('email') or '').lower():
+        raise HTTPException(status_code=400, detail='Cannot invite yourself as partner')
+
+    user = await db_mod.db.users.find_one({'email': email_lower})
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+
+    return {
+        'email': user.get('email'),
+        'full_name': user.get('full_name') or user.get('name'),
+        'kitchen_available': bool(user.get('kitchen_available')),
+        'main_course_possible': bool(user.get('main_course_possible')),
+        'dietary_preference': _enum_value(DietaryPreference, user.get('default_dietary_preference')) or 'omnivore',
+    }

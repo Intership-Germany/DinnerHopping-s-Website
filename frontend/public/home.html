@@ -290,8 +290,12 @@
 								<label class="flex items-center gap-2 text-sm mt-1"><input type="radio"
 										name="partner_mode" value="external"> Add external partner</label>
 								<div class="mt-2 partner-existing">
-									<input type="email" name="partner_email" placeholder="Partner email"
-										class="w-full rounded-lg border-gray-300" />
+									<div class="flex gap-2">
+										<input type="email" name="partner_email" placeholder="Partner email"
+											class="partner-email-input flex-1 rounded-lg border-gray-300 px-3 py-2" />
+										<button type="button" class="partner-search-btn inline-flex items-center px-3 py-2 rounded-lg bg-[#008080] text-white text-sm font-medium hover:bg-[#006b6b]">Find</button>
+									</div>
+									<div class="mt-2 text-sm text-gray-600 partner-search-status"></div>
 								</div>
 								<div class="mt-2 partner-external hidden grid grid-cols-2 gap-2">
 									<input type="text" name="partner_name" placeholder="Partner name"
@@ -319,7 +323,7 @@
 								<label class="flex flex-col">
 									<span class="text-xs font-medium text-gray-600">Cooking location</span>
 									<select name="cook_location" class="mt-1 rounded-lg border-gray-300">
-										<option value="self">My address</option>
+										<option value="creator">My address</option>
 										<option value="partner">Partner's address</option>
 									</select>
 									<small class="text-[11px] text-gray-500">At least one of you must have a kitchen
