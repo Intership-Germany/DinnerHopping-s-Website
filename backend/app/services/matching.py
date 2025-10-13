@@ -1408,7 +1408,6 @@ async def process_refunds(event_id: str, registration_ids: list[str] | None = No
         return {'processed': 0, 'items': [], 'reason': 'no_fee_configured'}
     q: dict = {'event_id': ev['_id'], 'status': {'$in': ['cancelled_by_user','cancelled_admin']}}
     if registration_ids:
-        # Lors d'un traitement ciblé inclure aussi les enregistrements déjà marqués 'refunded' pour renvoyer un statut idempotent.
         if 'refunded' not in q['status']['$in']:
             q['status']['$in'].append('refunded')
         oids = []

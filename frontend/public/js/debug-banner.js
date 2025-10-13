@@ -61,10 +61,11 @@
         var c = document.cookie || '';
         var hasAccessCookie = /(?:^|; )(__Host-)?access_token=/.test(c);
         var hasRefreshCookie = /(?:^|; )(__Host-)?refresh_token=/.test(c);
-        var dhCookieMatch = c.match(/(?:^|; )dh_token=([^;]+)/);
+  // legacy dh_token is no longer used; ignore
         var lsToken = null;
         try {
-          lsToken = window.localStorage ? window.localStorage.getItem('dh_access_token') : null;
+          // Access tokens are no longer stored in localStorage for security.
+          lsToken = null;
         } catch {}
         if (hasAccessCookie || hasRefreshCookie) {
           authMode = 'cookie';
@@ -76,11 +77,7 @@
           bearerSource = 'localStorage';
           return;
         }
-        if (dhCookieMatch) {
-          authMode = 'bearer-dh';
-          bearerSource = 'dh_cookie';
-          return;
-        }
+        // no legacy dh_token handling
         authMode = 'none';
         bearerSource = null;
       } catch {
@@ -175,7 +172,7 @@
           case 'bearer-ls':
             return 'bearer(ls)';
           case 'bearer-dh':
-            return 'bearer(dh_token)';
+            return 'bearer';
           case 'none':
             return 'none';
           default:
@@ -286,11 +283,11 @@
       // Check if there are valid tokens or cookies before attempting fetch
       var lsBearer = null;
       try {
-        lsBearer = (window.localStorage && window.localStorage.getItem('dh_access_token')) || null;
+  // Avoid reading bearer token from localStorage; rely on cookie checks.
+  lsBearer = null;
       } catch {}
       var dhBearer = null;
-      var m = document.cookie.match(/(?:^|; )dh_token=([^;]+)/);
-      if (m) dhBearer = decodeURIComponent(m[1]);
+        // legacy dh_token not displayed
 
       if (!lsBearer && !dhBearer) {
         console.warn('No valid tokens or cookies available. Skipping profile fetch.');

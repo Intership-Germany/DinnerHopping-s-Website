@@ -12,6 +12,8 @@ from .utils import send_email
 from . import db as db_mod
 import re
 import html
+import datetime
+import os
 
 # Match literal double-curly placeholders like {{ variable }}.  Curly braces
 # must be escaped in the regex so they are treated as literal characters.
@@ -149,6 +151,94 @@ async def send_refund_processed(email: str, event_title: str, amount_cents: int)
     ]
     return await _send(email, f"Refund processed for {event_title}", lines, "refund_processed", template_key="refund_processed", variables={'event_title': event_title, 'amount_eur': amount_eur, 'email': email})
 
+
+async def send_team_incomplete_reminder(email: str, event_title: str, replace_url: str) -> bool:
+    """Send reminder to team creator to find a replacement partner."""
+    lines = [
+        f"Your team for '{event_title}' is currently incomplete.",
+        "Your partner has cancelled, and you need to find a replacement.",
+        "",
+        f"Please visit: {replace_url}",
+        "",
+        "If you don't find a replacement, your team may be excluded from matching.",
+    ]
+    return await _send(email, f"Action needed: Find a replacement partner for {event_title}", lines, "team_incomplete_reminder", template_key="team_incomplete_reminder", variables={'event_title': event_title, 'replace_url': replace_url, 'email': email})
+
+
+async def send_final_plan_released(email: str, event_title: str, plan_url: str) -> bool:
+    """Notify participant that final event schedule is available."""
+    lines = [
+        f"Great news! The final schedule for '{event_title}' is now available.",
+        "",
+        f"View your personal event plan here: {plan_url}",
+        "",
+        "See you soon!",
+    ]
+    return await _send(email, f"Your DinnerHopping schedule is ready - {event_title}", lines, "final_plan", template_key="final_plan", variables={'event_title': event_title, 'plan_url': plan_url, 'email': email})
+
+
+async def notify_admin_manual_payment(payment_id: str, registration_id: str | None, user_email: str | None, amount_cents: int, event_title: str | None = None) -> bool:
+    """Notify admins that a manual/contact-us payment needs review.
+
+    - Inserts a lightweight admin_alerts document for dashboard consumption.
+    - Sends an email to the admin contact (SMTP_FROM_ADDRESS / fallback) informing them.
+    Best-effort: failures do not raise.
+    """
+    try:
+        amount_eur = f"{amount_cents/100:.2f}"
+    except Exception:
+        amount_eur = str(amount_cents)
+
+    title = f"Manual payment awaiting review: {amount_eur} €"
+    if event_title:
+        title = f"Manual payment awaiting review for '{event_title}': {amount_eur} €"
+
+    lines = [
+        f"A manual payment was created and requires admin validation.",
+        f"Payment id: {payment_id}",
+        f"Registration id: {registration_id}",
+        f"User email: {user_email}",
+        f"Amount: {amount_eur} €",
+        "Please review and validate this payment from the admin dashboard.",
+    ]
+
+    # Insert an admin alert document for dashboard consumption (best-effort)
+    try:
+        await db_mod.db.admin_alerts.insert_one({
+            'type': 'manual_payment',
+            'payment_id': payment_id,
+            'registration_id': registration_id,
+            'user_email': user_email,
+            'amount_cents': amount_cents,
+            'event_title': event_title,
+            'status': 'open',
+            'created_at': datetime.datetime.now(datetime.timezone.utc),
+        })
+    except Exception:
+        # ignore DB insertion failures
+        pass
+
+    # Send email to configured admin contact (fallback to from address)
+    admin_contact = None
+    try:
+        sdoc = await db_mod.db.settings.find_one({'key': 'admin_contact'})
+        if sdoc and isinstance(sdoc, dict):
+            admin_contact = sdoc.get('value')
+    except Exception:
+        admin_contact = None
+
+    from_addr = os.getenv('SMTP_FROM_ADDRESS') or os.getenv('FROM_ADDRESS')
+
+    recipients = [r for r in [admin_contact or from_addr] if r]
+    if not recipients:
+        # nothing to send, but return True since DB alert may be enough
+        return True
+
+    try:
+        return await _send(recipients, title, lines, 'admin_notification', template_key=None, variables=None)
+    except Exception:
+        return False
+
 __all__ = [
     "send_payment_confirmation_emails",
     "send_cancellation_confirmation",
@@ -156,4 +246,6 @@ __all__ = [
     "send_partner_replaced_notice",
     "send_verification_reminder",
     "send_refund_processed",
+    "send_team_incomplete_reminder",
+    "send_final_plan_released",
 ]

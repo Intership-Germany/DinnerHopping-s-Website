@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Invitation accepted - DinnerHopping</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/config.js"></script>
+  <script src="js/debug-banner.js"></script>
+  <script src="js/core/auth.js"></script>
+  <script src="js/core/client.js"></script>
+  <script src="js/utils/network-errors.js"></script>
+  <script src="js/core/includes.js" defer></script>
+  <script src="js/pages/invitations-accepted.js" defer></script>
+  <style>
+    body{font-family:'Inter',sans-serif;background:#f0f4f7;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+    [hidden]{display:none!important}
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <div data-include="partials/header.html"></div>
+  <main class="flex-grow flex items-center justify-center py-20 px-4">
+    <div class="max-w-xl w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+      <h1 class="text-2xl font-bold mb-4">Invitation accepted</h1>
+      <p id="ia-msg" class="text-gray-600 mb-4">Thanks — the invitation was accepted. If an account was created for you, you may need to set your password using the link sent to your email.</p>
+      <p id="ia-countdown" class="text-sm text-gray-500 mb-4" hidden>Redirecting in <span id="ia-seconds">6</span> seconds…</p>
+      <div class="flex flex-col sm:flex-row justify-center gap-3">
+        <a id="ia-signin" href="/login.html" class="px-6 py-2 rounded-xl bg-[#f46f47] text-white font-semibold">Sign in</a>
+        <a id="ia-events" href="/home.html" class="px-6 py-2 rounded-xl border border-gray-300 text-gray-700">View events</a>
+      </div>
+      <div class="mt-4 text-xs text-gray-400">You can also <a id="ia-go-now" href="#" class="text-[#f46f47] underline">go now</a> without waiting.</div>
+    </div>
+  </main>
+  <div data-include="partials/footer.html"></div>
+</body>
+</html>

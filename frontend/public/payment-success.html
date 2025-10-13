@@ -4,10 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Payment Status - DinnerHopping</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <script src="js/config.js"></script>
-  <script src="js/includes.js" defer></script>
-  <script src="js/client.js" defer></script>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <script src="js/debug-banner.js"></script>
+  <script src="js/core/auth.js"></script>
+  <script src="js/core/client.js"></script>
+  <script src="js/utils/network-errors.js"></script>
+  <script src="js/core/includes.js" defer></script>
+  <script src="js/pages/payment-success.js" defer></script>
 </head>
 <body class="bg-gray-50">
   <div data-include="partials/header.html"></div>
@@ -42,44 +46,14 @@
       
       <div class="mt-6 flex items-center justify-center gap-3">
         <a href="/home.html" class="px-5 py-2 rounded-lg bg-[#008080] text-white font-semibold">Back to events</a>
-        <a id="go-dashboard" href="#" class="px-5 py-2 rounded-lg border border-gray-300 text-gray-700">Go to my event dashboard</a>
+        <a id="go-dashboard" href="/home.html" class="px-5 py-2 rounded-lg border border-gray-300 text-gray-700">Go to my event dashboard</a>
+      </div>
+      <div class="mt-4 text-sm text-gray-500 text-center">
+        <span id="ps-countdown" hidden>Redirecting in <strong id="ps-count-seconds">6</strong> seconds…</span>
+        <span id="ps-go-now" class="ml-2"><a href="#" class="text-[#f46f47] underline">Go now</a></span>
       </div>
     </div>
   </main>
-  <script>
-  (async function(){
-    // Parse URL parameters
-    const params = new URLSearchParams(window.location.search);
-    const status = params.get('status');
-    const paymentId = params.get('payment_id');
-    
-    // Show appropriate status message
-    const successState = document.getElementById('success-state');
-    const failedState = document.getElementById('failed-state');
-    const cancelledState = document.getElementById('cancelled-state');
-    
-    if (status === 'failed') {
-      successState.classList.add('hidden');
-      failedState.classList.remove('hidden');
-    } else if (status === 'cancelled') {
-      successState.classList.add('hidden');
-      cancelledState.classList.remove('hidden');
-    }
-    // Default is success, already visible
-    
-    try{
-      // Try to infer a recent event registration for dashboard link (best-effort)
-      const res = await (window.apiFetch ? window.apiFetch('/events/my', { method: 'GET' }) : fetch((window.BACKEND_BASE_URL||'') + '/events/my'));
-      if (res && res.ok) {
-        const data = await res.json();
-        const latest = Array.isArray(data) && data.length ? data[0] : null;
-        if (latest && latest.id) {
-          const a = document.getElementById('go-dashboard');
-          if (a) { a.href = `/event.html?id=${encodeURIComponent(latest.id)}`; }
-        }
-      }
-    } catch {}
-  })();
-  </script>
+  
 </body>
 </html>

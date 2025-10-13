@@ -15,11 +15,10 @@ from app.utils import (
     require_registration_owner_or_admin,
     require_event_payment_open,
     finalize_registration_payment,
-    _is_admin,
+    send_email,
 )
 from app.payments_providers import paypal as paypal_provider
 from app.payments_providers import stripe as stripe_provider
-from app.payments_providers import wero as wero_provider
 
 ######### Router / Endpoints #########
 
@@ -31,7 +30,7 @@ class PaymentProvider(str, Enum):
     auto = 'auto'
     paypal = 'paypal'
     stripe = 'stripe'
-    wero = 'wero'
+    others = 'others'
 
 
 class PaymentFlow(str, Enum):
@@ -80,9 +79,7 @@ async def list_providers_early():
         providers.append('paypal')
     if os.getenv('STRIPE_API_KEY'):
         providers.append('stripe')
-    # Wero is always available as manual SEPA transfer
-    providers.append('wero')
-    default = 'paypal' if 'paypal' in providers else ('stripe' if 'stripe' in providers else 'wero')
+    default = providers[0] if providers else None
     return {"providers": providers, "default": default}
 
 
@@ -208,10 +205,18 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
     if flow == 'order' and provider not in ('paypal', 'auto'):
         raise HTTPException(status_code=400, detail='flow "order" is only supported with provider=paypal')
 
+    paypal_configured = bool(os.getenv('PAYPAL_CLIENT_ID') and (os.getenv('PAYPAL_CLIENT_SECRET') or os.getenv('PAYPAL_SECRET')))
+    stripe_configured = bool(os.getenv('STRIPE_API_KEY'))
+
     # Auto-select provider when requested
     if provider in ('', 'auto', None):
-        paypal_configured = os.getenv('PAYPAL_CLIENT_ID') and (os.getenv('PAYPAL_CLIENT_SECRET') or os.getenv('PAYPAL_SECRET'))
-        provider = 'paypal' if paypal_configured else ('stripe' if os.getenv('STRIPE_API_KEY') else 'wero')
+        if paypal_configured:
+            provider = 'paypal'
+        elif stripe_configured:
+            provider = 'stripe'
+        else:
+            # fallback to 'others' to allow manual contact-us flow when no provider configured
+            provider = 'others'
 
     currency = (payload.currency or 'EUR').upper()
 
@@ -251,6 +256,10 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
     if existing and (existing.get('status') or '').lower() in _expired_statuses:
         existing = None
 
+    # For re-registration (status pending_payment), always create a new payment
+    if existing and reg.get('status') == 'pending_payment':
+        existing = None
+
     if existing:
         log.debug('payment.create.idempotent key=%s payment_id=%s', canonical_idempotency, existing.get('_id'))
         next_action = None
@@ -275,6 +284,10 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
     # If there is an existing payment for this registration but it is no longer
     # payable (refunded/failed/cancelled), ignore it and create a fresh one instead.
     if existing_for_registration and (existing_for_registration.get('status') or '').lower() in _expired_statuses:
+        existing_for_registration = None
+
+    # For re-registration (status pending_payment), always create a new payment
+    if existing_for_registration and reg.get('status') == 'pending_payment':
         existing_for_registration = None
 
     if existing_for_registration and not existing_for_registration.get('idempotency_key'):
@@ -416,50 +429,51 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
             next_action=next_action,
         )
 
-    if provider == 'wero':
-        amount_cents = canonical_amount_cents
-        wero_doc = {
+    if provider == 'others' or provider == 'contact_us':
+        # Create a pending manual payment and notify admins
+        initial_doc = {
             "registration_id": reg_obj,
-            "amount": amount_cents / 100.0,
+            "amount": canonical_amount_cents / 100.0,
             "currency": currency,
             "status": "pending",
-            "provider": "wero",
+            "provider": "others",
             "idempotency_key": canonical_idempotency,
-            "meta": {},
+            "meta": {"note": "manual_contact_us"},
             "created_at": datetime.datetime.now(datetime.timezone.utc),
         }
-        doc = await db_mod.db.payments.find_one_and_update(
-            {"registration_id": reg_obj, "provider": "wero"},
-            {"$setOnInsert": wero_doc},
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
-        if doc.get('idempotency_key') != canonical_idempotency:
-            await db_mod.db.payments.update_one({"_id": doc.get('_id')}, {"$set": {"idempotency_key": canonical_idempotency}})
-            doc['idempotency_key'] = canonical_idempotency
-        instructions = wero_provider.build_instructions(doc.get('_id'), amount_cents, currency)
-        await db_mod.db.payments.update_one({"_id": doc.get('_id')}, {"$set": {"meta.instructions": instructions}})
-        log.info('payment.create.wero.ok payment_id=%s amount_cents=%s', doc.get('_id'), amount_cents)
         try:
-            await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": doc.get('_id')}})
+            res = await db_mod.db.payments.insert_one(initial_doc)
+            payment_doc = await db_mod.db.payments.find_one({"_id": res.inserted_id})
+        except PyMongoError as exc:
+            raise HTTPException(status_code=500, detail=f'Could not create manual payment: {str(exc)}') from exc
+
+        # Link to registration
+        try:
+            await db_mod.db.registrations.update_one({"_id": reg_obj}, {"$set": {"payment_id": payment_doc.get('_id')}})
         except PyMongoError:
             pass
-        next_action = {"type": "instructions", "instructions": instructions}
-        response = _build_payment_response(
-            payment_doc=doc,
-            provider=provider,
-            amount_cents=amount_cents,
+
+        # notify admins (best-effort)
+        try:
+            from app import notifications as notifications_mod
+            await notifications_mod.notify_admin_manual_payment(str(payment_doc.get('_id')), str(reg_obj), reg.get('user_email_snapshot'), int(canonical_amount_cents), ev.get('title') if ev else None)
+        except Exception:
+            log.exception('Failed to notify admins about manual payment')
+
+        next_action = {"type": "manual", "message": "Please contact support to complete payment"}
+        return _build_payment_response(
+            payment_doc=payment_doc,
+            provider='others',
+            amount_cents=canonical_amount_cents,
             currency=currency,
             idempotency_key=canonical_idempotency,
             next_action=next_action,
         )
-        response['instructions'] = instructions
-        return response
 
     raise HTTPException(status_code=400, detail='Unsupported payment provider or provider not configured')
 
 
-# Removed dev-only pay endpoint: all providers are real (paypal/stripe/wero).
+# Removed dev-only pay endpoint: all providers are real (PayPal/Stripe).
 
 
 @router.get('/{payment_id}/cancel')
@@ -553,10 +567,6 @@ async def payment_details(payment_id: str, current_user=Depends(get_current_user
             'session_url': pay.get('payment_link'),
             'meta': meta,
         }
-    elif provider == 'wero':
-        resp['source'] = {
-            'instructions': (meta or {}).get('instructions'),
-        }
     else:
         resp['source'] = {'meta': meta}
 
@@ -605,21 +615,20 @@ async def paypal_return(payment_id: str, token: Optional[str] = None):
 
 @router.post('/{payment_id}/capture')
 async def capture_payment(payment_id: str, payload: CapturePaymentIn, current_user=Depends(get_current_user)):
-    """Capture a payment for a given provider.
-
-    For PayPal the frontend can POST here after the buyer approved the order
-    (or the server can capture via the /paypal/return flow). The payload may
-    include 'order_id' for PayPal. The endpoint verifies and marks the
-    payment/registration as paid on success.
-    """
+    """Manual payment confirmation has been phased out (route still accepts provider-driven confirms for compatibility)."""
+    # Resolve payment id and document
     try:
         oid = ObjectId(payment_id)
     except InvalidId as exc:
         raise HTTPException(status_code=400, detail='Invalid payment id') from exc
+
     pay = await db_mod.db.payments.find_one({"_id": oid})
     if not pay:
         raise HTTPException(status_code=404, detail='Payment not found')
+
+    # Determine provider: prefer explicit payload.provider, fallback to stored provider on payment
     provider = (payload.provider or pay.get('provider') or '').lower()
+
     if provider == 'paypal':
         order_id = payload.order_id or pay.get('provider_payment_id')
         if not order_id:
@@ -674,8 +683,6 @@ async def capture_payment(payment_id: str, payload: CapturePaymentIn, current_us
         log.info('payment.capture.stripe.manual payment_id=%s', payment_id)
         await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
         return {"status": "paid"}
-    elif provider == 'wero':
-        raise HTTPException(status_code=400, detail='Use manual confirmation endpoint for WERO')
     else:
         raise HTTPException(status_code=400, detail='Unsupported provider')
 
@@ -777,15 +784,33 @@ async def list_refunds(event_id: str):
         raise HTTPException(status_code=404, detail='Event not found')
     if not ev.get('refund_on_cancellation'):
         return {"event_id": event_id, "currency": (ev.get('currency') or 'EUR'), "items": [], "total_cents": 0}
+    await require_event_published(ev_id)
     fee_cents = int(ev.get('fee_cents') or 0)
     items = []
     total = 0
     async for reg in db_mod.db.registrations.find({'event_id': ev_id, 'refund_flag': True}):
+        # Only include registrations with valid paid payments that haven't been refunded yet
+        pay_id = reg.get('payment_id')
+        if pay_id:
+            try:
+                pay_oid = pay_id if isinstance(pay_id, ObjectId) else ObjectId(pay_id)
+                pay = await db_mod.db.payments.find_one({'_id': pay_oid})
+                # Skip if payment doesn't exist, wasn't successful, or already refunded
+                if not pay or pay.get('status') not in ('succeeded', 'paid', 'refunded'):
+                    continue
+            except Exception:
+                continue
+        else:
+            # No payment linked, skip this registration
+            continue
+
         amount = fee_cents * int(reg.get('team_size') or 1)
         items.append({
             'registration_id': str(reg.get('_id')),
             'user_email': reg.get('user_email_snapshot'),
             'amount_cents': amount,
+            'payment_id': str(pay_id),
+            'payment_status': pay.get('status') if pay else None,
         })
         total += amount
     return {"event_id": event_id, "currency": (ev.get('currency') or 'EUR'), "items": items, "total_cents": total}
@@ -877,22 +902,68 @@ async def paypal_webhook(request: Request):
 
 @router.post('/{payment_id}/confirm')
 async def confirm_manual_payment(payment_id: str, _current_user=Depends(require_admin)):
-    """Manually confirm a bank transfer (Wero) payment. Admins only.
+    """Allow admin to confirm manual 'others' (contact us) payments.
 
-    Marks the payment as succeeded and the registration as paid.
+    Admins may mark a manual payment as succeeded. This endpoint only permits
+    confirming payments created with provider='others'.
     """
     try:
         oid = ObjectId(payment_id)
     except InvalidId as exc:
         raise HTTPException(status_code=400, detail='Invalid payment id') from exc
-    pay = await db_mod.db.payments.find_one({"_id": oid})
+    pay = await db_mod.db.payments.find_one({'_id': oid})
     if not pay:
         raise HTTPException(status_code=404, detail='Payment not found')
+
+    provider = (pay.get('provider') or '').lower()
+    if provider != 'others':
+        # Keep legacy behavior for other providers
+        raise HTTPException(status_code=410, detail='Manual payment confirmation is disabled for this provider')
+
+    if (pay.get('status') or '').lower() in ('succeeded', 'paid'):
+        return {'status': 'already_paid'}
+
     now = datetime.datetime.now(datetime.timezone.utc)
-    await db_mod.db.payments.update_one({"_id": oid}, {"$set": {"status": "succeeded", "paid_at": now}})
-    log.info('payment.confirm.manual payment_id=%s provider=%s', payment_id, pay.get('provider'))
-    await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
-    return {"status": "paid"}
+    try:
+        await db_mod.db.payments.update_one({'_id': oid}, {'$set': {'status': 'succeeded', 'paid_at': now, 'meta.admin_confirmed_at': now}})
+    except PyMongoError as exc:
+        raise HTTPException(status_code=500, detail=f'Could not update payment: {str(exc)}') from exc
 
+    # finalize registration if linked
+    try:
+        await finalize_registration_payment(pay.get('registration_id'), pay.get('_id'))
+    except Exception:
+        # best-effort
+        pass
 
+    # mark corresponding admin_alerts entry as closed if present
+    try:
+        await db_mod.db.admin_alerts.update_one({'payment_id': payment_id, 'status': 'open'}, {'$set': {'status': 'closed', 'closed_at': now}})
+    except Exception:
+        pass
+
+    # notify user about confirmation
+    try:
+        # Attempt to notify registrant email
+        user_email = pay.get('meta', {}).get('user_email') or None
+        if not user_email:
+            # try registration snapshot
+            reg = None
+            try:
+                reg = await db_mod.db.registrations.find_one({'_id': pay.get('registration_id')})
+            except Exception:
+                reg = None
+            if reg:
+                user_email = reg.get('user_email_snapshot')
+        if user_email:
+            # Use central send_email which will render templates when available
+            fallback_subject = f"Payment confirmed for your registration"
+            fallback_body = (
+                f"Hi,\n\nYour payment has been marked as received for payment id {payment_id}.\n\nThanks,\nDinnerHopping Team"
+            )
+            await send_email(to=user_email, subject=fallback_subject, body=fallback_body, category='payment_confirmation', template_vars={'email': user_email})
+    except Exception:
+        pass
+
+    return {'status': 'succeeded'}
 

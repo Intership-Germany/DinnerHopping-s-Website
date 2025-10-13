@@ -9,23 +9,46 @@
         authed = window.auth.hasAuth();
       } catch (e) {
         dlog('[header] auth.hasAuth error, fallback to cookie', e);
-        authed = /(?:^|; )dh_token=/.test(document.cookie);
+        authed = /(?:^|; )(__Host-)?access_token=/.test(document.cookie);
       }
     } else {
-      authed = /(?:^|; )dh_token=/.test(document.cookie);
+      authed = /(?:^|; )(__Host-)?access_token=/.test(document.cookie);
     }
     dlog('[header] authed=', authed, 'mode=', (function(){
       try{
-        var ls = localStorage.getItem('dh_access_token');
-        return ls ? 'bearer-ls' : '__cookies_unknown__';
+        // Do not expose bearer tokens from localStorage; prefer cookie check
+        var cookieMode = /(?:^|; )(__Host-)?access_token=/.test(document.cookie) ? 'cookies' : '__no_cookie__';
+        return cookieMode;
       }catch{return '__unknown__'}
     })());
 
-    if (!authed) {
-      document
-        .querySelectorAll('a[data-protected]')
-        .forEach((a) => a.setAttribute('href', 'login.html'));
+    // If we don't see auth via document.cookie, double-check with the server
+    // before turning protected links into login redirects. This avoids creating
+    // broken links when the session is held in HttpOnly cookies invisible to JS.
+    async function protectLinksIfUnauthed() {
+      const links = Array.from(document.querySelectorAll('a[data-protected]'));
+      if (links.length === 0) return;
+      if (authed) return; // already authed according to cookie
+      try {
+        const base = window.BACKEND_BASE_URL || '';
+        const trimmedBase = String(base).replace(/\/+$/, '');
+        const url = (trimmedBase || '') + '/profile';
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1500);
+        const res = await fetch(url, { credentials: 'include', signal: controller.signal });
+        clearTimeout(timer);
+        if (res && res.ok) {
+          // server says we're authenticated — leave protected links as-is
+          return;
+        }
+      } catch (e) {
+        // network/CORS/timeout errors fallthrough to marking as unauthenticated
+      }
+      // If we get here, replace protected links with login redirect
+      links.forEach((a) => a.setAttribute('href', 'login.html'));
     }
+    // Trigger the protection check immediately (non-blocking)
+    try { protectLinksIfUnauthed(); } catch (e) {}
 
     // Reveal Admin link only for admins. Use dh client if available; retry until ready (bounded).
     function revealAdminIfAllowed(attempt) {
@@ -66,6 +89,71 @@
         .catch(function (e) {
           dlog('[header] /profile failed', e);
         });
+    }
+
+    // Hook header logout button to centralized auth.logout and show/hide it based on auth state
+    function initHeaderLogout() {
+      const logoutBtn = document.getElementById('logout-btn');
+      if (!logoutBtn) return;
+      // Show or hide the logout button depending on auth state
+      try {
+        const hasAuthFn = window.auth && typeof window.auth.hasAuth === 'function' && window.auth.hasAuth;
+        const visible = !!(hasAuthFn && hasAuthFn());
+        if (visible) {
+          logoutBtn.style.display = '';
+        } else {
+          // If cookies are HttpOnly we can't see them via document.cookie. Probe the server.
+          (async function () {
+            try {
+              const base = window.BACKEND_BASE_URL || '';
+              const trimmedBase = String(base).replace(/\/+$/, '');
+              const url = (trimmedBase || '') + '/profile';
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), 1500);
+              const res = await fetch(url, { credentials: 'include', signal: controller.signal });
+              clearTimeout(timer);
+              if (res && res.ok) {
+                logoutBtn.style.display = '';
+                return;
+              }
+            } catch (e) {}
+            logoutBtn.style.display = 'none';
+          })();
+        }
+      } catch {
+        // fallback: hide
+        logoutBtn.style.display = 'none';
+      }
+      logoutBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        // Hide the button immediately so UI reflects logged-out state
+        try { logoutBtn.style.display = 'none'; } catch {}
+        try {
+          if (window.auth && typeof window.auth.logout === 'function') {
+            // Some variants of auth.logout may not redirect; perform redirect here
+            Promise.resolve(window.auth.logout()).finally(() => {
+              window.location.href = 'login.html';
+            });
+          } else {
+            // As a fallback, perform a simple POST to /logout then redirect
+            (async function () {
+              try {
+                const base = window.BACKEND_BASE_URL || '';
+                const trimmedBase = String(base).replace(/\/+$/, '');
+                await fetch((trimmedBase || '') + '/logout', { method: 'POST', credentials: 'include' });
+              } catch {}
+              window.location.href = 'login.html';
+            })();
+          }
+        } catch {
+          window.location.href = 'login.html';
+        }
+      });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initHeaderLogout, { once: true });
+    } else {
+      initHeaderLogout();
     }
 
     if (document.readyState === 'loading') {

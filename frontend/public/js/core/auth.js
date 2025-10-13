@@ -4,7 +4,6 @@
 (function () {
   if (typeof window === 'undefined') return;
   const BANNER_ID = 'auth-mode-banner';
-  const LS_KEY = 'dh_access_token';
   const ACCESS_COOKIE_RX = /(?:^|; )(__Host-)?access_token=/;
   const REFRESH_COOKIE_RX = /(?:^|; )(__Host-)?refresh_token=/;
   const CSRF_COOKIE_RX = /(?:^|; )(?:__Host-)?csrf_token=/;
@@ -43,26 +42,28 @@
   }
 
   function storeToken(token) {
+    // Intentionally do not persist access tokens to JS storage for security.
+    // Sessions should rely on HttpOnly cookies. If callers attempt to store a
+    // token, we silently ignore it and remove any legacy stored token.
     try {
-      localStorage.setItem(LS_KEY, token);
+      localStorage.removeItem(LS_KEY);
     } catch {}
-    setCookie('dh_token', token, 7);
   }
   function clearStored() {
     try {
       localStorage.removeItem(LS_KEY);
     } catch {}
-    try {
-      setCookie('dh_token', '', -1);
-    } catch {}
   }
   function getStored() {
+    // Disable bearer fallback: do not expose any in-JS access token.
+    // Prefer HttpOnly cookies. Return token only if present in a non-HttpOnly
+    // cookie named 'dh_token' (legacy). In normal operation this will be null.
     try {
-      const ls = localStorage.getItem(LS_KEY);
-      if (ls) return ls;
-    } catch {}
-    const c = readCookie('dh_token');
-    return c || null;
+      const c = readCookie('dh_token');
+      return c || null;
+    } catch {
+      return null;
+    }
   }
 
   function hasHttpOnlySessionCookies() {
@@ -84,6 +85,9 @@
   }
 
   function injectBanner() {
+    // Only show a gentle informational banner if the app is truly running
+    // without HttpOnly cookies. By default we will not display the insecure
+    // banner since storing access tokens in JS is disabled.
     if (!isBearerFallback()) {
       removeBanner();
       return;
@@ -92,7 +96,7 @@
     const div = document.createElement('div');
     div.id = BANNER_ID;
     div.textContent =
-      'Security notice: running in reduced security mode (Bearer token stored in JS, no HttpOnly cookies). Avoid using on shared devices.';
+      'Security notice: running in reduced-security mode (no HttpOnly session cookies). Consider switching to a secure environment.';
     div.style.cssText =
       'background:#fef3c7;color:#92400e;padding:8px 12px;font-size:12px;font-weight:600;font-family:system-ui, Inter, sans-serif;text-align:center;border-bottom:1px solid #fcd34d;';
     const target = document.body;
@@ -153,7 +157,9 @@
       console.error('Logout failed:', error);
     }
     clearStored();
-    // Best-effort: clear non-HttpOnly CSRF cookies client-side too
+    // Best-effort: clear non-HttpOnly CSRF cookies client-side too (prevent reuse).
+    // Note: HttpOnly cookies (access_token, refresh_token) can ONLY be cleared by the server.
+    // We can only clear non-HttpOnly cookies here (like csrf_token).
     try {
       setCookie('csrf_token', '', -1);
       setCookie('__Host-csrf_token', '', -1);

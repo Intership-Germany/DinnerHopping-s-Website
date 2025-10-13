@@ -7,10 +7,12 @@ Migration note (2025-09):
 Existing records may still contain 'name' or 'is_verified'; they are ignored.
 """
 import json
+import logging
 import os
 import re
 from contextlib import suppress
 from typing import List, Literal, Optional
+from urllib.parse import unquote
 
 from fastapi import (APIRouter, Depends, Form, HTTPException, Request,
                      Response, status)
@@ -24,6 +26,43 @@ from ..enums import Gender
 from ..utils import (anonymize_public_address, encrypt_address,
                      generate_and_send_verification, generate_token_pair,
                      hash_token, send_email)
+
+
+def _collect_token_candidates(raw: str) -> list[str]:
+    """Create sensible decoding/normalization variants for tokens supplied via URL/query/form.
+
+    This mirrors the more robust normalization used for email verification tokens
+    to tolerate clients that alter URL-encoded characters (e.g. plus/space) or
+    perform single/double URL-decoding.
+    """
+    if raw is None:
+        return []
+    variants: list[str] = []
+    seen: set[str] = set()
+
+    def add_variant(value: str | None) -> None:
+        if not value:
+            return
+        normalized = value.strip()
+        if not normalized:
+            return
+        if normalized not in seen:
+            seen.add(normalized)
+            variants.append(normalized)
+
+    add_variant(raw)
+    # account for clients translating plus to space
+    add_variant(raw.replace(' ', '+'))
+
+    current = raw
+    for _ in range(2):  # single + double decoding as fallback
+        decoded = unquote(current)
+        if decoded == current:
+            break
+        add_variant(decoded)
+        current = decoded
+
+    return variants
 
 ######### Constants #########
 
@@ -80,6 +119,9 @@ def validate_phone_number(phone: str) -> str:
             status_code=400, detail=f"Invalid phone number: {str(e)}")
 
 ######### Router / Endpoints #########
+
+
+logger = logging.getLogger("auth")
 
 
 router = APIRouter()
@@ -423,6 +465,7 @@ async def login(
     # Cookie names and attributes
     if use_host_prefix:
         # __Host- cookies require Secure and Path=/ and no Domain
+        # Keep refresh token HttpOnly (server-side rotation) and expose CSRF
         resp.set_cookie('__Host-refresh_token', refresh_plain, httponly=True,
                         secure=True, samesite='lax', max_age=max_refresh, path='/')
         resp.set_cookie('__Host-access_token', token, httponly=True,
@@ -430,13 +473,12 @@ async def login(
         resp.set_cookie('__Host-csrf_token', csrf_token, httponly=False,
                         secure=True, samesite='lax', max_age=max_refresh, path='/')
     else:
-        # Dev fallback over http
         resp.set_cookie('refresh_token', refresh_plain, httponly=True,
-                        secure=False, samesite='lax', max_age=max_refresh, path='/')
+                        secure=secure_flag, samesite='lax', max_age=max_refresh, path='/')
         resp.set_cookie('access_token', token, httponly=True,
-                        secure=False, samesite='lax', max_age=60*60*24, path='/')
+                        secure=secure_flag, samesite='lax', max_age=60*60*24, path='/')
         resp.set_cookie('csrf_token', csrf_token, httponly=False,
-                        secure=False, samesite='lax', max_age=max_refresh, path='/')
+                        secure=secure_flag, samesite='lax', max_age=max_refresh, path='/')
 
     return resp
 
@@ -446,10 +488,23 @@ async def logout(response: Response, current_user=Depends(get_current_user)):
     # Clear cookies and remove refresh token(s) associated with user
     with suppress(Exception):
         await db_mod.db.refresh_tokens.delete_many({'user_email': current_user['email']})
-    # delete both dev and __Host- variants
-    for name in ('access_token', 'refresh_token', 'csrf_token', '__Host-access_token', '__Host-refresh_token', '__Host-csrf_token'):
-        with suppress(Exception):
-            response.delete_cookie(name, path='/')
+    
+    # To delete cookies properly, we must match the attributes used when setting them
+    secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
+    use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1', 'true', 'yes'))
+    
+    # Delete cookies with matching attributes
+    if use_host_prefix:
+        # __Host- cookies require secure=True, samesite='lax', path='/', no domain
+        for name in ('__Host-access_token', '__Host-refresh_token', '__Host-csrf_token'):
+            with suppress(Exception):
+                response.delete_cookie(name, path='/', secure=True, samesite='lax')
+    else:
+        # Standard cookies with secure_flag and samesite='lax'
+        for name in ('access_token', 'refresh_token', 'csrf_token'):
+            with suppress(Exception):
+                response.delete_cookie(name, path='/', secure=secure_flag, samesite='lax')
+    
     return {"status": "logged_out"}
 
 
@@ -508,13 +563,32 @@ async def refresh(request: Request, response: Response):
 
     secure_flag = True if os.getenv('ALLOW_INSECURE_COOKIES', 'false').lower() not in ('1', 'true') else False
     use_host_prefix = secure_flag and (os.getenv('USE_HOST_PREFIX_COOKIES', 'true').lower() in ('1','true','yes'))
+
+    try:
+        refresh_max_age = 60 * 60 * 24 * int(os.getenv('REFRESH_TOKEN_DAYS', '30'))
+    except (TypeError, ValueError):
+        refresh_max_age = 60 * 60 * 24 * 30
+    try:
+        access_max_age = int(os.getenv('ACCESS_TOKEN_COOKIE_MAX_AGE', str(60 * 60 * 24)))
+    except (TypeError, ValueError):
+        access_max_age = 60 * 60 * 24
+    try:
+        csrf_bytes = int(os.getenv('CSRF_TOKEN_BYTES', '16'))
+    except (TypeError, ValueError):
+        csrf_bytes = 16
+    csrf_token = generate_token_pair(csrf_bytes)[0]
+
     if use_host_prefix:
-        response.set_cookie('__Host-refresh_token', new_plain, httponly=True, secure=True, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')), path='/')
-        response.set_cookie('__Host-access_token', new_access, httponly=True, secure=True, samesite='lax', max_age=60*60*24, path='/')
+        response.set_cookie('__Host-refresh_token', new_plain, httponly=True, secure=True, samesite='lax', max_age=refresh_max_age, path='/')
+        response.set_cookie('__Host-access_token', new_access, httponly=True, secure=True, samesite='lax', max_age=access_max_age, path='/')
+        response.set_cookie('__Host-csrf_token', csrf_token, httponly=False, secure=True, samesite='lax', max_age=refresh_max_age, path='/')
     else:
-        response.set_cookie('refresh_token', new_plain, httponly=True, secure=False, samesite='lax', max_age=60*60*24*int(os.getenv('REFRESH_TOKEN_DAYS', '30')), path='/')
-        response.set_cookie('access_token', new_access, httponly=True, secure=False, samesite='lax', max_age=60*60*24, path='/')
-    return {"access_token": new_access}
+        response.set_cookie('refresh_token', new_plain, httponly=True, secure=secure_flag, samesite='lax', max_age=refresh_max_age, path='/')
+        response.set_cookie('access_token', new_access, httponly=True, secure=secure_flag, samesite='lax', max_age=access_max_age, path='/')
+        response.set_cookie('csrf_token', csrf_token, httponly=False, secure=secure_flag, samesite='lax', max_age=refresh_max_age, path='/')
+
+    # Return the new access token (and CSRF token for JS clients storing tokens locally).
+    return {"access_token": new_access, "csrf_token": csrf_token}
 
 
 class ProfileUpdate(BaseModel):
@@ -697,13 +771,76 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
 
 
 @router.get('/verify-email')
-async def verify_email(token: str | None = None):
+async def verify_email(request: Request, token: str | None = None):
+    # If the caller looks like a browser expecting HTML, redirect to the
+    # frontend verification landing page which provides a friendlier UX.
+    accept_header = (request.headers.get('accept') or '').lower()
+    wants_html = 'text/html' in accept_header or 'html' in accept_header
+    if wants_html:
+        frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+        redirect_url = f"{frontend_base.rstrip('/')}/verify-email.html"
+        if token:
+            redirect_url += f"?token={token}"
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(redirect_url, status_code=303)
+
     if not token:
         raise HTTPException(status_code=400, detail='Missing token')
-    # match by token_hash, not plaintext token
-    th = hash_token(token)
-    rec = await db_mod.db.email_verifications.find_one({"token_hash": th})
+
+    def _collect_candidates(raw: str) -> list[str]:
+        if raw is None:
+            return []
+        variants: list[str] = []
+        seen: set[str] = set()
+
+        def add_variant(value: str | None) -> None:
+            if not value:
+                return
+            normalized = value.strip()
+            if not normalized:
+                return
+            if normalized not in seen:
+                seen.add(normalized)
+                variants.append(normalized)
+
+        add_variant(raw)
+        # account for clients translating plus to space
+        add_variant(raw.replace(' ', '+'))
+
+        current = raw
+        for _ in range(2):  # single + double decoding as fallback
+            decoded = unquote(current)
+            if decoded == current:
+                break
+            add_variant(decoded)
+            current = decoded
+
+        return variants
+
+    candidates = _collect_candidates(token)
+    rec = None
+    for idx, candidate in enumerate(candidates):
+        th = hash_token(candidate)
+        rec = await db_mod.db.email_verifications.find_one({"token_hash": th})
+        if rec:
+            if idx > 0:
+                logger.info(
+                    "verify_email matched token after normalization",
+                    extra={
+                        "token_length": len(candidate),
+                        "candidate_index": idx,
+                    },
+                )
+            break
+
     if not rec:
+        logger.warning(
+            "verify_email token not found",
+            extra={
+                "original_length": len(token),
+                "candidates_checked": len(candidates),
+            },
+        )
         raise HTTPException(status_code=404, detail='Verification token not found')
     # check expiry
     expires_at = rec.get('expires_at')
@@ -741,6 +878,7 @@ async def resend_verification(payload: ResendVerificationIn):
             await db_mod.db.email_verifications.delete_many({"email": payload.email})
         with suppress(Exception):
             _token, email_sent = await generate_and_send_verification(payload.email)
+            
     return {"message": "If the account exists and is not verified, a new verification email has been sent.", "email_sent": email_sent}
 
 
@@ -801,8 +939,8 @@ async def forgot_password(payload: ForgotPasswordIn):
             await db_mod.db.password_resets.insert_one(doc)
         # send email with reset link
         with suppress(Exception):
-            base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
-            reset_link = f"{base}/reset-password?token={token}"
+            base = os.getenv('FRONTEND_BASE_URL', os.getenv('BACKEND_BASE_URL', 'http://localhost:8000'))
+            reset_link = f"{base}/reset-password.html?token={token}"
             subject = 'Reset your DinnerHopping password'
             body = f"Hi,\n\nTo reset your password, click the link below:\n{reset_link}\n\nIf you didn't request this, ignore this message.\n\nThanks,\nDinnerHopping Team"
             email_sent = await send_email(
@@ -846,11 +984,23 @@ async def reset_password(request: Request):
 
     if not token or not new_password:
         raise HTTPException(status_code=400, detail='token and new_password required')
-    th = hash_token(token)
-    rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+
+    # Accept a few normalized token candidates (URL-decoding & plus/space variants)
+    candidates = _collect_token_candidates(token)
+    rec = None
+    for idx, candidate in enumerate(candidates):
+        th = hash_token(candidate)
+        # ensure we only accept tokens that are present and not already marked used/expired
+        rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+        if rec:
+            if idx > 0:
+                logger.info("reset_password matched token after normalization", extra={"candidate_index": idx, "token_length": len(candidate)})
+            break
     if not rec:
         raise HTTPException(status_code=404, detail='Reset token not found')
-    # check expiry
+    # check status and expiry
+    if rec.get('status') in ('expired', 'used'):
+        raise HTTPException(status_code=404, detail='Reset token not found')
     expires_at = rec.get('expires_at')
     now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
     try:
@@ -863,24 +1013,52 @@ async def reset_password(request: Request):
     validate_password(new_password)
     # update user's password
     await db_mod.db.users.update_one({'email': rec['email']}, {'$set': {'password_hash': hash_password(new_password), 'updated_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc)}})
-    # delete/reset token
-    with suppress(Exception):
-        await db_mod.db.password_resets.delete_one({'_id': rec['_id']})
+    # mark token as used (preserve record for audit) and remove any others
+    now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+    try:
+        await db_mod.db.password_resets.update_one({'_id': rec['_id']}, {'$set': {'status': 'used', 'used_at': now, 'expired_at': now}})
+        # remove any other tokens for this email for hygiene
+        await db_mod.db.password_resets.delete_many({'email': rec['email'], '_id': {'$ne': rec['_id']}})
+    except Exception:
+        with suppress(Exception):
+            await db_mod.db.password_resets.delete_one({'_id': rec['_id']})
     return {"status": "password_reset"}
 
 
 @router.get('/reset-password')
-async def reset_password_form(token: str | None = None):
+async def reset_password_form(request: Request, token: str | None = None):
     """Validate a password-reset token and return a JSON hint for clients.
 
-    This endpoint does not return HTML. It only checks the token exists and is not expired,
-    and returns a minimal JSON response instructing the client to POST the new password.
+    If the request comes from a browser (Accept header includes text/html), redirect
+    to the frontend landing page `reset-password.html` so users see the friendly UI.
+    Programmatic clients (Accept: application/json or XMLHttpRequest) still receive
+    the minimal JSON response used by API clients.
     """
+    # If the caller is a browser (wants HTML), redirect to frontend landing page
+    accept_header = (request.headers.get('accept') or '').lower()
+    wants_html = 'text/html' in accept_header or 'html' in accept_header
+    if wants_html:
+        frontend_base = os.getenv('FRONTEND_BASE_URL') or os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
+        redirect_url = f"{frontend_base.rstrip('/')}/reset-password.html"
+        if token:
+            redirect_url += f"?token={token}"
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(redirect_url, status_code=303)
+
     if not token:
         raise HTTPException(status_code=400, detail='Missing token')
-    th = hash_token(token)
-    rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+    candidates = _collect_token_candidates(token)
+    rec = None
+    for idx, candidate in enumerate(candidates):
+        th = hash_token(candidate)
+        rec = await db_mod.db.password_resets.find_one({'token_hash': th})
+        if rec:
+            if idx > 0:
+                logger.info("reset_password_form matched token after normalization", extra={"candidate_index": idx, "token_length": len(candidate)})
+            break
     if not rec:
+        raise HTTPException(status_code=404, detail='Reset token not found')
+    if rec.get('status') in ('expired', 'used'):
         raise HTTPException(status_code=404, detail='Reset token not found')
     # check expiry
     expires_at = rec.get('expires_at')

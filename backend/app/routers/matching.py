@@ -4,10 +4,13 @@ from bson.objectid import ObjectId
 from ..auth import require_admin
 from ..utils import require_event_published
 from typing import Optional, List, Dict, Any, Tuple, Set
-from ..services.matching import run_algorithms, persist_match_proposal, mark_finalized, list_issues, refunds_overview, finalize_and_generate_plans, _build_teams, _score_group_phase, _travel_time_for_phase, _compute_metrics, _team_emails_map
-from ..services.matching import compute_team_paths  # new for travel map
-from ..services.routing import route_polyline  # use OSRM real route geometry
-from ..services.matching import process_refunds  # ajout pour refunds processing
+from ..services.matching import (
+    run_algorithms, persist_match_proposal, mark_finalized, list_issues, 
+    refunds_overview, finalize_and_generate_plans, _build_teams, 
+    _score_group_phase, _travel_time_for_phase, _compute_metrics, 
+    _team_emails_map, compute_team_paths, process_refunds
+)
+from ..services.routing import route_polyline
 import datetime
 
 ######### Router / Endpoints #########
@@ -165,23 +168,6 @@ async def move_team(event_id: str, payload: dict, _=Depends(require_admin)):
     return {'status': 'noop', 'reason': 'team_not_guest_or_already_present'}
 
 
-@router.get('/{event_id}/refunds')
-async def refunds(event_id: str, _=Depends(require_admin)):
-    await require_event_published(event_id)
-    return await refunds_overview(event_id)
-
-
-@router.post('/{event_id}/refunds/process')
-async def process_refunds_endpoint(event_id: str, payload: dict | None = None, _=Depends(require_admin)):
-    await require_event_published(event_id)
-    registration_ids = None
-    if payload and isinstance(payload, dict):
-        val = payload.get('registration_ids')
-        if isinstance(val, list):
-            registration_ids = [str(x) for x in val if isinstance(x, (str, int))]
-    result = await process_refunds(event_id, registration_ids=registration_ids)
-    return result
-
 
 @router.get('/{event_id}/details')
 async def match_details(event_id: str, version: Optional[int] = None, _=Depends(require_admin)):
@@ -284,18 +270,7 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
             try:
                 tid = str(gg.get('host_team_id')) if gg.get('host_team_id') is not None else None
                 t = team_by_id.get(tid or '') if tid else None
-                host_email = None
-                if t:
-                    team_doc = t.get('team_doc') or {}
-                    members = team_doc.get('members') or []
-                    cooking_loc = (t.get('cooking_location') or 'creator')
-                    if members:
-                        if cooking_loc == 'creator':
-                            host_email = (members[0] or {}).get('email')
-                        elif len(members) > 1:
-                            host_email = (members[1] or {}).get('email')
-                    if not host_email and members:
-                        host_email = (members[0] or {}).get('email')
+                host_email = _get_host_email(t) if t else None
                 addr = await _host_addr(host_email) if host_email else None
                 if addr:
                     gg['host_address'] = addr[0]
@@ -339,21 +314,7 @@ async def recompute_metrics(event_id: str, version: int, _=Depends(require_admin
         guests = [tmap.get(tid, {}) for tid in guest_ids]
         base_score, warns = _score_group_phase(host, guests, phase, {})
         travel = await _travel_time_for_phase(host, guests)
-        # compute host public address best-effort
-        host_email = None
-        try:
-            team_doc = host.get('team_doc') or {}
-            members = team_doc.get('members') or []
-            cooking_loc = (host.get('cooking_location') or 'creator')
-            if members:
-                if cooking_loc == 'creator':
-                    host_email = (members[0] or {}).get('email')
-                elif len(members) > 1:
-                    host_email = (members[1] or {}).get('email')
-            if not host_email and members:
-                host_email = (members[0] or {}).get('email')
-        except Exception:
-            host_email = None
+        host_email = _get_host_email(host)
         addr_full = addr_pub = None
         if host_email:
             try:
@@ -401,21 +362,7 @@ async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin))
         guests = [tmap.get(tid, {}) for tid in guest_ids]
         base_score, warns = _score_group_phase(host, guests, phase, {})
         travel = await _travel_time_for_phase(host, guests)
-        # compute host public address best-effort
-        host_email = None
-        try:
-            team_doc = host.get('team_doc') or {}
-            members = team_doc.get('members') or []
-            cooking_loc = (host.get('cooking_location') or 'creator')
-            if members:
-                if cooking_loc == 'creator':
-                    host_email = (members[0] or {}).get('email')
-                elif len(members) > 1:
-                    host_email = (members[1] or {}).get('email')
-            if not host_email and members:
-                host_email = (members[0] or {}).get('email')
-        except Exception:
-            host_email = None
+        host_email = _get_host_email(host)
         addr_full = addr_pub = None
         if host_email:
             try:
@@ -449,6 +396,25 @@ class SplitIn(BaseModel):
 
 def _norm_email(e: str) -> str:
     return (e or '').strip().lower()
+
+
+def _get_host_email(host: dict) -> Optional[str]:
+    """Extract host email from team data based on cooking location."""
+    host_email = None
+    try:
+        team_doc = host.get('team_doc') or {}
+        members = team_doc.get('members') or []
+        cooking_loc = (host.get('cooking_location') or 'creator')
+        if members:
+            if cooking_loc == 'creator':
+                host_email = (members[0] or {}).get('email')
+            elif len(members) > 1:
+                host_email = (members[1] or {}).get('email')
+        if not host_email and members:
+            host_email = (members[0] or {}).get('email')
+    except Exception:
+        host_email = None
+    return host_email
 
 
 @router.post('/{event_id}/constraints/pair')
@@ -699,21 +665,7 @@ async def set_groups(event_id: str, payload: dict, _=Depends(require_admin)):
         guests = [tmap.get(tid, {}) for tid in guest_ids]
         base_score, warns = _score_group_phase(host, guests, phase, {})
         travel = await _travel_time_for_phase(host, guests)
-        # host address
-        host_email = None
-        try:
-            team_doc = host.get('team_doc') or {}
-            members = team_doc.get('members') or []
-            cooking_loc = (host.get('cooking_location') or 'creator')
-            if members:
-                if cooking_loc == 'creator':
-                    host_email = (members[0] or {}).get('email')
-                elif len(members) > 1:
-                    host_email = (members[1] or {}).get('email')
-            if not host_email and members:
-                host_email = (members[0] or {}).get('email')
-        except Exception:
-            host_email = None
+        host_email = _get_host_email(host)
         addr_full = addr_pub = None
         if host_email:
             try:

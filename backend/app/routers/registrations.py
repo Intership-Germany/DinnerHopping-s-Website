@@ -324,6 +324,26 @@ async def register_solo(payload: SoloRegistrationIn, current_user=Depends(get_cu
     if existing and (existing.get('team_id') or existing.get('team_size', 1) != 1):
         raise HTTPException(status_code=400, detail='Already registered with a team for this event')
 
+    # If existing registration is cancelled, create a new one instead of updating
+    if existing and existing.get('status') in cancelled_states:
+        # Mark any pending payments for the old registration as failed (but leave succeeded/paid payments alone for refund tracking)
+        try:
+            await db_mod.db.payments.update_many(
+                {'registration_id': existing.get('_id'), 'status': {'$nin': ['succeeded', 'paid', 'refunded']}}, 
+                {'$set': {'status': 'failed', 'updated_at': now}}
+            )
+        except Exception:
+            pass
+        # Clear refund_flag from old cancelled registration to prevent duplicate refund listing
+        try:
+            await db_mod.db.registrations.update_one(
+                {'_id': existing.get('_id')}, 
+                {'$unset': {'refund_flag': ''}}
+            )
+        except Exception:
+            pass
+        existing = None
+
     needs_reserve = existing is None or (existing.get('status') in cancelled_states if existing else False)
     if needs_reserve:
         await _reserve_capacity(ev, 1)
@@ -618,6 +638,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
                 'kitchen_available': creator_kitchen,
                 'main_course_possible': creator_main,
                 'diet': creator_diet,
+                'allergies': creator.get('allergies', []),
             }
         ],
         'cooking_location': payload.cooking_location,  # 'creator' | 'partner'
@@ -635,6 +656,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             'kitchen_available': bool(partner_user.get('kitchen_available')),
             'main_course_possible': bool(partner_user.get('main_course_possible')),
             'diet': _enum_value(DietaryPreference, partner_user.get('default_dietary_preference')) or 'omnivore',
+            'allergies': partner_user.get('allergies', []),
         })
     else:
         team_doc['members'].append({
@@ -646,6 +668,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             'field_of_study': partner_external_info.get('field_of_study'),
             'kitchen_available': bool(partner_external_info.get('kitchen_available')),
             'main_course_possible': bool(partner_external_info.get('main_course_possible')),
+            'allergies': partner_external_info.get('allergies', []),
         })
 
     # Validate at least one kitchen available
@@ -663,9 +686,29 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
 
     await _reserve_capacity(ev, 2)
 
+    # Attempt to run team + registrations in a DB transaction when available
     try:
+        client = getattr(db_mod, 'mongo_db', None)
+        session = None
+        use_tx = False
+        if client and getattr(client, 'client', None):
+            try:
+                # start a session; if server doesn't support transactions this may raise
+                session = client.client.start_session()
+                session.start_transaction()
+                use_tx = True
+            except Exception:
+                session = None
+                use_tx = False
+
+        # Helper to run collection operations with or without session
+        async def coll_insert_one(coll, doc):
+            if session:
+                return await getattr(db_mod.db, coll).insert_one(doc, session=session)
+            return await getattr(db_mod.db, coll).insert_one(doc)
+
         # Insert team
-        team_res = await db_mod.db.teams.insert_one(team_doc)
+        team_res = await coll_insert_one('teams', team_doc)
         team_id = team_res.inserted_id
 
         # Create registrations for creator and partner (auto-register partner if existing user)
@@ -684,9 +727,9 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
         }
         # creator registration (owner)
         reg_creator = reg_common | {'user_id': creator.get('_id'), 'user_email_snapshot': creator.get('email')}
-        reg_creator_res = await db_mod.db.registrations.insert_one(reg_creator)
+        reg_creator_res = await coll_insert_one('registrations', reg_creator)
         reg_creator_id = reg_creator_res.inserted_id
-        
+
         # Audit log for creator registration
         from app.utils import create_audit_log
         await create_audit_log(
@@ -700,7 +743,7 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
 
         if partner_user:
             reg_partner = reg_common | {'user_id': partner_user.get('_id'), 'user_email_snapshot': partner_user.get('email'), 'status': 'invited'}
-            reg_partner_res = await db_mod.db.registrations.insert_one(reg_partner)
+            reg_partner_res = await coll_insert_one('registrations', reg_partner)
             reg_partner_id = reg_partner_res.inserted_id
             # Notify partner via email with decline link
             base = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
@@ -720,9 +763,32 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
         else:
             # External partner: no user account, no auto-registration. Store snapshot only.
             reg_partner_id = None
+
+        # commit transaction if used
+        if session and use_tx:
+            try:
+                await session.commit_transaction()
+            except Exception:
+                try:
+                    await session.abort_transaction()
+                except Exception:
+                    pass
+                raise
     except Exception:
+        # rollback and cleanup
+        try:
+            if session and use_tx:
+                await session.abort_transaction()
+        except Exception:
+            pass
         await _release_capacity(ev.get('_id'), 2)
         raise
+    finally:
+        try:
+            if session:
+                session.end_session()
+        except Exception:
+            pass
 
     # best-effort: create chat group for teams if event has chat enabled
     try:
@@ -888,6 +954,9 @@ async def _mark_refund_if_applicable(reg: dict, ev: dict):
         return
     pay = await db_mod.db.payments.find_one({'_id': pay_oid})
     if not pay or pay.get('status') not in ('succeeded', 'paid'):
+        return
+    # Prevent double refund: only mark if not already requested/processed
+    if pay.get('refund_requested') or pay.get('status') == 'refunded':
         return
     await db_mod.db.payments.update_one({'_id': pay_oid}, {'$set': {'refund_requested': True, 'refund_requested_at': datetime.datetime.now(datetime.timezone.utc)}})
 
@@ -1069,6 +1138,7 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
             'kitchen_available': bool(partner_user.get('kitchen_available')),
             'main_course_possible': bool(partner_user.get('main_course_possible')),
             'diet': _enum_value(DietaryPreference, partner_user.get('default_dietary_preference')) or 'omnivore',
+            'allergies': partner_user.get('allergies', []),
         }
     else:
         partner_external_info = payload.partner_external.model_dump()
@@ -1081,6 +1151,7 @@ async def replace_team_partner(team_id: str, payload: ReplacePartnerIn, current_
             'field_of_study': partner_external_info.get('field_of_study'),
             'kitchen_available': bool(partner_external_info.get('kitchen_available')),
             'main_course_possible': bool(partner_external_info.get('main_course_possible')),
+            'allergies': partner_external_info.get('allergies', []),
         }
     # Update team members replacing cancelled one
     members = team.get('members') or []

@@ -7,12 +7,15 @@
     "lint:fix": "eslint \"public/js/**/*.js\" --fix",
     "format": "prettier \"public/**/*.html\" \"public/js/**/*.js\" --write",
     "check": "npm run lint && prettier \"public/js/**/*.js\" --check",
-    "docs:scan": "node scripts/generate-js-manifest.js"
+    "docs:scan": "node scripts/generate-js-manifest.js",
+  "start": "npx http-server public -p 3000 -c-1"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-import": "^2.29.1",
-    "prettier": "^3.2.5"
+    "prettier": "^3.2.5",
+    "serve": "^14.2.5",
+    "http-server": "^14.1.1"
   }
 }
