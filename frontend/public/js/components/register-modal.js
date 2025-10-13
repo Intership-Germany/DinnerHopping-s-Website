@@ -107,6 +107,20 @@
     const teamRoot = modalFrag.querySelector('.form-team');
     const partnerExisting = teamRoot.querySelector('.partner-existing');
     const partnerExternal = teamRoot.querySelector('.partner-external');
+    // Partner search elements (from home.html modification)
+    const partnerEmailInput = partnerExisting.querySelector('.partner-email-input');
+    const partnerSearchBtn = partnerExisting.querySelector('.partner-search-btn');
+    const partnerStatusEl = partnerExisting.querySelector('.partner-search-status');
+
+    // Helper: show status message
+    const setPartnerStatus = (msg, kind) => {
+      if (!partnerStatusEl) return;
+      partnerStatusEl.textContent = msg || '';
+      partnerStatusEl.classList.remove('text-red-600', 'text-green-600', 'text-gray-600');
+      if (kind === 'error') partnerStatusEl.classList.add('text-red-600');
+      else if (kind === 'ok') partnerStatusEl.classList.add('text-green-600');
+      else partnerStatusEl.classList.add('text-gray-600');
+    };
     teamRoot.addEventListener('change', (e) => {
       if (e.target.name === 'partner_mode') {
         const isExternal = e.target.value === 'external';
@@ -114,6 +128,55 @@
         partnerExisting.classList.toggle('hidden', isExternal);
       }
     });
+
+    // Partner search click handler: call backend search-user endpoint
+    if (partnerSearchBtn && partnerEmailInput) {
+      partnerSearchBtn.addEventListener('click', async (ev) => {
+        ev.preventDefault();
+        const email = (partnerEmailInput.value || '').trim();
+        if (!email) {
+          setPartnerStatus('Please enter an email to search.', 'error');
+          return;
+        }
+        setPartnerStatus('Searching…', 'info');
+        try {
+          const apiGet = window.dh?.apiGet || (window.apiFetch ? async (p) => { const r = await window.apiFetch(p); return { res: r, data: await (r.ok ? r.json() : null) }; } : null);
+          if (!apiGet) {
+            // fallback to direct fetch
+            const q = new URL((window.BACKEND_BASE_URL || '') + '/registrations/search-user', window.location.origin);
+            q.searchParams.set('email', email);
+            const r = await fetch(q.toString(), { credentials: 'include' });
+            if (!r.ok) {
+              if (r.status === 404) throw new Error('User not found');
+              const t = await r.text(); throw new Error(t || `HTTP ${r.status}`);
+            }
+            const data = await r.json();
+            // store minimal profile snapshot on the input element for later use
+            partnerEmailInput.dataset.found = '1';
+            partnerEmailInput.dataset.fullName = data.full_name || '';
+            partnerEmailInput.dataset.kitchenAvailable = data.kitchen_available ? '1' : '0';
+            partnerEmailInput.dataset.mainCoursePossible = data.main_course_possible ? '1' : '0';
+            setPartnerStatus(`Found: ${data.full_name || data.email}`, 'ok');
+            return;
+          }
+          // use apiGet wrapper which returns { res, data }
+          const { res, data } = await apiGet(`/registrations/search-user?email=${encodeURIComponent(email)}`);
+          if (!res.ok) {
+            if (res.status === 404) throw new Error('User not found');
+            const detail = data?.detail || data?.message || `HTTP ${res.status}`;
+            throw new Error(detail);
+          }
+          partnerEmailInput.dataset.found = '1';
+          partnerEmailInput.dataset.fullName = data.full_name || '';
+          partnerEmailInput.dataset.kitchenAvailable = data.kitchen_available ? '1' : '0';
+          partnerEmailInput.dataset.mainCoursePossible = data.main_course_possible ? '1' : '0';
+          setPartnerStatus(`Found: ${data.full_name || data.email}`, 'ok');
+        } catch (err) {
+          setPartnerStatus(err.message || 'Search failed', 'error');
+          try { delete partnerEmailInput.dataset.found; } catch (e) {}
+        }
+      });
+    }
     const teamDietSummary = modalFrag.querySelector('#team-diet-summary');
     teamRoot.addEventListener('input', () => {
       const partnerDiet = teamRoot.querySelector('[name="partner_dietary"]').value || '';
@@ -139,10 +202,52 @@
             body: JSON.stringify(payload.body),
           });
         } else {
-          res = await api(`/events/${encodeURIComponent(payload.event_id)}/register`, {
+          // Map client payload to backend expected TeamRegistrationIn shape
+          // payload.body currently contains: { team_size:2, invited_emails, preferences }
+          const pref = payload.body.preferences || {};
+          const cookAt = form.elements.cook_location?.value || pref.cook_at || 'self';
+          // Normalize course names: 'starter' -> 'appetizer'
+          let teamCourse = pref.course_preference || form.elements.team_course?.value || '';
+          if (teamCourse === 'starter') teamCourse = 'appetizer';
+
+          // Build backend body
+          const backendBody = {
+            event_id: payload.event_id,
+            cooking_location: cookAt,
+            course_preference: teamCourse || undefined,
+          };
+
+          // Prefer explicit partner_external when provided, otherwise fall back to partner_existing
+          if (payload.body && payload.body.preferences && payload.body.preferences.partner_external) {
+            const ext = payload.body.preferences.partner_external;
+            backendBody.partner_external = {
+              name: ext.name,
+              email: ext.email,
+              gender: ext.gender || undefined,
+              dietary_preference: ext.dietary || ext.dietary_preference || undefined,
+              field_of_study: ext.field_of_study || ext.field || undefined,
+            };
+            // forward optional partner kitchen/main flags if provided
+            if (typeof ext.kitchen_available !== 'undefined') backendBody.partner_external.kitchen_available = !!ext.kitchen_available;
+            if (typeof ext.main_course_possible !== 'undefined') backendBody.partner_external.main_course_possible = !!ext.main_course_possible;
+          } else if (Array.isArray(payload.body.invited_emails) && payload.body.invited_emails.length) {
+            backendBody.partner_existing = { email: payload.body.invited_emails[0] };
+          }
+
+          // forward creator kitchen/main choices when present (top-level fields expected by backend)
+          const creatorKitchenVal = form.elements.creator_kitchen?.value;
+          const creatorMainVal = form.elements.creator_main_course?.value;
+          if (typeof creatorKitchenVal !== 'undefined' && creatorKitchenVal !== null && creatorKitchenVal !== '') {
+            backendBody.kitchen_available = creatorKitchenVal === 'yes';
+          }
+          if (typeof creatorMainVal !== 'undefined' && creatorMainVal !== null && creatorMainVal !== '') {
+            backendBody.main_course_possible = creatorMainVal === 'yes';
+          }
+
+          res = await api('/registrations/team', {
             method: 'POST',
             headers,
-            body: JSON.stringify(payload.body),
+            body: JSON.stringify(backendBody),
           });
         }
         if (!res.ok) {

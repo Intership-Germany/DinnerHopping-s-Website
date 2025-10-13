@@ -13,7 +13,7 @@ def _configure_stripe(monkeypatch):
     """Ensure Stripe provider is stubbed for tests."""
     os.environ['STRIPE_API_KEY'] = os.environ.get('STRIPE_API_KEY', 'sk_test_stubbed')
 
-    def fake_checkout_session(amount_cents: int, payment_id, idempotency_key: str | None = None):
+    def fake_checkout_session(amount_cents: int, payment_id, idempotency_key: str | None = None, **kwargs):
         session_id = f"cs_test_{payment_id}"
         return {
             "id": session_id,

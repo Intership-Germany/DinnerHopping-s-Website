@@ -29,6 +29,55 @@
     if (!res.ok) throw new Error('Failed to load events');
     return await res.json();
   }
+
+  async function fetchUserRegistrations() {
+    const api =
+      window.dh && window.dh.apiFetch
+        ? window.dh.apiFetch
+        : (p, opts) => fetch(BASE + p, { ...(opts || {}), credentials: 'include' });
+    try {
+      const res = await api('/registrations/registration-status', { method: 'GET' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data?.registrations || [];
+    } catch {
+      return null;
+    }
+  }
+
+  async function fetchUserInvitations() {
+    const api =
+      window.dh && window.dh.apiFetch
+        ? window.dh.apiFetch
+        : (p, opts) => fetch(BASE + p, { ...(opts || {}), credentials: 'include' });
+    try {
+      // Try with and without trailing slash to be tolerant
+      const paths = ['/invitations', '/invitations/'];
+      for (const p of paths) {
+        try {
+          const res = await api(p, { method: 'GET' });
+          if (!res.ok) continue;
+          const data = await res.json().catch(() => ({}));
+          // The backend may return an array or { invitations: [...] }
+          const arr = Array.isArray(data) ? data : Array.isArray(data?.invitations) ? data.invitations : null;
+          if (Array.isArray(arr)) {
+            if (arr.length) console.info('registration: found invitations', arr.length);
+            return arr;
+          }
+        } catch (e) { /* try next path */ }
+      }
+      return [];
+    } catch (e) {
+      console.warn('registration: failed to fetch invitations', e);
+      return [];
+    }
+  }
+
+  function hasActiveRegistration(registrations) {
+    if (!Array.isArray(registrations)) return false;
+    const cancelledStatuses = ['cancelled_by_user', 'cancelled_admin'];
+    return registrations.some(reg => reg.status && !cancelledStatuses.includes(reg.status));
+  }
   async function startSolo(eventId) {
     try {
       const api =
@@ -114,6 +163,18 @@
         window.dh && window.dh.apiFetch
           ? window.dh.apiFetch
           : (p, opts) => fetch(BASE + p, { ...(opts || {}), credentials: 'include' });
+      
+      // Load user profile to get kitchen/course info
+      let userProfile = null;
+      try {
+        const profileRes = await api('/users/profile', { method: 'GET' });
+        if (profileRes.ok) {
+          userProfile = await profileRes.json();
+        }
+      } catch (e) {
+        console.warn('Failed to load user profile:', e);
+      }
+
       // Collect minimal required info for backend: exactly one of partner_existing or partner_external
       let mode = (prompt('Team registration: type "existing" to invite a registered user by email, or "external" for a partner without account.\nLeave empty to cancel.') || '').trim().toLowerCase();
       if (!mode) return;
@@ -121,13 +182,91 @@
         alert('Invalid choice. Please type existing or external.');
         return;
       }
-      let payload = { event_id: eventId, cooking_location: 'creator' };
+      
+      let payload = { 
+        event_id: eventId, 
+        cooking_location: 'creator',
+        dietary_preference: userProfile?.default_dietary_preference || null,
+        kitchen_available: userProfile?.kitchen_available || false,
+        main_course_possible: userProfile?.main_course_possible || false,
+        course_preference: null
+      };
+      
       if (mode === 'existing') {
         const email = (prompt('Enter partner email (existing user):') || '').trim();
         if (!email) {
           alert('Email required.');
           return;
         }
+        
+        // Try to fetch partner info
+        try {
+          const partnerRes = await api(`/registrations/search-user?email=${encodeURIComponent(email)}`, { method: 'GET' });
+          if (partnerRes.ok) {
+            const partner = await partnerRes.json();
+            
+            // Ask who will host
+            const hostChoice = prompt(
+              `Partner found: ${partner.full_name || email}\n\n` +
+              `Who will host the cooking?\n` +
+              `Type "me" for your kitchen or "partner" for their kitchen:\n\n` +
+              `Your kitchen: ${payload.kitchen_available ? 'Available' : 'Not available'}\n` +
+              `Partner kitchen: ${partner.kitchen_available ? 'Available' : 'Not available'}`
+            );
+            
+            if (!hostChoice) return;
+            
+            const normalizedHost = hostChoice.trim().toLowerCase();
+            if (normalizedHost === 'me') {
+              payload.cooking_location = 'creator';
+              if (!payload.kitchen_available) {
+                alert('You indicated your kitchen is not available. Please update your profile or choose partner as host.');
+                return;
+              }
+            } else if (normalizedHost === 'partner') {
+              payload.cooking_location = 'partner';
+              if (!partner.kitchen_available) {
+                alert('Partner kitchen is not available. Please choose a different location.');
+                return;
+              }
+            } else {
+              alert('Invalid choice. Please type "me" or "partner".');
+              return;
+            }
+            
+            // Ask for course preference
+            const courseChoice = prompt(
+              'Which course would your team prefer to cook?\n' +
+              'Type: appetizer, main, or dessert\n' +
+              (payload.cooking_location === 'creator' && !payload.main_course_possible ? 
+                '\nNote: Main course not possible at your location.' : 
+                payload.cooking_location === 'partner' && !partner.main_course_possible ?
+                '\nNote: Main course not possible at partner location.' : '')
+            );
+            
+            if (courseChoice) {
+              const normalizedCourse = courseChoice.trim().toLowerCase();
+              if (['appetizer', 'main', 'dessert'].includes(normalizedCourse)) {
+                payload.course_preference = normalizedCourse;
+                
+                // Validate main course choice
+                if (normalizedCourse === 'main') {
+                  if (payload.cooking_location === 'creator' && !payload.main_course_possible) {
+                    alert('Main course not possible at your location.');
+                    return;
+                  }
+                  if (payload.cooking_location === 'partner' && !partner.main_course_possible) {
+                    alert('Main course not possible at partner location.');
+                    return;
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Could not fetch partner details:', e);
+        }
+        
         payload.partner_existing = { email };
       } else {
         const name = (prompt('Enter partner name:') || '').trim();
@@ -136,8 +275,87 @@
           alert('Name and email required for external partner.');
           return;
         }
-        payload.partner_external = { name, email };
+        
+        const gender = prompt('Partner gender (optional - female/male/diverse/prefer_not_to_say):') || null;
+        const diet = prompt('Partner dietary preference (optional - vegan/vegetarian/omnivore):') || null;
+        const fieldOfStudy = prompt('Partner field of study (optional):') || null;
+        const hasKitchen = confirm('Does partner have a kitchen available?');
+        const canCookMain = hasKitchen ? confirm('Can partner location host main course?') : false;
+        
+        payload.partner_external = { 
+          name, 
+          email,
+          gender: gender || null,
+          dietary_preference: diet || null,
+          field_of_study: fieldOfStudy || null,
+          kitchen_available: hasKitchen,
+          main_course_possible: canCookMain
+        };
+        
+        // Ask who will host
+        let hostChoice = null;
+        if (payload.kitchen_available || hasKitchen) {
+          hostChoice = prompt(
+            'Who will host the cooking?\n' +
+            'Type "me" for your kitchen or "partner" for their kitchen:\n\n' +
+            `Your kitchen: ${payload.kitchen_available ? 'Available' : 'Not available'}\n` +
+            `Partner kitchen: ${hasKitchen ? 'Available' : 'Not available'}`
+          );
+        } else {
+          alert('Neither you nor your partner has a kitchen available. At least one kitchen is required.');
+          return;
+        }
+        
+        if (!hostChoice) return;
+        
+        const normalizedHost = hostChoice.trim().toLowerCase();
+        if (normalizedHost === 'me') {
+          payload.cooking_location = 'creator';
+          if (!payload.kitchen_available) {
+            alert('Your kitchen is not available.');
+            return;
+          }
+        } else if (normalizedHost === 'partner') {
+          payload.cooking_location = 'partner';
+          if (!hasKitchen) {
+            alert('Partner kitchen is not available.');
+            return;
+          }
+        } else {
+          alert('Invalid choice. Please type "me" or "partner".');
+          return;
+        }
+        
+        // Ask for course preference
+        const courseChoice = prompt(
+          'Which course would your team prefer to cook?\n' +
+          'Type: appetizer, main, or dessert\n' +
+          (payload.cooking_location === 'creator' && !payload.main_course_possible ? 
+            '\nNote: Main course not possible at your location.' : 
+            payload.cooking_location === 'partner' && !canCookMain ?
+            '\nNote: Main course not possible at partner location.' : '')
+        );
+        
+        if (courseChoice) {
+          const normalizedCourse = courseChoice.trim().toLowerCase();
+          if (['appetizer', 'main', 'dessert'].includes(normalizedCourse)) {
+            payload.course_preference = normalizedCourse;
+            
+            // Validate main course choice
+            if (normalizedCourse === 'main') {
+              if (payload.cooking_location === 'creator' && !payload.main_course_possible) {
+                alert('Main course not possible at your location.');
+                return;
+              }
+              if (payload.cooking_location === 'partner' && !canCookMain) {
+                alert('Main course not possible at partner location.');
+                return;
+              }
+            }
+          }
+        }
       }
+      
       const res = await api('/registrations/team', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -213,12 +431,101 @@
     const list = document.getElementById('events-list');
     if (!list) return;
     try {
-      const events = await fetchActiveEvents();
+      // Fetch events, user registrations and invitations
+      const [events, userRegistrations, userInvitations] = await Promise.all([
+        fetchActiveEvents(),
+        fetchUserRegistrations(),
+        fetchUserInvitations()
+      ]);
+
+      const hasActiveReg = hasActiveRegistration(userRegistrations);
+      // Consider any invitation that is not in a terminal state as a blocking pending invitation.
+      const isTerminal = (s) => {
+        if (!s) return false;
+        const t = s.toLowerCase();
+        return ['accepted', 'revoked', 'expired', 'cancelled', 'declined'].includes(t);
+      };
+      const hasPendingInvitation = Array.isArray(userInvitations) && userInvitations.some(inv => !isTerminal(inv.status));
+      const hasActive = hasActiveReg || hasPendingInvitation;
+      // Debug: log counts so we can inspect in browser console when troubleshooting
+      try { console.debug('registration:init', { regs: (userRegistrations || []).length, invitations: (userInvitations || []).length, hasActiveReg, hasPendingInvitation, hasActive }); } catch(e) {}
+      
+      if (hasActive && Array.isArray(userRegistrations)) {
+        // User has active registration - show warning message
+        const activeReg = userRegistrations.find(reg => {
+          const cancelledStatuses = ['cancelled_by_user', 'cancelled_admin'];
+          return reg.status && !cancelledStatuses.includes(reg.status);
+        });
+        
+        const warningDiv = el(
+          'div',
+          { class: 'p-4 mb-4 border-l-4 border-yellow-500 bg-yellow-50 rounded' },
+          el('div', { class: 'flex items-start' },
+            el('div', { class: 'ml-3' },
+              el('h3', { class: 'text-sm font-medium text-yellow-800' }, 'Active Registration Found'),
+              el('div', { class: 'mt-2 text-sm text-yellow-700' },
+                `You already have an active registration for "${activeReg?.event_title || 'an event'}". ` +
+                `You must cancel your current registration before registering for another event. ` +
+                `Please visit your profile or registrations page to cancel.`
+              )
+            )
+          )
+        );
+        list.appendChild(warningDiv);
+      }
+      // If user is blocked because of a pending invitation (no active regs), show a different message
+      if (!hasActiveReg && hasPendingInvitation) {
+        const warningInv = el(
+          'div',
+          { class: 'p-4 mb-4 border-l-4 border-blue-500 bg-blue-50 rounded' },
+          el('div', { class: 'flex items-start' },
+            el('div', { class: 'ml-3' },
+              el('h3', { class: 'text-sm font-medium text-blue-800' }, 'Pending Invitation'),
+              el('div', { class: 'mt-2 text-sm text-blue-700' },
+                'You have a pending invitation for an event. You cannot register for another event until you accept or decline that invitation. Please visit My registrations to manage your invitations.'
+              )
+            )
+          )
+        );
+        list.appendChild(warningInv);
+      }
+
       if (!events.length) {
         list.appendChild(el('p', { class: 'text-gray-600' }, 'No active events right now.'));
         return;
       }
+      
       events.forEach((ev) => {
+        const soloBtn = el(
+          'button',
+          {
+            class: hasActive 
+              ? 'px-3 py-1 bg-gray-400 text-white rounded cursor-not-allowed' 
+              : 'px-3 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700',
+            onclick: hasActive ? () => {
+              alert('You already have an active registration. Please cancel it first before registering for another event.');
+            } : () => startSolo(ev.id),
+            disabled: hasActive,
+            title: hasActive ? 'You must cancel your active registration first' : 'Register as solo participant'
+          },
+          'Register Solo'
+        );
+
+        const teamBtn = el(
+          'button',
+          {
+            class: hasActive 
+              ? 'px-3 py-1 bg-gray-400 text-white rounded cursor-not-allowed' 
+              : 'px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700',
+            onclick: hasActive ? () => {
+              alert('You already have an active registration. Please cancel it first before registering for another event.');
+            } : () => startTeam(ev.id),
+            disabled: hasActive,
+            title: hasActive ? 'You must cancel your active registration first' : 'Register as a team'
+          },
+          'Register Team'
+        );
+
         const row = el(
           'div',
           { class: 'p-3 border rounded mb-2 flex items-center justify-between' },
@@ -228,26 +535,7 @@
             el('div', { class: 'font-semibold' }, ev.title || 'Event'),
             el('div', { class: 'text-xs text-gray-500' }, ev.date || ev.start_at || '')
           ),
-          el(
-            'div',
-            { class: 'space-x-2' },
-            el(
-              'button',
-              {
-                class: 'px-3 py-1 bg-emerald-600 text-white rounded',
-                onclick: () => startSolo(ev.id),
-              },
-              'Register Solo'
-            ),
-            el(
-              'button',
-              {
-                class: 'px-3 py-1 bg-indigo-600 text-white rounded',
-                onclick: () => startTeam(ev.id),
-              },
-              'Register Team'
-            )
-          )
+          el('div', { class: 'space-x-2' }, soloBtn, teamBtn)
         );
         list.appendChild(row);
       });

@@ -80,9 +80,10 @@ async def get_access_token() -> str:
 async def create_order(amount_cents: int, currency: str, payment_id, idempotency_key: str | None = None) -> Dict[str, Any]:
     httpx = _import_httpx()
     token = await get_access_token()
-    base_url = os.getenv('BACKEND_BASE_URL', 'http://localhost:8000')
-    return_url = f"{base_url}/payments/paypal/return?payment_id={str(payment_id)}"
-    cancel_url = f"{base_url}/payments/{str(payment_id)}/cancel"
+    # Frontend fallback: direct user to the payment landing page which will forward token
+    base = os.getenv('FRONTEND_BASE_URL') or 'http://localhost:8000'
+    return_url = f"{base.rstrip('/')}/payement?payment_id={str(payment_id)}"
+    cancel_url = f"{base.rstrip('/')}/payement?payment_id={str(payment_id)}&status=cancelled"
     logger.info('paypal.create_order.start payment_id=%s amount_cents=%s currency=%s', payment_id, amount_cents, currency)
     payload = {
         'intent': 'CAPTURE',
@@ -167,7 +168,7 @@ async def get_or_create_order_for_registration(
         "registration_id": registration_oid,
         "amount": amount_cents / 100.0,
         "currency": (currency or 'EUR').upper(),
-        "status": "pending",
+        "status": "in_process",
         "provider": "paypal",
         "idempotency_key": idempotency_key,
         "meta": {},
@@ -222,7 +223,7 @@ async def get_or_create_order_for_registration(
     order_id = order.get('id')
     await db_mod.db.payments.update_one(
         {"_id": payment_id},
-        {"$set": {"provider_payment_id": order_id, "payment_link": approval, "status": "pending", "meta": {"create_order": order}}},
+        {"$set": {"provider_payment_id": order_id, "payment_link": approval, "status": "in_process", "meta": {"create_order": order}}},
     )
     try:
         await db_mod.db.registrations.update_one({"_id": registration_oid}, {"$set": {"payment_id": payment_id}})
@@ -264,7 +265,7 @@ async def ensure_paypal_payment(
         "registration_id": registration_oid,
         "amount": amount_cents / 100.0,
         "currency": (currency or 'EUR').upper(),
-        "status": "pending",
+        "status": "in_process",
         "provider": "paypal",
         "idempotency_key": idempotency_key,
         "meta": {},
@@ -315,7 +316,7 @@ async def ensure_paypal_payment(
     order_id = order.get('id')
     await db_mod.db.payments.update_one(
         {"_id": payment_id},
-        {"$set": {"provider_payment_id": order_id, "payment_link": approval, "status": "pending", "meta": {"create_order": order}}},
+        {"$set": {"provider_payment_id": order_id, "payment_link": approval, "status": "in_process", "meta": {"create_order": order}}},
     )
     try:
         await db_mod.db.registrations.update_one({"_id": registration_oid}, {"$set": {"payment_id": payment_id}})

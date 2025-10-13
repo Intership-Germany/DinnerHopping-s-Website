@@ -17,7 +17,8 @@ import datetime
 def _stub_stripe_checkout(monkeypatch):
     os.environ['STRIPE_API_KEY'] = os.environ.get('STRIPE_API_KEY', 'sk_test_stubbed')
 
-    def fake_session(amount_cents: int, payment_id, idempotency_key: str | None = None):
+    def fake_session(amount_cents: int, payment_id, idempotency_key: str | None = None, **kwargs):
+        # Accept extra kwargs (payer_name, registration_type) introduced in provider
         session_id = f"cs_test_{payment_id}"
         return {
             "id": session_id,

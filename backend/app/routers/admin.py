@@ -582,18 +582,42 @@ async def admin_teams_overview(event_id: str | None = None, _=Depends(require_ad
             registrations.append(reg)
         
         # Categorize team status
+        # Note: Partner registration is always 'confirmed' (no payment), creator has payment
         active_count = sum(1 for r in registrations if r.get('status') not in ('cancelled_by_user', 'cancelled_admin'))
         cancelled_count = sum(1 for r in registrations if r.get('status') in ('cancelled_by_user', 'cancelled_admin'))
-        paid_count = sum(1 for r in registrations if r.get('status') == 'paid')
+        # Team is paid when creator (who has payment_id) has status 'paid'
+        creator_paid = any(r.get('payment_id') and r.get('status') == 'paid' for r in registrations)
         
         category = 'pending'
         if team.get('status') == 'incomplete':
             category = 'incomplete'
-        elif cancelled_count == 2 and paid_count >= 1:
-            category = 'faulty'
-        elif active_count == 2 and paid_count >= 1:
-            category = 'complete'
+        elif cancelled_count == 2:
+            category = 'faulty'  # Both members cancelled
+        elif active_count == 2 and creator_paid:
+            category = 'complete'  # Both active and payment complete
         
+        # Normalize members and any nested ObjectId values to JSON-safe types
+        def _sanitize_value(v):
+            try:
+                # lazy import to avoid circulars in some test environments
+                from bson.objectid import ObjectId as _OID
+            except Exception:
+                _OID = None
+            if _OID and isinstance(v, _OID):
+                return str(v)
+            if isinstance(v, dict):
+                out = {}
+                for kk, vv in v.items():
+                    out[kk] = _sanitize_value(vv)
+                return out
+            if isinstance(v, list):
+                return [_sanitize_value(x) for x in v]
+            return v
+
+        raw_members = team.get('members', []) or []
+        safe_members = _sanitize_value(raw_members)
+        safe_cooking_location = _sanitize_value(team.get('cooking_location'))
+
         teams_list.append({
             'team_id': team_id,
             'event_id': event_id_str,
@@ -601,11 +625,11 @@ async def admin_teams_overview(event_id: str | None = None, _=Depends(require_ad
             'status': team.get('status'),
             'category': category,
             'created_at': team.get('created_at').isoformat() if team.get('created_at') else None,
-            'members': team.get('members', []),
+            'members': safe_members,
             'active_registrations': active_count,
             'cancelled_registrations': cancelled_count,
-            'paid_registrations': paid_count,
-            'cooking_location': team.get('cooking_location'),
+            'creator_paid': creator_paid,
+            'cooking_location': safe_cooking_location,
             'course_preference': team.get('course_preference'),
             'team_diet': team.get('team_diet'),
         })

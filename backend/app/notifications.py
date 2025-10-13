@@ -112,6 +112,31 @@ async def send_payment_confirmation_emails(event_title: str, event_date, recipie
     return ok_any
 
 
+async def send_team_creator_cancelled(partner_email: str, event_title: str, creator_email: str) -> bool:
+    """Notify the partner that the team was cancelled by the creator.
+
+    This is used when the team leader cancels the team; the partner should be
+    informed so they don't expect to attend.
+    """
+    lines = [
+        f"Hello,",
+        "",
+        f"The team for '{event_title}' has been cancelled by the team creator ({creator_email}).",
+        "You are no longer registered for this event as part of that team.",
+        "If you believe this is an error, please contact the event organiser.",
+        "",
+        "— DinnerHopping Team",
+    ]
+    return await _send(
+        partner_email,
+        f"Team cancelled by creator - {event_title}",
+        lines,
+        "team_cancellation",
+        template_key="team_creator_cancelled",
+        variables={'event_title': event_title, 'creator_email': creator_email, 'email': partner_email}
+    )
+
+
 async def send_cancellation_confirmation(email: str, event_title: str, refund_flag: bool) -> bool:
     lines = [
         f"Your registration for '{event_title}' has been cancelled.",
@@ -121,10 +146,108 @@ async def send_cancellation_confirmation(email: str, event_title: str, refund_fl
 
 
 async def send_team_partner_cancelled(creator_email: str, event_title: str) -> bool:
-    return await _send(creator_email, "Team partner cancelled", [
-        f"Your partner cancelled their participation for '{event_title}'.",
-        "You can invite a replacement or cancel the team.",
+    return await _send(creator_email, f"Your team partner cancelled - {event_title}", [
+        f"Your partner has declined the team invitation for '{event_title}'.",
+        "You'll need to find a new partner or register solo.",
     ], "team_cancellation", template_key="team_partner_cancelled", variables={'event_title': event_title, 'email': creator_email})
+
+
+async def send_team_partner_accepted(creator_email: str, partner_email: str, event_title: str, team_id: str) -> bool:
+    """Notify team creator that partner has accepted the invitation."""
+    lines = [
+        f"Great news! Your partner {partner_email} has accepted the team invitation for '{event_title}'.",
+        "",
+        "Your team is now confirmed. Please complete the payment to finalize your registration.",
+        "",
+        f"Team ID: {team_id}",
+    ]
+    return await _send(
+        creator_email, 
+        f"Your partner accepted - {event_title}", 
+        lines, 
+        "team_partner_accepted", 
+        template_key="team_partner_accepted", 
+        variables={
+            'event_title': event_title, 
+            'partner_email': partner_email,
+            'team_id': team_id,
+            'email': creator_email
+        }
+    )
+
+
+async def send_team_invitation(partner_email: str, creator_email: str, event_title: str, event_date: str, decline_url: str, team_id: str) -> bool:
+    """Send invitation email to a partner who was added to a team.
+    
+    The email should include:
+    - Event details
+    - Creator information
+    - Link to decline the invitation
+    - Information that they have been automatically registered
+    """
+    lines = [
+        f"Hi!",
+        "",
+        f"You have been invited to join a DinnerHopping team by {creator_email}.",
+        f"Event: {event_title}",
+        f"Date: {event_date}",
+        "",
+        "You have been automatically registered for this event as part of this team.",
+        "",
+        "If you cannot participate, you can decline your participation using the link below:",
+        f"{decline_url}",
+        "",
+        "If you decline, the team creator will be notified and can find a replacement partner.",
+        "",
+        "Looking forward to seeing you at the event!",
+        "— DinnerHopping Team",
+    ]
+    return await _send(
+        partner_email, 
+        f"You've been invited to join a DinnerHopping team - {event_title}", 
+        lines, 
+        "team_invitation", 
+        template_key="team_invitation", 
+        variables={
+            'event_title': event_title, 
+            'event_date': event_date,
+            'creator_email': creator_email,
+            'partner_email': partner_email,
+            'decline_url': decline_url,
+            'team_id': team_id
+        }
+    )
+
+
+async def send_team_created(creator_email: str, partner_email: str | None, event_title: str, invite_link: str | None, team_id: str) -> bool:
+    """Notify creator (and optionally partner) that a team was created.
+
+    - Creator: always notify with team details and invite link for partner.
+    - Partner: if partner_email provided, send an informational email (non-critical).
+    Returns True if at least one email send succeeded.
+    """
+    ok_any = False
+    # Creator notification
+    try:
+        lines = [
+            f"Your team for '{event_title}' has been created.",
+            "Your partner has been invited and will need to accept the invitation.",
+        ]
+        if invite_link:
+            lines.append(f"Invite link: {invite_link}")
+        lines.append("")
+        lines.append("— DinnerHopping Team")
+        ok_any = await _send(
+            creator_email,
+            f"Team created for {event_title}",
+            lines,
+            "team_created",
+            template_key="team_created",
+            variables={'event_title': event_title, 'team_id': team_id, 'invite_link': invite_link, 'email': creator_email}
+        ) or ok_any
+    except Exception:
+        ok_any = ok_any or False
+    return ok_any
 
 
 # Replacement flow
@@ -243,6 +366,8 @@ __all__ = [
     "send_payment_confirmation_emails",
     "send_cancellation_confirmation",
     "send_team_partner_cancelled",
+    "send_team_partner_accepted",
+    "send_team_invitation",
     "send_partner_replaced_notice",
     "send_verification_reminder",
     "send_refund_processed",

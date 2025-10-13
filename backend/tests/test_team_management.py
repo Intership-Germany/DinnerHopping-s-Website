@@ -64,6 +64,8 @@ async def setup_test_data():
     await db_mod.db.teams.insert_one(complete_team)
     
     # Create registrations for complete team
+    # Note: Only creator has payment, partner is 'confirmed'
+    payment_id = ObjectId()
     complete_reg1 = {
         '_id': ObjectId(),
         'event_id': event['_id'],
@@ -71,6 +73,7 @@ async def setup_test_data():
         'user_id': creator['_id'],
         'user_email_snapshot': 'creator@test.com',
         'status': 'paid',
+        'payment_id': payment_id,  # Creator has payment
         'team_size': 2,
         'created_at': datetime.now(timezone.utc)
     }
@@ -80,7 +83,7 @@ async def setup_test_data():
         'team_id': complete_team['_id'],
         'user_id': partner['_id'],
         'user_email_snapshot': 'partner@test.com',
-        'status': 'paid',
+        'status': 'confirmed',  # Partner is confirmed, no payment
         'team_size': 2,
         'created_at': datetime.now(timezone.utc)
     }
@@ -104,6 +107,7 @@ async def setup_test_data():
     await db_mod.db.teams.insert_one(incomplete_team)
     
     # Create registrations for incomplete team (one active, one cancelled)
+    incomplete_payment_id = ObjectId()
     incomplete_reg1 = {
         '_id': ObjectId(),
         'event_id': event['_id'],
@@ -111,6 +115,7 @@ async def setup_test_data():
         'user_id': creator['_id'],
         'user_email_snapshot': 'creator@test.com',
         'status': 'paid',
+        'payment_id': incomplete_payment_id,  # Creator paid
         'team_size': 2,
         'created_at': datetime.now(timezone.utc)
     }
@@ -139,7 +144,7 @@ async def setup_test_data():
 @pytest.mark.asyncio
 async def test_admin_teams_overview(setup_test_data):
     """Test that admin can get overview of teams with proper categorization."""
-    data = await setup_test_data
+    data = setup_test_data
     
     # Mock admin user
     admin_user = {'email': 'admin@test.com', 'roles': ['admin']}
@@ -165,7 +170,7 @@ async def test_admin_teams_overview(setup_test_data):
     
     assert complete_team is not None
     assert complete_team['active_registrations'] == 2
-    assert complete_team['paid_registrations'] == 2
+    assert complete_team['creator_paid'] == True  # Creator paid
     
     assert incomplete_team is not None
     assert incomplete_team['active_registrations'] == 1
@@ -175,7 +180,7 @@ async def test_admin_teams_overview(setup_test_data):
 @pytest.mark.asyncio
 async def test_admin_teams_overview_all_events(setup_test_data):
     """Test that admin can get overview of all teams across all events."""
-    data = await setup_test_data
+    data = setup_test_data
     
     # Mock admin user
     admin_user = {'email': 'admin@test.com', 'roles': ['admin']}
@@ -191,7 +196,7 @@ async def test_admin_teams_overview_all_events(setup_test_data):
 @pytest.mark.asyncio
 async def test_send_incomplete_reminders(setup_test_data, monkeypatch):
     """Test sending reminders to incomplete teams."""
-    data = await setup_test_data
+    data = setup_test_data
     
     # Mock admin user
     admin_user = {'email': 'admin@test.com', 'roles': ['admin']}
@@ -224,7 +229,7 @@ async def test_send_incomplete_reminders(setup_test_data, monkeypatch):
 @pytest.mark.asyncio
 async def test_release_event_plans(setup_test_data, monkeypatch):
     """Test releasing event plans to paid participants."""
-    data = await setup_test_data
+    data = setup_test_data
     
     # Mock admin user
     admin_user = {'email': 'admin@test.com', 'roles': ['admin']}
@@ -247,8 +252,8 @@ async def test_release_event_plans(setup_test_data, monkeypatch):
     )
     
     assert result['status'] == 'completed'
-    assert result['participants_notified'] >= 2  # Both paid members from complete team + creator from incomplete
-    assert len(emails_sent) >= 2
+    assert result['participants_notified'] >= 1  # At least one creator paid (same creator for both teams = 1 unique email)
+    assert len(emails_sent) >= 1
     
     # Verify emails contain plan information
     for email in emails_sent:
@@ -258,7 +263,7 @@ async def test_release_event_plans(setup_test_data, monkeypatch):
 @pytest.mark.asyncio
 async def test_faulty_team_detection(setup_test_data):
     """Test that faulty teams (both members cancelled after payment) are detected."""
-    data = await setup_test_data
+    data = setup_test_data
     
     # Create a faulty team (both paid then cancelled)
     faulty_team = {

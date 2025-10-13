@@ -44,8 +44,16 @@
       } catch (e) {
         // network/CORS/timeout errors fallthrough to marking as unauthenticated
       }
-      // If we get here, replace protected links with login redirect
-      links.forEach((a) => a.setAttribute('href', 'login.html'));
+      // Redirect to login page with ?next=originalpath
+      const loc = window.location;
+      const currentPath = loc.pathname + loc.search + loc.hash;
+      const loginPath = 'login.html?next=' + encodeURIComponent(currentPath);
+      links.forEach(function (el) {
+        try {
+          el.setAttribute('href', loginPath);
+          el.classList.add('protected-link');
+        } catch (e) {}
+      });
     }
     // Trigger the protection check immediately (non-blocking)
     try { protectLinksIfUnauthed(); } catch (e) {}
