@@ -77,10 +77,18 @@ function setupStaticCancelBox(regInfo, deadlineIso, refundMeta) {
 
   const statusLower = (regInfo.status || '').toLowerCase();
   if (['cancelled_by_user', 'cancelled_admin', 'refunded', 'expired'].includes(statusLower)) {
-    box.classList.add('hidden');
+    // show box but with message that cancellation is not available
+    box.classList.remove('hidden');
+    const errEl2 = document.getElementById('scb-error');
+    if (errEl2) {
+      errEl2.textContent = 'Cancellation not available for this registration (already cancelled/expired/refunded).';
+      errEl2.classList.remove('hidden');
+    }
+    if (document.getElementById('scb-start')) document.getElementById('scb-start').disabled = true;
     return;
   }
   if (regInfo.mode !== 'solo') {
+    // don't hide silently; show message elsewhere
     box.classList.add('hidden');
     return;
   }
@@ -190,6 +198,21 @@ function setupStaticCancelBox(regInfo, deadlineIso, refundMeta) {
     btnYes.onclick = doCancel;
   }
 
+  // If we don't yet have a registration id (data still loading), show the box
+  // but disable controls so users aren't able to perform cancellation until
+  // the registration is fully loaded.
+  if (!regInfo.registration_id) {
+    box.classList.remove('hidden');
+    if (errEl) {
+      errEl.textContent = 'Registration details are still loading. Cancellation is not yet available.';
+      errEl.classList.remove('hidden');
+    }
+    if (btnStart) btnStart.disabled = true;
+    if (btnYes) btnYes.disabled = true;
+    if (btnNo) btnNo.disabled = true;
+    return;
+  }
+
   box.classList.remove('hidden');
 }
 
@@ -225,6 +248,17 @@ function setupTeamCancelBox(regInfo, deadlineIso, refundMeta) {
     return;
   }
 
+  // If we don't have a registration id for this member yet, surface the box disabled
+  if (!regInfo.registration_id) {
+    console.warn('No registration_id present for team cancellation; showing disabled box to inform user', regInfo);
+    box.classList.remove('hidden');
+    showError('Registration details are still loading. Please refresh the page or try again later.');
+    if (btnStart) btnStart.disabled = true;
+    if (btnYes) btnYes.disabled = true;
+    if (btnNo) btnNo.disabled = true;
+    return;
+  }
+
   let deadlineStr = 'the deadline';
   if (deadlineIso) {
     try {
@@ -256,11 +290,29 @@ function setupTeamCancelBox(regInfo, deadlineIso, refundMeta) {
     try {
       const teamId = regInfo.team_id || registrationData?.team_id;
       if (!teamId) {
-        box.classList.add('hidden');
+        console.warn('No team id available for team cancel box', regInfo, registrationData);
+        box.classList.remove('hidden');
+        showError('Team details are not available yet. Please refresh the page.');
+        if (btnStart) btnStart.disabled = true;
+        if (btnYes) btnYes.disabled = true;
+        if (btnNo) btnNo.disabled = true;
         return;
       }
-      const team = await fetchJson(`/registrations/teams/${encodeURIComponent(teamId)}`);
+      let team = null;
+      try {
+        team = await fetchJson(`/registrations/teams/${encodeURIComponent(teamId)}`);
+      } catch (e) {
+        console.warn('Failed to fetch team details', e);
+        // show box but disable controls so user sees cancellation area and error
+        box.classList.remove('hidden');
+        showError('Unable to fetch full team details. Please try again or contact organizer.');
+        if (btnStart) btnStart.disabled = true;
+        if (btnYes) btnYes.disabled = true;
+        if (btnNo) btnNo.disabled = true;
+        return;
+      }
       if (!team || typeof team !== 'object') {
+        console.warn('Team endpoint returned invalid data', team);
         box.classList.add('hidden');
         return;
       }
@@ -269,6 +321,8 @@ function setupTeamCancelBox(regInfo, deadlineIso, refundMeta) {
       const isCreator = creatorEmail && myEmail
         ? creatorEmail.toLowerCase() === myEmail.toLowerCase()
         : false;
+
+      console.debug('Team cancel wiring: teamId=%s, isCreator=%s, creatorEmail=%s, myEmail=%s', teamId, isCreator, creatorEmail, myEmail);
 
       function disableControls() {
         if (btnStart) btnStart.disabled = true;
@@ -457,7 +511,9 @@ function renderRegistration() {
     if (regSection) regSection.style.display = '';
   }
 
-  if (registrationData.registration_id) {
+  // Payment buttons only make sense when we have a registration identifier.
+  const hasRegistrationId = !!registrationData.registration_id;
+  if (hasRegistrationId) {
     const unpaid =
       (eventData?.fee_cents || 0) > 0 &&
       !(
@@ -477,23 +533,31 @@ function renderRegistration() {
       payNowBtn?.classList.add('hidden');
       chooseProviderBtn?.classList.add('hidden');
     }
-    if (registrationData.mode === 'solo') {
-      const deadline = eventData?.registration_deadline || eventData?.payment_deadline || null;
-      const refundMeta = {
-        feeCents: eventData?.fee_cents || 0,
-        refundFlag: !!registrationData.refund_flag,
-        refundableOnCancellation: !!eventData?.refund_on_cancellation,
-      };
-      setupStaticCancelBox(registrationData, deadline, refundMeta);
-    } else if (registrationData.mode === 'team') {
-      const deadline = eventData?.registration_deadline || eventData?.payment_deadline || null;
-      const refundMeta = {
-        feeCents: eventData?.fee_cents || 0,
-        refundFlag: !!registrationData.refund_flag,
-        refundableOnCancellation: !!eventData?.refund_on_cancellation,
-      };
-      setupTeamCancelBox(registrationData, deadline, refundMeta);
-    }
+  } else {
+    // no registration id -> hide payment initiation controls
+    payNowBtn?.classList.add('hidden');
+    chooseProviderBtn?.classList.add('hidden');
+  }
+
+  // Show cancellation UI whenever we know the registration mode (solo/team),
+  // even if a registration_id is not yet present. The setup functions will
+  // handle disabled state and missing details gracefully.
+  if (registrationData.mode === 'solo') {
+    const deadline = eventData?.registration_deadline || eventData?.payment_deadline || null;
+    const refundMeta = {
+      feeCents: eventData?.fee_cents || 0,
+      refundFlag: !!registrationData.refund_flag,
+      refundableOnCancellation: !!eventData?.refund_on_cancellation,
+    };
+    setupStaticCancelBox(registrationData, deadline, refundMeta);
+  } else if (registrationData.mode === 'team') {
+    const deadline = eventData?.registration_deadline || eventData?.payment_deadline || null;
+    const refundMeta = {
+      feeCents: eventData?.fee_cents || 0,
+      refundFlag: !!registrationData.refund_flag,
+      refundableOnCancellation: !!eventData?.refund_on_cancellation,
+    };
+    setupTeamCancelBox(registrationData, deadline, refundMeta);
   }
 }
 
@@ -516,6 +580,8 @@ async function logEventPlan() {
       apiFetch('/profile', { credentials: 'include' }).catch(() => ({ ok: false })),
       apiFetch(`/events/${event_id}`, { credentials: 'include' }).catch(() => ({ ok: false })),
     ]);
+    // Load registration data
+    await loadRegistration();
 
     if (!planResponse.ok) {
       throw new Error(`${ERROR_MESSAGES.fetchPlanFailed}${planResponse.status}`);
@@ -553,7 +619,7 @@ async function logEventPlan() {
           eventData.after_party_location.address_public || 'Location not yet published';
       }
     }
-
+    renderRegistration();
     if (planData.message === ERROR_MESSAGES.noPlanYet) {
       document.querySelectorAll('section[data-meal-type]').forEach((section) => {
         section.classList.add('hidden');
@@ -578,9 +644,6 @@ async function logEventPlan() {
       updateMealSection(sectionElement, section, userFirstName, mealType);
     });
 
-    // Load registration data
-    await loadRegistration();
-    renderRegistration();
   } catch (err) {
     console.error('Error fetching event plan:', err);
     pushMessage(
