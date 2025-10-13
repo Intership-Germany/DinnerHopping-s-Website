@@ -1,13 +1,13 @@
 from fastapi import APIRouter, HTTPException, Header, Request, Depends
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import os, datetime, logging, re
 from enum import Enum
 from typing import Optional
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
 from pymongo import ReturnDocument
-from pymongo.errors import PyMongoError
+from pymongo.errors import PyMongoError, DuplicateKeyError
 
 from app import db as db_mod
 from app.auth import get_current_user, require_admin
@@ -27,6 +27,9 @@ router = APIRouter()
 log = logging.getLogger('payments')
 _IDEMPOTENCY_ALLOWED = re.compile(r'[^a-z0-9:._-]')
 
+_MANUAL_MESSAGE_MAX_LEN = 800
+_MANUAL_MESSAGE_MIN_LEN = 12
+
 class PaymentProvider(str, Enum):
     auto = 'auto'
     paypal = 'paypal'
@@ -44,6 +47,8 @@ class CreatePaymentRequest(BaseModel):
     amount_cents: int | None = None
     idempotency_key: str | None = None
     provider: PaymentProvider | None = PaymentProvider.auto
+    # Optional free-text message supplied by user when choosing manual/contact option
+    message: Optional[str] = Field(default=None, max_length=_MANUAL_MESSAGE_MAX_LEN)
     flow: PaymentFlow | None = PaymentFlow.redirect
     currency: Optional[str] = 'EUR'
 
@@ -80,7 +85,16 @@ async def list_providers_early():
         providers.append('paypal')
     if os.getenv('STRIPE_API_KEY'):
         providers.append('stripe')
-    default = providers[0] if providers else None
+
+    # Ensure manual/contact option is always exposed as a fallback
+    if 'others' not in providers:
+        providers.append('others')
+
+    # If no providers were configured at all, gracefully fall back to manual option only
+    if not providers:
+        providers = ['others']
+
+    default = providers[0] if providers else 'others'
     return {"providers": providers, "default": default}
 
 
@@ -224,6 +238,18 @@ def _normalize_idempotency_key(raw_key, registration_id, provider: str, flow: st
     return key
 
 
+def _normalize_manual_message(raw: Optional[str]) -> Optional[str]:
+    """Trim and truncate manual payment message for consistent storage."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    if len(text) > _MANUAL_MESSAGE_MAX_LEN:
+        text = text[:_MANUAL_MESSAGE_MAX_LEN]
+    return text
+
+
 @router.post('/create')
 async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get_current_user)):
     """Create a payment record and return the next action to the client."""
@@ -284,6 +310,11 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
         raise HTTPException(status_code=400, detail='Amount must match event fee configured by organizer')
 
     canonical_idempotency = _normalize_idempotency_key(payload.idempotency_key, reg_obj, provider, flow)
+
+    manual_user_message = _normalize_manual_message(getattr(payload, 'message', None))
+    if provider == 'others':
+        if manual_user_message is None or len(manual_user_message) < _MANUAL_MESSAGE_MIN_LEN:
+            raise HTTPException(status_code=400, detail=f'Please include a short note (at least {_MANUAL_MESSAGE_MIN_LEN} characters) so the organizers can process your manual payment.')
 
     existing = await db_mod.db.payments.find_one({"idempotency_key": canonical_idempotency})
     # If an idempotent payment exists but it is no longer payable (refunded/failed/cancelled),
@@ -415,12 +446,28 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
             "meta": {},
             "created_at": datetime.datetime.now(datetime.timezone.utc),
         }
-        doc = await db_mod.db.payments.find_one_and_update(
-            {"registration_id": reg_obj, "provider": "stripe"},
-            {"$setOnInsert": initial_doc},
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
+        try:
+            doc = await db_mod.db.payments.find_one_and_update(
+                {"registration_id": reg_obj, "provider": "stripe"},
+                {"$setOnInsert": initial_doc},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+        except DuplicateKeyError as exc:
+            # Another concurrent writer created the payment in the small
+            # window between the query and the insert. Treat as idempotent
+            # and load the existing document.
+            log.info('payment.create.stripe.duplicate registration_id=%s exc=%s', str(reg_obj), str(exc))
+            try:
+                doc = await db_mod.db.payments.find_one({"registration_id": reg_obj, "provider": "stripe"})
+            except Exception:
+                doc = None
+            if not doc:
+                # If we cannot load the document for some reason, surface an error
+                raise HTTPException(status_code=500, detail=f'Could not create payment (duplicate detected but load failed): {str(exc)}') from exc
+        except PyMongoError as exc:
+            # Generic DB error
+            raise HTTPException(status_code=500, detail=f'Could not create payment: {str(exc)}') from exc
         if doc.get('idempotency_key') != canonical_idempotency:
             await db_mod.db.payments.update_one({"_id": doc.get('_id')}, {"$set": {"idempotency_key": canonical_idempotency}})
             doc['idempotency_key'] = canonical_idempotency
@@ -495,14 +542,55 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
             "status": "in_process",
             "provider": "others",
             "idempotency_key": canonical_idempotency,
-            "meta": {"note": "manual_contact_us"},
+            "meta": {
+                "note": "manual_contact_us",
+                "team_size": team_size,
+                "user_email": reg.get('user_email_snapshot'),
+                "user_message_len": len(manual_user_message) if manual_user_message else 0,
+            },
+            # forward optional user message for admins
+            "message": manual_user_message,
             "created_at": datetime.datetime.now(datetime.timezone.utc),
         }
         try:
             res = await db_mod.db.payments.insert_one(initial_doc)
             payment_doc = await db_mod.db.payments.find_one({"_id": res.inserted_id})
-        except PyMongoError as exc:
-            raise HTTPException(status_code=500, detail=f'Could not create manual payment: {str(exc)}') from exc
+        except Exception as exc:
+            # Be defensive: treat duplicate key errors as idempotent and load existing payment
+            is_dup = False
+            try:
+                if isinstance(exc, DuplicateKeyError):
+                    is_dup = True
+            except Exception:
+                pass
+            if not is_dup:
+                try:
+                    if getattr(exc, 'code', None) == 11000:
+                        is_dup = True
+                except Exception:
+                    pass
+            if not is_dup:
+                try:
+                    if 'duplicate key' in str(exc).lower():
+                        is_dup = True
+                except Exception:
+                    pass
+            if not is_dup:
+                # Unexpected DB error
+                raise HTTPException(status_code=500, detail=f'Could not create manual payment: {str(exc)}') from exc
+
+            # Duplicate detected: another concurrent writer created the payment; load it
+            log.info('payment.create.manual.duplicate registration_id=%s exc=%s', str(reg_obj), str(exc))
+            # First try to load a manual ('others') payment created concurrently
+            payment_doc = await db_mod.db.payments.find_one({"registration_id": reg_obj, "provider": "others"})
+            if not payment_doc:
+                try:
+                    payment_doc = await db_mod.db.payments.find_one({"registration_id": reg_obj})
+                except Exception:
+                    payment_doc = None
+            if not payment_doc:
+                # If we still can't find it, surface the original error
+                raise HTTPException(status_code=500, detail=f'Could not create manual payment (duplicate detected but load failed): {str(exc)}') from exc
 
         # Link to registration
         try:
@@ -513,7 +601,20 @@ async def create_payment(payload: CreatePaymentRequest, current_user=Depends(get
         # notify admins (best-effort)
         try:
             from app import notifications as notifications_mod
-            await notifications_mod.notify_admin_manual_payment(str(payment_doc.get('_id')), str(reg_obj), reg.get('user_email_snapshot'), int(canonical_amount_cents), ev.get('title') if ev else None)
+            user_msg = manual_user_message if manual_user_message is not None else payment_doc.get('message')
+            await notifications_mod.notify_admin_manual_payment(
+                payment_id=str(payment_doc.get('_id')),
+                registration_id=str(reg_obj),
+                user_email=reg.get('user_email_snapshot'),
+                amount_cents=int(canonical_amount_cents),
+                event_title=ev.get('title') if ev else None,
+                user_message=user_msg,
+                event_id=str(ev.get('_id')) if ev and ev.get('_id') else None,
+                user_name=reg.get('user_name_snapshot') or reg.get('contact_name'),
+                team_size=team_size,
+                registration_status=reg.get('status'),
+                currency=currency,
+            )
         except Exception:
             log.exception('Failed to notify admins about manual payment')
 

@@ -300,7 +300,19 @@ async def send_final_plan_released(email: str, event_title: str, plan_url: str) 
     return await _send(email, f"Your DinnerHopping schedule is ready - {event_title}", lines, "final_plan", template_key="final_plan", variables={'event_title': event_title, 'plan_url': plan_url, 'email': email})
 
 
-async def notify_admin_manual_payment(payment_id: str, registration_id: str | None, user_email: str | None, amount_cents: int, event_title: str | None = None) -> bool:
+async def notify_admin_manual_payment(
+    payment_id: str,
+    registration_id: str | None,
+    user_email: str | None,
+    amount_cents: int,
+    event_title: str | None = None,
+    user_message: str | None = None,
+    event_id: str | None = None,
+    user_name: str | None = None,
+    team_size: int | None = None,
+    registration_status: str | None = None,
+    currency: str | None = 'EUR',
+) -> bool:
     """Notify admins that a manual/contact-us payment needs review.
 
     - Inserts a lightweight admin_alerts document for dashboard consumption.
@@ -308,22 +320,44 @@ async def notify_admin_manual_payment(payment_id: str, registration_id: str | No
     Best-effort: failures do not raise.
     """
     try:
-        amount_eur = f"{amount_cents/100:.2f}"
+        unit = (currency or 'EUR').upper()
     except Exception:
-        amount_eur = str(amount_cents)
+        unit = 'EUR'
+    try:
+        amount_value = f"{amount_cents/100:.2f}"
+    except Exception:
+        amount_value = str(amount_cents)
 
-    title = f"Manual payment awaiting review: {amount_eur} €"
+    amount_display = f"{amount_value} {unit}" if unit not in {'EUR', '€'} else f"{amount_value} €"
+
+    title = f"Manual payment awaiting review: {amount_display}"
     if event_title:
-        title = f"Manual payment awaiting review for '{event_title}': {amount_eur} €"
+        title = f"Manual payment awaiting review for '{event_title}': {amount_display}"
 
     lines = [
         f"A manual payment was created and requires admin validation.",
         f"Payment id: {payment_id}",
+    ]
+    if event_title:
+        lines.append(f"Event: {event_title}")
+    if event_id:
+        lines.append(f"Event id: {event_id}")
+    lines.extend([
         f"Registration id: {registration_id}",
         f"User email: {user_email}",
-        f"Amount: {amount_eur} €",
-        "Please review and validate this payment from the admin dashboard.",
-    ]
+    ])
+    if user_name:
+        lines.append(f"User name: {user_name}")
+    if team_size is not None:
+        lines.append(f"Team size: {team_size}")
+    if registration_status:
+        lines.append(f"Registration status: {registration_status}")
+    lines.append(f"Amount: {amount_display}")
+    if user_message:
+        lines.extend(["", "User message:", user_message])
+        # augment title so admins notice message presence
+        title = f"{title} — message attached"
+    lines.append("Please review and validate this payment from the admin dashboard.")
 
     # Insert an admin alert document for dashboard consumption (best-effort)
     try:
@@ -334,6 +368,12 @@ async def notify_admin_manual_payment(payment_id: str, registration_id: str | No
             'user_email': user_email,
             'amount_cents': amount_cents,
             'event_title': event_title,
+            'user_message': user_message,
+            'event_id': event_id,
+            'user_name': user_name,
+            'team_size': team_size,
+            'registration_status': registration_status,
+            'currency': unit,
             'status': 'open',
             'created_at': datetime.datetime.now(datetime.timezone.utc),
         })

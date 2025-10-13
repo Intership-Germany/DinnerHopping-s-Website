@@ -101,7 +101,7 @@ Test Sandbox rapide:
 * Idempotence: une seule commande PayPal par registration; les tentatives répétées renvoient l'`order_id` existant.
 * Pour changer de monnaie fixez `PAYMENT_CURRENCY` (défaut `EUR`).
 * Les captures peuvent se faire soit via `/payments/paypal/orders/{id}/capture` (JS SDK) soit via `GET /payments/paypal/return` (flow redirection classique).
-* **Redirect behavior**: After payment completion or cancellation, PayPal redirects users to the frontend (`FRONTEND_BASE_URL/payement`) instead of returning backend JSON. Set `FRONTEND_BASE_URL` in environment to specify the frontend URL (defaults to `BACKEND_BASE_URL` if not set).
+* **Redirect behavior**: After payment completion or cancellation, PayPal redirects users to the frontend (`FRONTEND_BASE_URL/payment`) instead of returning backend JSON. Set `FRONTEND_BASE_URL` in environment to specify the frontend URL (defaults to `BACKEND_BASE_URL` if not set).
 
 ### Stripe Checkout (Test & Live)
 
@@ -118,7 +118,7 @@ Notes:
 - `mode` in the config payload is inferred from the key prefixes (`pk_test` / `sk_test`).
 - For local testing use https tunnel tooling (ngrok, Cloudflare tunnel) so Stripe can reach your webhook endpoint.
 - The admin fallback `POST /payments/{payment_id}/capture` checks the Checkout Session status via the Stripe API before confirming a payment, guaranteeing that “payment completed” only occurs when Stripe reports the session as paid.
-- **Redirect behavior**: After payment success or cancellation, Stripe redirects users to the frontend (`FRONTEND_BASE_URL/payement`) instead of backend endpoints. Set `FRONTEND_BASE_URL` in environment to specify the frontend URL (defaults to `BACKEND_BASE_URL` if not set).
+- **Redirect behavior**: After payment success or cancellation, Stripe redirects users to the frontend (`FRONTEND_BASE_URL/payment`) instead of backend endpoints. Set `FRONTEND_BASE_URL` in environment to specify the frontend URL (defaults to `BACKEND_BASE_URL` if not set).
 
 > **Note:** The former manual SEPA (“Wero”) flow has been retired. Production deployments must rely on Stripe Checkout or PayPal Orders for online payments. If manual bank transfers are required, handle them completely outside of the platform and mark registrations manually in the database.
 

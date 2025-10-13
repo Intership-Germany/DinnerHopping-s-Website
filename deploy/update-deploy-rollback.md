@@ -77,6 +77,7 @@ ProxyPassReverse "/api/" "http://127.0.0.1:8000/"
 ProxyPass "/" "http://127.0.0.1:40332/" retry=0 keepalive=On
 ProxyPassReverse "/" "http://127.0.0.1:40332/"
 ```
+ 
 
 Enable the required modules once (`sudo a2enmod proxy proxy_http proxy_wstunnel
 headers rewrite ssl`), run `sudo apachectl configtest`, and reload Apache with

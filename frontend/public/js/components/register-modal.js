@@ -376,12 +376,16 @@
           if (!Array.isArray(providers)) providers = [];
           providers = providers
             .map((p) => (typeof p === 'string' ? p.toLowerCase() : ''))
-            .filter((p) => p && ['paypal', 'stripe'].includes(p));
+            .filter((p) => p && ['paypal', 'stripe', 'others'].includes(p));
           if (!providers.includes(defaultProvider) && providers.length) defaultProvider = providers[0];
 
-          const startPayment = async (provider) => {
+          const startPayment = async (provider, opts) => {
             try {
               const payPayload = { registration_id: regId2, provider };
+              // If opting for manual 'others' provider allow passing a message
+              if (provider === 'others' && opts && typeof opts.message === 'string') {
+                payPayload.message = opts.message;
+              }
               const { res: createRes, data: created } = await (window.dh?.apiPost
                 ? window.dh.apiPost(payCreatePath, payPayload)
                 : { res: { ok: false }, data: {} });
@@ -429,7 +433,12 @@
 
           // If we have exactly one provider, auto-start it.
           if (providers.length === 1) {
-            await startPayment(providers[0]);
+            if (providers[0] === 'others') {
+              const msg = prompt('Enter a short message for the admin to process your manual payment (optional):');
+              await startPayment('others', { message: msg });
+            } else {
+              await startPayment(providers[0]);
+            }
           } else if (providers.length > 1) {
             // Show selection modal.
             const provModal = openProviderModal();
@@ -460,6 +469,13 @@
               });
               const onChoose = async (provider) => {
                 providerChosen = true;
+                if (provider === 'others') {
+                  // collect optional message then create manual payment
+                  const msg = provModal.querySelector('textarea[data-provider-message]')?.value || prompt('Enter a short message for the admin (optional):');
+                  const ok = await startPayment(provider, { message: msg });
+                  if (ok) provModal.remove();
+                  return;
+                }
                 const ok = await startPayment(provider);
                 if (ok) provModal.remove();
               };

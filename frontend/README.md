@@ -71,7 +71,7 @@ docker build -t dinnerhopping-frontend .
 docker run -p 80:80 dinnerhopping-frontend
 ```
 
-The frontend will be available at <http://localhost>
+The frontend will be available at http://localhost
 
 ### Local dev server (npm)
 
