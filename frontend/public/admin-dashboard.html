@@ -52,6 +52,15 @@
   </nav>
 
   <main class="flex-grow max-w-6xl mx-auto w-full px-4 py-10 space-y-8">
+    <!-- Admin Alerts (top of dashboard) -->
+    <section id="admin-alerts-section" class="bg-white/95 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold text-[#f46f47]">Admin Alerts</h2>
+        <div class="text-sm text-[#4a5568]">Real-time important notifications for admins</div>
+      </div>
+      <div id="admin-alerts">Loading alerts</div>
+    </section>
+
     <!-- Create/Edit Event Section -->
     <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
       <div class="flex items-center justify-between mb-4">
@@ -307,5 +316,16 @@
   <script src="js/utils/toast.js"></script>
   <script src="js/components/event-zip-autocomplete.js"></script>
   <script src="js/admin-dashboard.js"></script>
+  <script src="js/admin-alerts.js"></script>
+  <script>
+    // Initialize admin alerts when the dashboard is ready.
+    (function(){
+      if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        try { window.initAdminAlerts && window.initAdminAlerts('admin-alerts'); } catch(e){ console.error('initAdminAlerts failed', e); }
+      } else {
+        document.addEventListener('DOMContentLoaded', function(){ try { window.initAdminAlerts && window.initAdminAlerts('admin-alerts'); } catch(e){ console.error('initAdminAlerts failed', e); } });
+      }
+    })();
+  </script>
 </body>
 </html>
