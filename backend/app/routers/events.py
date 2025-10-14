@@ -28,7 +28,15 @@ import os
 
 ######### Constants and Status Management #########
 
+_ALLOWED_STATUSES = {'draft','coming_soon','open','closed','matched','released','cancelled'}
+_LEGACY_MAP = { 'published': 'open' }
 
+def _normalize_status(v: Optional[str]) -> str:
+    if not v:
+        return 'draft'
+    s = str(v).strip().lower()
+    s = _LEGACY_MAP.get(s, s)
+    return s if s in _ALLOWED_STATUSES else 'draft'
 router = APIRouter()
 
 ######### Date/Datetime Helpers #########
