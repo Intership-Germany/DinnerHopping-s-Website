@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Set
 
 from bson.objectid import ObjectId
@@ -88,19 +88,93 @@ async def list_issues(event_id: str, version: Optional[int] = None) -> dict:
                 team_payment_missing.add(team_id)
             elif paid_count < len(active):
                 team_payment_partial.add(team_id)
+
+    def _pair_key(a: Optional[str], b: Optional[str]) -> Optional[tuple[str, str]]:
+        if not a or not b:
+            return None
+        sa, sb = str(a), str(b)
+        return (sa, sb) if sa <= sb else (sb, sa)
+
+    pair_counts: Dict[tuple[str, str], int] = {}
     for group in groups:
-        group_issues: List[str] = []
-        for team_id in [group.get('host_team_id'), *(group.get('guest_team_ids') or [])]:
-            if team_id in team_cancelled:
-                group_issues.append('faulty_team_cancelled')
-            if team_id in team_incomplete:
-                group_issues.append('team_incomplete')
-            if team_id in team_payment_missing:
-                group_issues.append('payment_missing')
-            if team_id in team_payment_partial:
-                group_issues.append('payment_partial')
-        if group_issues:
-            issues.append({'group': group, 'issues': sorted(set(group_issues))})
+        host_id = group.get('host_team_id')
+        guest_ids = [gid for gid in (group.get('guest_team_ids') or []) if gid is not None]
+        for guest_id in guest_ids:
+            key = _pair_key(host_id, guest_id)
+            if key:
+                pair_counts[key] = pair_counts.get(key, 0) + 1
+        for idx in range(len(guest_ids)):
+            for jdx in range(idx + 1, len(guest_ids)):
+                key = _pair_key(guest_ids[idx], guest_ids[jdx])
+                if key:
+                    pair_counts[key] = pair_counts.get(key, 0) + 1
+
+    for group in groups:
+        group_issue_types: Set[str] = set()
+        issue_counts: Dict[str, int] = {}
+        actors: Dict[str, List[dict]] = {}
+
+        def register_issue(issue_type: str, team_id: Optional[str] = None, role: Optional[str] = None, extra: Optional[Dict[str, Any]] = None) -> None:
+            group_issue_types.add(issue_type)
+            issue_counts[issue_type] = issue_counts.get(issue_type, 0) + 1
+            if team_id is not None or extra:
+                payload: Dict[str, Any] = {'team_id': str(team_id) if team_id is not None else None}
+                if role:
+                    payload['role'] = role
+                if extra:
+                    payload.update(extra)
+                actors.setdefault(issue_type, []).append(payload)
+
+        host_id = group.get('host_team_id')
+        guest_ids = group.get('guest_team_ids') or []
+        for team_id in [host_id, *guest_ids]:
+            tid = str(team_id) if team_id is not None else None
+            role = 'host' if team_id == host_id else 'guest'
+            if tid in team_cancelled:
+                register_issue('faulty_team_cancelled', tid, role)
+            if tid in team_incomplete:
+                register_issue('team_incomplete', tid, role)
+            if tid in team_payment_missing:
+                register_issue('payment_missing', tid, role)
+            if tid in team_payment_partial:
+                register_issue('payment_partial', tid, role)
+
+        if group.get('uncovered_allergies'):
+            register_issue('uncovered_allergy', str(host_id) if host_id is not None else None, 'host', {'allergies': list(group.get('uncovered_allergies') or [])})
+
+        for warn in group.get('warnings') or []:
+            warning = str(warn)
+            if warning in {'host_cannot_main', 'host_no_kitchen'}:
+                register_issue('capacity_mismatch', str(host_id) if host_id is not None else None, 'host', {'warning': warning})
+            elif warning == 'allergy_uncovered':
+                if not group.get('uncovered_allergies'):
+                    register_issue('uncovered_allergy', str(host_id) if host_id is not None else None, 'host')
+                continue
+            elif warning == 'diet_conflict':
+                register_issue('diet_conflict')
+
+        # Duplicate encounters (host-guest and guest-guest) occurring across groups/phases
+        candidate_pairs: List[tuple[str, str]] = []
+        if host_id is not None:
+            for guest_id in guest_ids:
+                key = _pair_key(host_id, guest_id)
+                if key and pair_counts.get(key, 0) > 1:
+                    candidate_pairs.append(key)
+        for idx in range(len(guest_ids)):
+            for jdx in range(idx + 1, len(guest_ids)):
+                key = _pair_key(guest_ids[idx], guest_ids[jdx])
+                if key and pair_counts.get(key, 0) > 1:
+                    candidate_pairs.append(key)
+        for key in candidate_pairs:
+            register_issue('duplicate_pair', None, None, {'pair': list(key), 'total': pair_counts.get(key, 0)})
+
+        if group_issue_types:
+            issues.append({
+                'group': group,
+                'issues': sorted(group_issue_types),
+                'issue_counts': issue_counts,
+                'actors': actors,
+            })
     return {'groups': groups, 'issues': issues}
 
 
@@ -202,7 +276,7 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
     chat_enabled = event.get('chat_enabled', False) if event else False
     unlock_minutes = event.get('address_unlock_minutes', 30) if event else 30
 
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.now(timezone.utc)
 
     def _meal_time(meal: str) -> str:
         return '20:00' if meal=='main' else ('18:00' if meal=='appetizer' else '22:00')
@@ -230,13 +304,13 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
         # Address unlock logic
         unlock_dt = None
         try:
-            unlock_dt = datetime.datetime.fromisoformat(sec['time'])
+            unlock_dt = datetime.fromisoformat(sec['time'])
         except Exception:
             pass
         lat = profiles.get(host_email, {}).get('lat')
         lon = profiles.get(host_email, {}).get('lon')
         if lat is not None and lon is not None:
-            if unlock_dt and (now >= unlock_dt - datetime.timedelta(minutes=unlock_minutes)):
+            if unlock_dt and (now >= unlock_dt - timedelta(minutes=unlock_minutes)):
                 sec['host_location'] = profiles.get(host_email, {}).get('address_full', None)
             else:
                 from ...utils import anonymize_address
@@ -280,7 +354,7 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
             'event_id': ObjectId(event_id),
             'user_email': em,
             'sections': secs,
-                'created_at': datetime.datetime.now(datetime.timezone.utc),
+                'created_at': datetime.now(timezone.utc),
         }
         await db_mod.db.plans.insert_one(doc)
         written += 1
