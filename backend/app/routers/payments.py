@@ -1,3 +1,14 @@
+"""Payments router
+
+Handles payment processing for event registrations including:
+- Payment provider configuration (PayPal, Stripe, manual/contact)
+- Payment creation and capture
+- Webhook processing for payment providers
+- Refund reporting and management
+"""
+
+######### Imports #########
+
 from fastapi import APIRouter, HTTPException, Header, Request, Depends
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
@@ -21,7 +32,8 @@ from app.utils import (
 from app.payments_providers import paypal as paypal_provider
 from app.payments_providers import stripe as stripe_provider
 
-######### Router / Endpoints #########
+######### Router Configuration #########
+
 
 router = APIRouter()
 log = logging.getLogger('payments')
@@ -29,6 +41,8 @@ _IDEMPOTENCY_ALLOWED = re.compile(r'[^a-z0-9:._-]')
 
 _MANUAL_MESSAGE_MAX_LEN = 800
 _MANUAL_MESSAGE_MIN_LEN = 12
+
+######### Models and Enums #########
 
 class PaymentProvider(str, Enum):
     auto = 'auto'
@@ -57,6 +71,7 @@ class CapturePaymentIn(BaseModel):
     provider: Optional[str] = None
     order_id: Optional[str] = None
 
+######### Provider Configuration Endpoints #########
 
 # Provider-specific logic delegated to app.payments_providers
 
@@ -97,6 +112,7 @@ async def list_providers_early():
     default = providers[0] if providers else 'others'
     return {"providers": providers, "default": default}
 
+######### Stripe Configuration #########
 
 @router.get('/stripe/config')
 async def stripe_config():
