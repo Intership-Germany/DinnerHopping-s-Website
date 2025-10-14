@@ -82,6 +82,58 @@
     document.dispatchEvent(new CustomEvent('dh:event_form_loaded'));
   }
 
+  function enterEditMode(ev){
+    if (!ev || ev.id == null){
+      toast('Unable to load this event.', { type: 'error' });
+      return;
+    }
+    editingId = ev.id;
+    setForm(ev);
+    const title = $('#create-form-title');
+    if (title){
+      title.textContent = ev.title ? `Edit Event – ${ev.title}` : 'Edit Event';
+    }
+    const submit = $('#btn-submit-event');
+    if (submit){
+      submit.textContent = 'Update Event';
+    }
+    const cancel = $('#btn-cancel-edit');
+    if (cancel){
+      cancel.classList.remove('hidden');
+      cancel.disabled = false;
+    }
+    const msg = $('#create-event-msg');
+    if (msg) msg.textContent = 'Editing existing event. Remember to save changes.';
+    const form = $('#create-event-form');
+    if (form){
+      form.dataset.mode = 'edit';
+      try {
+        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (_) {}
+    }
+  }
+
+  function enterCreateMode(){
+    editingId = null;
+    const form = $('#create-event-form');
+    if (form){
+      form.reset();
+      delete form.dataset.mode;
+    }
+    const title = $('#create-form-title');
+    if (title) title.textContent = 'Create New Event';
+    const submit = $('#btn-submit-event');
+    if (submit) submit.textContent = 'Create Event (Draft)';
+    const cancel = $('#btn-cancel-edit');
+    if (cancel){
+      cancel.classList.add('hidden');
+      cancel.disabled = false;
+    }
+    const msg = $('#create-event-msg');
+    if (msg) msg.textContent = '';
+    document.dispatchEvent(new CustomEvent('dh:event_form_loaded'));
+  }
+
   function computeTeamLabel(team, fallbackId){
     if (!team) return fallbackId != null ? `Team ${fallbackId}` : 'Team';
     const members = Array.isArray(team.members) ? team.members : [];
