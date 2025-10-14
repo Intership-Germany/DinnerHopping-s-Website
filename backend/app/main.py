@@ -1,6 +1,9 @@
 """
 FastAPI application for the DinnerHopping backend.
 """
+
+######### Imports and Environment Setup #########
+
 import json
 import os
 
@@ -15,6 +18,7 @@ try:
 except Exception:
     # best-effort; continue if python-dotenv not installed at runtime
     pass
+
 import contextvars
 import logging
 import time
@@ -38,6 +42,8 @@ from .middleware.security import CSRFMiddleware, SecurityHeadersMiddleware
 from .routers import (admin, chats, events, invitations, matching, payments,
                       registrations, users, geo)
 from .settings import get_settings
+
+######### Logging Configuration #########
 
 # Context variables for request-scoped logging
 _ctx_request_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("request_id", default=None)
@@ -65,6 +71,8 @@ logging.setLogRecordFactory(_record_factory)
 configure_logging()
 settings = get_settings()
 
+######### Compatibility Shims #########
+
 # Compatibility shim: some bcrypt distributions expose `__version__` but not
 # `__about__.__version__`. passlib sometimes attempts to read
 # `bcrypt.__about__.__version__` and this can trigger noisy tracebacks.
@@ -80,6 +88,8 @@ try:
 except (ImportError, AttributeError):
     # best-effort only; don't fail startup for environments without bcrypt
     pass
+
+######### Application Lifespan #########
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -98,6 +108,7 @@ async def _lifespan(app: FastAPI):
                 # shutdown
                 await close_mongo()
 
+######### FastAPI Application Initialization #########
 
 app = FastAPI(title=settings.app_name,
                             debug=settings.debug,
@@ -109,6 +120,8 @@ app = FastAPI(title=settings.app_name,
                             lifespan=_lifespan,
                             redirect_slashes=False
                         )
+
+######### Middleware Configuration #########
 
 app.add_middleware(TrustedHostMiddleware)
 
@@ -147,8 +160,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RequestIDMiddleware)
 
-
-######## Global Exception Handlers ########
+######### Global Exception Handlers #########
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -170,6 +182,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         'detail': 'An unexpected error occurred',
         'request_id': getattr(request.state, 'request_id', None),
     })
+
+######### Custom Swagger UI with CSRF Support #########
 
 # Customize Swagger UI so that the OpenAPI /docs interface sends credentials
 # (cookies) and automatically injects the X-CSRF-Token header read from the
@@ -214,6 +228,8 @@ def custom_swagger_ui_html(*, openapi_url: str, title: str):
     headers = dict(resp.headers)
     return HTMLResponse(content=content, status_code=resp.status_code, headers=headers)
 
+######### Root and Documentation Endpoints #########
+
 @app.get('/', include_in_schema=False)
 async def root():
     return {"message": "Hello! If you're seeing this, there are two possibilities: - Something went really wrong - or - You're trying to do something you shouldn't be doing."}
@@ -223,6 +239,8 @@ async def overridden_swagger(request: Request):
     root_path = (request.scope.get('root_path') or '').rstrip('/')
     openapi_url = f"{root_path}{app.openapi_url}" if root_path else app.openapi_url
     return custom_swagger_ui_html(openapi_url=openapi_url, title=app.title + ' - Swagger UI')
+
+######### CORS Configuration #########
 
 ALLOWED_ORIGINS = settings.allowed_origins
 if ALLOWED_ORIGINS == '*':
@@ -242,6 +260,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+######### Security Middleware #########
+
 # security middlewares
 # Add HTTPS redirect first, then ProxyHeaders last so it runs outermost
 if settings.enforce_https:
@@ -254,7 +274,7 @@ app.add_middleware(CSRFMiddleware)
 # simple in-memory rate limiter (dev)
 app.add_middleware(RateLimit, max_requests=int(os.getenv('RATE_LIMIT_MAX_REQUESTS', '300')), window_sec=int(os.getenv('RATE_LIMIT_WINDOW', '60')), redis_url=os.getenv('REDIS_URL'))
 
-# Lifespan provided above via asynccontextmanager (_lifespan)
+######### Router Registration #########
 
 # Expose the users router at the root so endpoints like /register, /login, /profile exist
 app.include_router(users.router, prefix="", tags=["users"])
@@ -270,6 +290,8 @@ app.include_router(geo.router, prefix="/geo", tags=["geo"])
 api_router = APIRouter()
 
 app.include_router(api_router)
+
+######### Health Check Endpoint #########
 
 # Fast healthcheck (no heavy DB access). Optionally: add a DB ping.
 @app.get('/health', tags=["health"], include_in_schema=False)

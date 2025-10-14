@@ -2,14 +2,20 @@
 Utility functions for the DinnerHopping backend.
 
 This module provides helper functions for:
-- Anonymizing geographic coordinates and addresses to preserve user privacy.
-- Sending emails with support for SMTP configuration, retries, and development fallbacks.
-- Generating and sending email verification tokens.
-- Sending generic notification emails.
+- Chat group management and participant tracking
+- Email sending with SMTP configuration, retries, and development fallbacks
+- Email verification token generation and sending
+- Generic notification emails
+- Address anonymization and encryption for privacy
+- Token generation and hashing for secure verification flows
+- Event validation and access control
 
 Logging is configured for email-related operations. 
 The module is intended for internal use within the backend application.
 """
+
+######### Imports #########
+
 import asyncio  # for to_thread and sleep
 import datetime
 import email.utils
@@ -35,6 +41,8 @@ from . import db as db_mod
 from pymongo.errors import PyMongoError
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
+
+######### Chat Group Management #########
 
 
 async def create_chat_group(event_id: str, participant_emails: list[str], created_by: str, section_ref: str = 'general') -> None:

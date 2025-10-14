@@ -1,3 +1,16 @@
+"""Events router
+
+Handles event management including:
+- Event creation, reading, updating, and deletion (CRUD)
+- Event status lifecycle management
+- Event listing with filters (date, status, location, participant)
+- Registration to events
+- Attendee counting
+- User event plan retrieval
+"""
+
+######### Imports #########
+
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -13,19 +26,12 @@ from pymongo.errors import PyMongoError
 import datetime
 import os
 
-######### Helpers #########
+######### Constants and Status Management #########
 
-_ALLOWED_STATUSES = {'draft','coming_soon','open','closed','matched','released','cancelled'}
-_LEGACY_MAP = { 'published': 'open' }
-
-def _normalize_status(v: Optional[str]) -> str:
-    if not v:
-        return 'draft'
-    s = str(v).strip().lower()
-    s = _LEGACY_MAP.get(s, s)
-    return s if s in _ALLOWED_STATUSES else 'draft'
 
 router = APIRouter()
+
+######### Date/Datetime Helpers #########
 
 # --- Date/Datetime helpers (added to fix InvalidDocument for datetime.date) ---
 
@@ -103,6 +109,8 @@ def _sanitize_event_doc(doc: dict) -> dict:
                 parsed = parsed.date().isoformat()
             doc[f] = parsed
     return doc
+
+######### Serialization Helpers #########
 
 def _fmt_date(v):
     """Format stored date/datetime value to API string.

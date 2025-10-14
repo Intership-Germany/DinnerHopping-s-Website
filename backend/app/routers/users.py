@@ -64,7 +64,7 @@ def _collect_token_candidates(raw: str) -> list[str]:
 
     return variants
 
-######### Constants #########
+######### Constants and Validation #########
 
 # Predefined list of valid allergies
 VALID_ALLERGIES = [
@@ -362,7 +362,7 @@ async def register(u: UserCreate):
     user_doc['deleted_at'] = None  # soft delete marker
     # If an existing provisional user was detected and is allowed to be overwritten,
     # perform an update preserving the existing _id. Otherwise insert a new user.
-    if existing and existing.get('password_hash') is "":
+    if existing and existing.get('password_hash') == "":
         # Overwrite permitted provisional user
         try:
             updated = await db_mod.db.users.find_one_and_update(
