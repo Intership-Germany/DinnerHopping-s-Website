@@ -84,7 +84,14 @@ def _parse_incoming_date(name: str, value):
                     return value
             return value
     return value
-
+    
+def _normalize_status(v: Optional[str]) -> str:
+    if not v:
+        return 'draft'
+    s = str(v).strip().lower()
+    s = _LEGACY_MAP.get(s, s)
+    return s if s in _ALLOWED_STATUSES else 'draft'
+    
 def _sanitize_event_doc(doc: dict) -> dict:
     """Mutate & return event doc ensuring Mongo encodable values for date/time fields.
 
