@@ -64,7 +64,7 @@ def _collect_token_candidates(raw: str) -> list[str]:
 
     return variants
 
-######### Constants #########
+######### Constants and Validation #########
 
 # Predefined list of valid allergies
 VALID_ALLERGIES = [
