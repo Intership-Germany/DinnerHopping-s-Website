@@ -1,301 +1,272 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dinnerhopping - FAQ</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
-      rel="stylesheet"
-    />
-    <script src="js/config.js"></script>
-    <script src="js/debug-banner.js"></script>
-    <script src="js/core/includes.js" defer></script>
-    <style>
-      body {
-        font-family: 'Inter', sans-serif;
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-        background-color: #f0f4f7;
-      }
-      .faq-answer {
-        max-height: 0;
-        overflow: hidden;
-        transition: max-height 0.3s ease-out;
-      }
-      .faq-answer.active {
-        max-height: 500px;
-        transition: max-height 0.5s ease-in;
-      }
-      .faq-icon {
-        transition: transform 0.3s ease;
-      }
-      .faq-icon.active {
-        transform: rotate(45deg);
-      }
-    </style>
-  </head>
-  <body class="text-[#172a3a] flex flex-col min-h-screen">
-    <div id="app" class="flex flex-col flex-grow">
-      <!-- Site Header -->
-      <div data-include="partials/header.html"></div>
 
-      <main class="flex-grow w-full px-6 pt-10 pb-20 mt-16">
-        <section class="max-w-4xl mx-auto">
-          <h1 class="text-4xl font-bold mb-4 text-center">Frequently Asked Questions</h1>
-          <p class="text-center text-gray-600 mb-12">
-            Find answers to common questions about DinnerHopping
-          </p>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dinnerhopping - FAQ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+  <script src="js/config.js"></script>
+  <script src="js/debug-banner.js"></script>
+  <script src="js/core/includes.js" defer></script>
+  <script src="js/pages/faq.js" defer></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+  </style>
+</head>
 
-          <div class="space-y-4">
-            <!-- FAQ Item 1 -->
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <button
-                class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors"
-              >
-                <span class="font-semibold text-lg pr-8">What is DinnerHopping?</span>
-                <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
-              </button>
-              <div class="faq-answer px-6 pb-5">
-                <p class="text-gray-600">
-                  DinnerHopping is a unique student dinner event where you get to meet new people
-                  while enjoying a three-course meal. You'll visit three different locations
-                  throughout the evening - one for the starter, one for the main course, and one for
-                  dessert. At each location, you'll be matched with different groups of students,
-                  giving you the opportunity to make new friends and have interesting conversations.
-                </p>
-              </div>
-            </div>
+<body class="text-[#172a3a] flex flex-col min-h-screen">
+  <div id="app" class="flex flex-col flex-grow">
+    <!-- Site Header -->
+    <div data-include="partials/header.html"></div>
 
-            <!-- FAQ Item 2 -->
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <button
-                class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors"
-              >
-                <span class="font-semibold text-lg pr-8">How do I register for an event?</span>
-                <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
-              </button>
-              <div class="faq-answer px-6 pb-5">
-                <p class="text-gray-600">
-                  To register for an event, first create an account on our platform by clicking "Log
-                  In" and then "Sign Up". Once your account is created and verified, navigate to the
-                  Events page where you can browse upcoming DinnerHopping events. Select an event
-                  that interests you and complete the registration form. You can register as an
-                  individual or as part of a team.
-                </p>
-              </div>
-            </div>
 
-            <!-- FAQ Item 3 -->
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <button
-                class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors"
-              >
-                <span class="font-semibold text-lg pr-8">How does team registration work?</span>
-                <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
-              </button>
-              <div class="faq-answer px-6 pb-5">
-                <p class="text-gray-600">
-                  Team registration allows you to sign up with a friend or partner. When
-                  registering, select the "Team Registration" option and provide your partner's
-                  email address. They will receive an invitation to join your team. Both team
-                  members need to complete their registration and payment. Teams stay together for
-                  the first course but will be split up for the remaining courses to maximize
-                  networking opportunities.
-                </p>
-              </div>
-            </div>
-
-            <!-- FAQ Item 4 -->
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <button
-                class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors"
-              >
-                <span class="font-semibold text-lg pr-8">What happens if my partner cancels?</span>
-                <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
-              </button>
-              <div class="faq-answer px-6 pb-5">
-                <p class="text-gray-600">
-                  If your team partner cancels, don't worry! You can choose to continue
-                  participating as an individual, and we'll match you with other participants.
-                  Alternatively, you can invite a new partner to take their place. If you decide to
-                  cancel as well, please do so as early as possible to help us with planning.
-                  Cancellation policies depend on how far in advance you notify us - check your
-                  event confirmation email for specific details.
-                </p>
-              </div>
-            </div>
-
-            <!-- FAQ Item 5 -->
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <button
-                class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors"
-              >
-                <span class="font-semibold text-lg pr-8"
-                  >How do I pay for my registration?</span>
-                <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
-              </button>
-              <div class="faq-answer px-6 pb-5">
-                <p class="text-gray-600">
-                  Payment is made online during the registration process. We accept major credit
-                  cards and PayPal. Once your payment is processed, you'll receive a confirmation
-                  email with your event details. Please note that payment is required to secure your
-                  spot, and registrations are only confirmed once payment is complete.
-                </p>
-              </div>
-            </div>
-
-            <!-- FAQ Item 6 -->
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <button
-                class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors"
-              >
-                <span class="font-semibold text-lg pr-8"
-                  >How can I modify or delete my account?</span
-                >
-                <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
-              </button>
-              <div class="faq-answer px-6 pb-5">
-                <p class="text-gray-600">
-                  To modify your account information, log in and navigate to your Profile page. Here
-                  you can update your personal details, dietary restrictions, and preferences. If
-                  you wish to delete your account, please contact our support team through the
-                  Contact page. We'll process your request and ensure all your personal data is
-                  removed in accordance with GDPR regulations.
-                </p>
-              </div>
-            </div>
-
-            <!-- FAQ Item 7 -->
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <button
-                class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors"
-              >
-                <span class="font-semibold text-lg pr-8">How do I contact support?</span>
-                <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
-              </button>
-              <div class="faq-answer px-6 pb-5">
-                <p class="text-gray-600">
-                  If you have any questions or need assistance, you can reach our support team
-                  through the
-                  <a href="contact.html" class="text-[#f46f47] font-semibold hover:underline"
-                    >Contact page</a
-                  >. We typically respond within 24 hours during business days. For urgent matters
-                  on event days, emergency contact information will be provided in your event
-                  confirmation email.
-                </p>
-              </div>
-            </div>
-
-            <!-- FAQ Item 8 -->
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <button
-                class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors"
-              >
-                <span class="font-semibold text-lg pr-8"
-                  >What dietary restrictions can be accommodated?</span
-                >
-                <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
-              </button>
-              <div class="faq-answer px-6 pb-5">
-                <p class="text-gray-600">
-                  We strive to accommodate various dietary restrictions including vegetarian, vegan,
-                  gluten-free, and common allergies. During registration, you'll have the
-                  opportunity to specify your dietary needs. We work with our partner venues to
-                  ensure they can accommodate these requirements. However, please note that while we
-                  do our best, we cannot guarantee all venues will have extensive options for every
-                  restriction.
-                </p>
-              </div>
-            </div>
-
-            <!-- FAQ Item 9 -->
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <button
-                class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors"
-              >
-                <span class="font-semibold text-lg pr-8">Can I attend if I'm not a student?</span>
-                <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
-              </button>
-              <div class="faq-answer px-6 pb-5">
-                <p class="text-gray-600">
-                  DinnerHopping events are primarily designed for students and young professionals.
-                  While we focus on creating a student-friendly atmosphere, recent graduates and
-                  young professionals are also welcome to join. Please check the specific event
-                  requirements during registration.
-                </p>
-              </div>
-            </div>
-
-            <!-- FAQ Item 10 -->
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <button
-                class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors"
-              >
-                <span class="font-semibold text-lg pr-8">What should I bring to the event?</span>
-                <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
-              </button>
-              <div class="faq-answer px-6 pb-5">
-                <p class="text-gray-600">
-                  Bring your confirmation email (digital or printed), a valid ID, payment method for
-                  food and drinks at venues, and most importantly, bring your enthusiasm and
-                  openness to meet new people! We also recommend bringing comfortable walking shoes
-                  if venues are spread across the city.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div class="mt-12 text-center bg-white p-8 rounded-2xl shadow-lg">
-            <h3 class="text-2xl font-bold mb-4">Still have questions?</h3>
-            <p class="text-gray-600 mb-6">
-              Can't find the answer you're looking for? We're here to help!
-            </p>
-            <a
-              href="contact.html"
-              class="inline-block px-8 py-3 bg-[#f46f47] text-white font-semibold rounded-full shadow-lg transition-all duration-300 transform hover:scale-105"
-              >Contact Support</a
-            >
-          </div>
-        </section>
-      </main>
-
-      <!-- Footer -->
-      <div data-include="partials/footer.html"></div>
+    <div
+      class="relative z-10 flex flex-col items-center justify-center text-center pt-6 bg-gradient-to-r from-[#172a3a] to-[#f46f47] rounded-b-3xl shadow-lg mx-auto w-full max-w-4xl px-8">
+      <h1 class="text-4xl font-bold mb-4 text-center text-white">Frequently Asked Questions</h1>
+      <p class="text-center text-gray-600 mb-12 text-white">
+        Find answers to common questions about DinnerHopping
+      </p>
     </div>
 
-    <script>
-      // FAQ accordion functionality
-      document.addEventListener('DOMContentLoaded', function () {
-        const faqQuestions = document.querySelectorAll('.faq-question');
 
-        faqQuestions.forEach((question) => {
-          question.addEventListener('click', function () {
-            const answer = this.nextElementSibling;
-            const icon = this.querySelector('.faq-icon');
+    <main class="flex-grow w-full px-6 pt-10 pb-20 mt-8">
+      <section class="max-w-4xl mx-auto ">
 
-            // Toggle active state
-            const isActive = answer.classList.contains('active');
+        <div class="space-y-4">
+          <!-- FAQ Item 1 -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <button
+              class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+              <span class="font-semibold text-lg pr-8">What is DinnerHopping?</span>
+              <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
+            </button>
+            <div class="faq-answer px-6 pb-5 hidden">
+              <p class="text-gray-600">
+                DinnerHopping is a unique student dinner event where you get to meet new people
+                while enjoying a three-course meal. You'll visit three different locations
+                throughout the evening - one for the starter, one for the main course, and one for
+                dessert. At each location, you'll be matched with different groups of students,
+                giving you the opportunity to make new friends and have interesting conversations.
+              </p>
+            </div>
+          </div>
 
-            // Close all other answers
-            document.querySelectorAll('.faq-answer').forEach((a) => {
-              a.classList.remove('active');
-            });
-            document.querySelectorAll('.faq-icon').forEach((i) => {
-              i.classList.remove('active');
-              i.textContent = '+';
-            });
+          <!-- FAQ Item 2 -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <button
+              class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+              <span class="font-semibold text-lg pr-8">How do I register for an event?</span>
+              <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
+            </button>
+            <div class="faq-answer px-6 pb-5 hidden">
+              <p class="text-gray-600">
+                To register for an event, first create an account on our platform by clicking "Log
+                In" and then "Sign Up". Once your account is created and verified, navigate to the
+                Events page where you can browse upcoming DinnerHopping events. Select an event
+                that interests you and complete the registration form. You can register as an
+                individual or as part of a team.
+              </p>
+            </div>
+          </div>
 
-            // Toggle current answer
-            if (!isActive) {
-              answer.classList.add('active');
-              icon.classList.add('active');
-              icon.textContent = '×';
-            }
+          <!-- FAQ Item 3 -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <button
+              class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+              <span class="font-semibold text-lg pr-8">How does team registration work?</span>
+              <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
+            </button>
+            <div class="faq-answer px-6 pb-5 hidden">
+              <p class="text-gray-600">
+                Team registration allows you to sign up with a friend or partner. When
+                registering, select the "Team Registration" option and provide your partner's
+                email address. They will receive an invitation to join your team. Both team
+                members need to complete their registration and payment. Teams stay together for
+                the first course but will be split up for the remaining courses to maximize
+                networking opportunities.
+              </p>
+            </div>
+          </div>
+
+          <!-- FAQ Item 4 -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <button
+              class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+              <span class="font-semibold text-lg pr-8">What happens if my partner cancels?</span>
+              <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
+            </button>
+            <div class="faq-answer px-6 pb-5 hidden">
+              <p class="text-gray-600">
+                If your team partner cancels, don't worry! You can choose to continue
+                participating as an individual, and we'll match you with other participants.
+                Alternatively, you can invite a new partner to take their place. If you decide to
+                cancel as well, please do so as early as possible to help us with planning.
+                Cancellation policies depend on how far in advance you notify us - check your
+                event confirmation email for specific details.
+              </p>
+            </div>
+          </div>
+
+          <!-- FAQ Item 5 -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <button
+              class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+              <span class="font-semibold text-lg pr-8">How do I pay for my registration?</span>
+              <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
+            </button>
+            <div class="faq-answer px-6 pb-5 hidden">
+              <p class="text-gray-600">
+                Payment is made online during the registration process. We accept major credit
+                cards and PayPal. Once your payment is processed, you'll receive a confirmation
+                email with your event details. Please note that payment is required to secure your
+                spot, and registrations are only confirmed once payment is complete.
+              </p>
+            </div>
+          </div>
+
+          <!-- FAQ Item 6 -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <button
+              class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+              <span class="font-semibold text-lg pr-8">How can I modify or delete my account?</span>
+              <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
+            </button>
+            <div class="faq-answer px-6 pb-5 hidden">
+              <p class="text-gray-600">
+                To modify your account information, log in and navigate to your Profile page. Here
+                you can update your personal details, dietary restrictions, and preferences. If
+                you wish to delete your account, please contact our support team through the
+                Contact page. We'll process your request and ensure all your personal data is
+                removed in accordance with GDPR regulations.
+              </p>
+            </div>
+          </div>
+
+          <!-- FAQ Item 7 -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <button
+              class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+              <span class="font-semibold text-lg pr-8">How do I contact support?</span>
+              <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
+            </button>
+            <div class="faq-answer px-6 pb-5 hidden">
+              <p class="text-gray-600">
+                If you have any questions or need assistance, you can reach our support team
+                through the
+                <a href="contact.html" class="text-[#f46f47] font-semibold hover:underline">Contact page</a>. We
+                typically respond within 24 hours during business days. For urgent matters
+                on event days, emergency contact information will be provided in your event
+                confirmation email.
+              </p>
+            </div>
+          </div>
+
+          <!-- FAQ Item 8 -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <button
+              class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+              <span class="font-semibold text-lg pr-8">What dietary restrictions can be accommodated?</span>
+              <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
+            </button>
+            <div class="faq-answer px-6 pb-5 hidden">
+              <p class="text-gray-600">
+                We strive to accommodate various dietary restrictions including vegetarian, vegan,
+                gluten-free, and common allergies. During registration, you'll have the
+                opportunity to specify your dietary needs. We work with our partner venues to
+                ensure they can accommodate these requirements. However, please note that while we
+                do our best, we cannot guarantee all venues will have extensive options for every
+                restriction.
+              </p>
+            </div>
+          </div>
+
+          <!-- FAQ Item 9 -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <button
+              class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+              <span class="font-semibold text-lg pr-8">Can I attend if I'm not a student?</span>
+              <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
+            </button>
+            <div class="faq-answer px-6 pb-5 hidden">
+              <p class="text-gray-600">
+                DinnerHopping events are primarily designed for students and young professionals.
+                While we focus on creating a student-friendly atmosphere, recent graduates and
+                young professionals are also welcome to join. Please check the specific event
+                requirements during registration.
+              </p>
+            </div>
+          </div>
+
+          <!-- FAQ Item 10 -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <button
+              class="faq-question w-full text-left px-6 py-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+              <span class="font-semibold text-lg pr-8">What should I bring to the event?</span>
+              <span class="faq-icon text-2xl text-[#f46f47] flex-shrink-0">+</span>
+            </button>
+            <div class="faq-answer px-6 pb-5 hidden">
+              <p class="text-gray-600">
+                Bring your confirmation email (digital or printed), a valid ID, payment method for
+                food and drinks at venues, and most importantly, bring your enthusiasm and
+                openness to meet new people! We also recommend bringing comfortable walking shoes
+                if venues are spread across the city.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-12 text-center bg-white p-8 rounded-2xl shadow-lg">
+          <h3 class="text-2xl font-bold mb-4">Still have questions?</h3>
+          <p class="text-gray-600 mb-6">
+            Can't find the answer you're looking for? We're here to help!
+          </p>
+          <a href="contact.html"
+            class="inline-block px-8 py-3 bg-[#f46f47] text-white font-semibold rounded-full shadow-lg transition-all duration-300 transform hover:scale-105">Contact
+            Support</a>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <div data-include="partials/footer.html"></div>
+  </div>
+
+  <script>
+    // FAQ accordion functionality
+    document.addEventListener('DOMContentLoaded', function () {
+      const faqQuestions = document.querySelectorAll('.faq-question');
+
+      faqQuestions.forEach((question) => {
+        question.addEventListener('click', function () {
+          const answer = this.nextElementSibling;
+          const icon = this.querySelector('.faq-icon');
+
+          // Toggle active state
+          const isActive = answer.classList.contains('active');
+
+          // Close all other answers
+          document.querySelectorAll('.faq-answer').forEach((a) => {
+            a.classList.remove('active');
           });
+          document.querySelectorAll('.faq-icon').forEach((i) => {
+            i.classList.remove('active');
+            i.textContent = '+';
+          });
+
+          // Toggle current answer
+          if (!isActive) {
+            answer.classList.add('active');
+            icon.classList.add('active');
+            icon.textContent = '×';
+          }
         });
       });
-    </script>
-  </body>
+    });
+  </script>
+</body>
+
 </html>
