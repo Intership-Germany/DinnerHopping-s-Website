@@ -1,7 +1,17 @@
 """Authentication utilities for FastAPI application.
 
+Provides authentication and authorization functions including:
+- Password hashing and validation with policy enforcement
+- JWT token creation and validation  
+- User authentication via credentials or tokens
+- Admin role checking
+- Session management
+
 Adds structured logging around authentication attempts for observability.
 """
+
+######### Imports #########
+
 import datetime
 import os
 import re
@@ -16,16 +26,22 @@ from passlib.exc import UnknownHashError
 from . import db as db_mod
 from .datetime_utils import to_iso, parse_iso
 
+######### Password Hashing Configuration #########
+
 pwd_context = CryptContext(
     schemes=["argon2", "bcrypt_sha256"],
     default="argon2",
     deprecated="auto",
 )
 
+
 legacy_pwd_context = CryptContext(
     schemes=["bcrypt"],
     deprecated="auto",
 )
+
+######### Logging and Security Configuration #########
+
 auth_logger = logging.getLogger('auth')
 # Make the OAuth2 scheme optional in dependency so the OpenAPI docs
 # include the Bearer auth scheme (shows Authorize button) but runtime
@@ -39,12 +55,16 @@ JWT_SECRET = settings.jwt_secret
 JWT_ALGO = 'HS256'
 JWT_ISSUER = os.getenv('JWT_ISSUER')
 
+######### Helper Functions #########
+
 def _access_token_ttl_minutes() -> int:
     try:
         # prefer ACCESS_TOKEN_EXPIRES_MINUTES to be explicit in .env
         return int(os.getenv('ACCESS_TOKEN_EXPIRES_MINUTES', os.getenv('ACCESS_TOKEN_MINUTES', '60')))
     except (TypeError, ValueError):
         return 60
+
+######### Password Management #########
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
