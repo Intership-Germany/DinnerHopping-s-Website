@@ -85,16 +85,7 @@ PAYPAL_CLIENT_SECRET=YourSandboxSecret
 PAYPAL_WEBHOOK_ID=WH-XXX...  # ID returned by PayPal when creating the webhook
 ```
 
-* `POST /payments/webhooks/paypal` → traite `PAYMENT.CAPTURE.COMPLETED` et `CHECKOUT.ORDER.COMPLETED` (signature vérifiée si `PAYPAL_WEBHOOK_ID` est configuré).
-
-Flow standard (Buttons JS SDK):
-1. Front appelle `GET /payments/paypal/config` pour récupérer `clientId`.
-6. Backend met à jour Payment + Registration (status `succeeded`).
-
-Sécurité webhook:
-* Configurez un webhook dans le Dashboard PayPal (événements: `CHECKOUT.ORDER.COMPLETED`, `PAYMENT.CAPTURE.COMPLETED`).
-Test Sandbox rapide:
-1. Créez un event avec un `fee_cents > 0` et status `open`.
+### PayPal Integration Details
 2. Créez/validez un utilisateur puis enregistrez-le (`/registrations/solo`).
 3. Notez le `registration_id` renvoyé.
 4. Ouvrez `frontend/public/paypal-example.html` (servez le dossier `frontend/public` via le conteneur ou un serveur statique) et saisissez le `registration_id`.
