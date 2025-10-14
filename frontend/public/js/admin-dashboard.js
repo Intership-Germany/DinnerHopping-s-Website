@@ -537,6 +537,8 @@
     team_incomplete: { label: 'Incomplete team', description: 'A team has missing participants or required information.', tone: 'warning' },
     uncovered_allergy: { label: 'Uncovered allergy', description: 'Some guest allergies are not covered by the host.', tone: 'error' },
     capacity_mismatch: { label: 'Capacity mismatch', description: 'The assigned host cannot serve the current number of guests.', tone: 'warning' },
+    duplicate_pair: { label: 'Duplicate encounter', description: 'Teams meet more than once across phases.', tone: 'warning' },
+    diet_conflict: { label: 'Diet conflict', description: 'Host/guest dietary preferences are incompatible.', tone: 'warning' },
   };
 
   const ISSUE_TONE_STYLES = {
@@ -566,7 +568,7 @@
     return selected;
   }
 
-  function createIssueChip(type, total){
+  function createIssueChip(type, stats){
     const meta = resolveIssueMeta(type);
     const tone = meta.tone || 'neutral';
     const styles = ISSUE_TONE_STYLES[tone] || ISSUE_TONE_STYLES.neutral;
@@ -575,8 +577,21 @@
     chip.style.background = styles.chipBg;
     chip.style.color = styles.chipText;
     chip.style.border = `1px solid ${styles.chipBorder}`;
-    chip.textContent = `${meta.label}: ${total}`;
-    chip.title = meta.description;
+    const total = typeof stats === 'number' ? stats : Number((stats && stats.total) || 0);
+    const unique = (stats && typeof stats === 'object' && stats.uniqueTeams != null) ? Number(stats.uniqueTeams) : Number.NaN;
+    const sameCount = Number.isFinite(unique) && unique > 0 && unique !== total ? ` (${unique} team${unique > 1 ? 's' : ''})` : '';
+    chip.textContent = `${meta.label}: ${total}${sameCount}`;
+    const teamNames = (stats && typeof stats === 'object' && Array.isArray(stats.teamNames)) ? stats.teamNames : [];
+    const tooltipParts = [meta.description];
+    if (teamNames.length){
+      const display = teamNames.slice(0, 8);
+      const remaining = teamNames.length - display.length;
+      if (remaining > 0){
+        display.push(`…+${remaining}`);
+      }
+      tooltipParts.push(`Teams: ${display.join(', ')}`);
+    }
+    chip.title = tooltipParts.filter(Boolean).join('\n');
     return chip;
   }
 
@@ -618,7 +633,41 @@
       issueTypes.forEach(type=>{
         const meta = resolveIssueMeta(type);
         const li = document.createElement('li');
-        li.textContent = `${meta.label} – ${meta.description}`;
+        const base = document.createElement('div');
+        base.textContent = `${meta.label} – ${meta.description}`;
+        li.appendChild(base);
+        const actorEntries = (item.actors && item.actors[type]) || [];
+        const details = [];
+        actorEntries.forEach(entry=>{
+          if (entry && Array.isArray(entry.pair)){
+            const names = entry.pair.map(id=> getTeamLabel(id, version));
+            const count = entry.total ? ` (${entry.total} encounters)` : '';
+            details.push(`${names.join(' ↔ ')}${count}`);
+            return;
+          }
+          if (entry && entry.team_id){
+            const name = getTeamLabel(entry.team_id, version);
+            let label = entry.role === 'host' ? `Host ${name}` : (entry.role === 'guest' ? `Guest ${name}` : name);
+            if (Array.isArray(entry.allergies) && entry.allergies.length){
+              label += ` – ${entry.allergies.join(', ')}`;
+            }
+            if (entry.warning){
+              label += ` (${String(entry.warning).replace(/_/g, ' ')})`;
+            }
+            details.push(label);
+            return;
+          }
+        });
+        if (details.length){
+          const sub = document.createElement('ul');
+          sub.className = 'ml-4 list-disc text-[#1f2937]';
+          details.forEach(text=>{
+            const subLi = document.createElement('li');
+            subLi.textContent = text;
+            sub.appendChild(subLi);
+          });
+          li.appendChild(sub);
+        }
         list.appendChild(li);
       });
       card.appendChild(list);
@@ -800,23 +849,25 @@
       if (!res.ok) return;
       const data = await res.json().catch(()=>null); if (!data) return;
       const groups = data.issues || [];
-      let missing = 0, partial = 0, cancelled = 0, incomplete = 0;
+      let missing = 0, partial = 0, cancelled = 0, incomplete = 0, duplicates = 0, allergies = 0;
       groups.forEach(g=>{
-        (g.issues||[]).forEach(isu=>{
-          if (isu==='payment_missing') missing++; else if (isu==='payment_partial') partial++; else if (isu==='faulty_team_cancelled') cancelled++; else if (isu==='team_incomplete') incomplete++;
-        });
+        const counts = g.issue_counts || {};
+        missing += Number(counts.payment_missing || 0);
+        partial += Number(counts.payment_partial || 0);
+        cancelled += Number(counts.faulty_team_cancelled || 0);
+        incomplete += Number(counts.team_incomplete || 0);
+        duplicates += Number(counts.duplicate_pair || 0);
+        allergies += Number(counts.uncovered_allergy || 0);
       });
       const el = $('#details-issues');
       const parts = [];
       if (missing) parts.push(`${missing} missing payment`);
       if (partial) parts.push(`${partial} partial payment`);
-      if (cancelled) parts.push(`${cancelled} with cancelled team`);
+      if (cancelled) parts.push(`${cancelled} cancelled team`);
       if (incomplete) parts.push(`${incomplete} incomplete team`);
-      if (parts.length){
-        el.textContent = (el.textContent? el.textContent + ' | ' : '') + parts.join(' · ');
-      } else if (!el.textContent){
-        el.textContent = 'No payment issues.';
-      }
+      if (duplicates) parts.push(`${duplicates} duplicate encounter`);
+      if (allergies) parts.push(`${allergies} uncovered allergy`);
+      el.textContent = parts.length ? parts.join(' · ') : 'No outstanding issues.';
     } catch(e){}
   }
 
@@ -1280,8 +1331,44 @@
         await ensureTeamNames(evId, v);
         t.update(`${count} group(s) with issues`); t.close();
         // Build grouped counts
-        const counts = {};
-        items.forEach(it=> (it.issues||[]).forEach(isu=>{ counts[isu] = (counts[isu]||0)+1; }));
+        const summaryByIssue = {};
+        const ensureSummaryEntry = (issue)=>{
+          if (!summaryByIssue[issue]){
+            summaryByIssue[issue] = { total: 0, teamIds: new Set(), teamNames: new Set() };
+          }
+          return summaryByIssue[issue];
+        };
+        items.forEach(it=>{
+          const perIssueCounts = it.issue_counts || {};
+          Object.entries(perIssueCounts).forEach(([issue, total])=>{
+            const entry = ensureSummaryEntry(issue);
+            entry.total += Number(total) || 0;
+          });
+          const actorMap = it.actors || {};
+          Object.entries(actorMap).forEach(([issue, actors])=>{
+            const entry = ensureSummaryEntry(issue);
+            (actors||[]).forEach(actor=>{
+              if (actor && actor.team_id){
+                const tid = String(actor.team_id);
+                entry.teamIds.add(tid);
+                entry.teamNames.add(getTeamLabel(tid, v));
+              }
+              if (actor && Array.isArray(actor.pair)){
+                actor.pair.forEach(tid=>{
+                  const id = String(tid);
+                  entry.teamIds.add(id);
+                  entry.teamNames.add(getTeamLabel(id, v));
+                });
+              }
+            });
+          });
+          if (!Object.keys(perIssueCounts).length && Array.isArray(it.issues)){
+            it.issues.forEach(issue=>{
+              const entry = ensureSummaryEntry(issue);
+              entry.total += 1;
+            });
+          }
+        });
 
         const panel = document.createElement('div');
         panel.className = 'issues-panel mt-3 rounded-xl border border-[#e2e8f0] bg-white p-3 text-sm shadow-sm space-y-3';
@@ -1293,9 +1380,18 @@
 
         const summary = document.createElement('div');
         summary.className = 'flex flex-wrap gap-2';
-        Object.entries(counts).sort((a,b)=> (b[1]-a[1])).forEach(([type,total])=>{
-          summary.appendChild(createIssueChip(type, total));
-        });
+        Object.entries(summaryByIssue)
+          .map(([issue, entry])=>{
+            const teamCount = entry.teamIds ? entry.teamIds.size : 0;
+            const names = entry.teamNames ? Array.from(entry.teamNames).filter(Boolean) : [];
+            const total = entry.total || teamCount;
+            return [issue, { total, uniqueTeams: teamCount || null, teamNames: names }];
+          })
+          .filter(([, info])=> info.total > 0)
+          .sort((a,b)=> (b[1].total - a[1].total))
+          .forEach(([issue, info])=>{
+            summary.appendChild(createIssueChip(issue, info));
+          });
         if (!summary.children.length){
           const empty = document.createElement('span');
           empty.className = 'text-xs text-[#64748b]';
