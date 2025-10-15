@@ -7,12 +7,10 @@
 # The project centralizes environment examples and deploy-time envs in `deploy/`.
 # Do not commit real secrets. Ignore local .env files and the deploy backend env if present.
 .env
-deploy/backend.env
 cookies.txt
 backend/logs/
 backend/app/data/
 !backend/app/data/database.csv
-.env
 # Created by https://www.toptal.com/developers/gitignore/api/macos,windows,node,python
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,windows,node,python
 
