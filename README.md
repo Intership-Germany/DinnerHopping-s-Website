@@ -24,25 +24,51 @@ Current focus: stable core flows (auth → event creation → registration → p
 
 ## 2. Architecture at a Glance
 
-```
-┌───────────┐   HTTPS / JSON    ┌────────────────┐
-│ Frontend  │  <--------------> │ FastAPI Backend│
-│ (Static)  │                   │  (app/*)       │
-└─────┬─────┘                   └──────┬─────────┘
-			│  Static assets (Nginx)        │
-			│                                │ Async I/O
-			▼                                ▼
-	Browser                      MongoDB (collections: users, events, registrations,
-																		invitations, payments, tokens, logs (future))
-																			│
-																			│ Webhooks / API calls
-					┌──────────────┬────────────┴────────────┬──────────────┐
-					│ Stripe       │ PayPal                  │ SMTP/Email   │
-					│ (Checkout)   │ (Orders + Webhooks)     │ (optional)   │
-					└──────────────┴─────────────────────────┴──────────────┘
+```mermaid
+---
+config:
+  layout: elk
+  look: classic
+  theme: base
+---
+flowchart TB
+ subgraph Client["Client"]
+        Browser(("Browser / Mobile"))
+  end
+ subgraph Edge["TLS Reverse Proxy / CDN (Apache, nginx, Caddy)"]
+        Proxy["webhook (POST)"]
+        WAF[("Optional WAF / Rate limiter")]
+  end
+ subgraph Host["Linux Host / Systemd"]
+        Systemd["systemd service<br>(deploy/docker-compose-app.service)"]
+        DockerHost["Docker Engine + Compose"]
+        Edge
+  end
+ subgraph Stack["Docker Compose Stack (internal network)"]
+        Frontend["health and static assets"]
+        Backend["/api/* to preserve body"]
+        Mongo["(MongoDB)<br>volume: dinnerhopping-mongo-data"]
+        Mail["MailHog / SMTP relay<br>smtp:1025 ui:8025"]
+  end
+ subgraph External["Payment / Mail Providers"]
+        Stripe["Stripe webhooks to /api/payments/webhooks/stripe"]
+        PayPal["PayPal<br>webhooks to /api/payments/webhooks/paypal"]
+        SMTPRelay["forwards mail to SMTP relay"]
+  end
+    Browser --> Proxy
+    Proxy --> Backend & Frontend & Frontend & SMTPRelay
+    DockerHost --> Backend & Frontend & Mongo & Mail
+    Systemd --> DockerHost
+    Backend --> Mongo & Stripe & PayPal & Mail
+    Stripe --> Proxy
+    PayPal --> Proxy
+     Stripe:::ext
+     PayPal:::ext
+     SMTPRelay:::ext
+    classDef ext fill:#f5f5f5,stroke:#666,stroke-width:1px
 ```
 
-Deferred modules (matching, chats) are scaffolded but not active in production flows.
+Traffic terminates on a TLS-capable proxy (Apache, nginx, or similar) that serves the static frontend (Apache HTTPD inside the container) and forwards `/api` calls to the FastAPI backend. The backend talks to MongoDB for persistence, integrates with Stripe and PayPal for payments, and optionally with SMTP/MailHog for emails. Deferred modules (matching, chats) are scaffolded but not active in production flows.
 
 ## 3. Tech Stack
 
@@ -57,7 +83,13 @@ Deferred modules (matching, chats) are scaffolded but not active in production f
 | Containerization | Docker & docker-compose |
 | Logging | Python stdlib logging with category-based rotating files |
 
-## 4. Repository Structure
+## 4. Solution Structure
+
+- `backend/` — FastAPI service with modular routers, providers, and infrastructure glue; see `backend/README.md` for deeper internals.
+- `frontend/` — Static site built with Apache HTTPD + vanilla JS; rewrite rules keep clean URLs ( `/page` → `page.html` ) and `scripts/` / `generate-config.js` produce runtime configuration.
+- `deploy/` — Docker Compose definitions, systemd unit, deployment script, and environment templates; new environments should start here.
+- `logs/` — Host-mounted log folders grouped by category when file logging is enabled.
+- `tests/` & `scripts/` — pytest suites and operational scripts for data seeding/backfills.
 
 ```
 backend/                # FastAPI application
@@ -77,6 +109,11 @@ backend/                # FastAPI application
 frontend/
 	public/               # HTML pages, partials, JS helpers
 	generate-config.js    # Produces runtime config.js from .env
+
+deploy/
+	README.md             # Deployment walkthrough & architecture overview
+	*.env                 # Backend/frontend environment templates
+	*.yml                 # Compose files (dev/prod) & mail tooling
 
 README.md (this)        # General project documentation
 ```
@@ -130,6 +167,8 @@ Static site served by Nginx (Dockerfile in `frontend/`). Uses vanilla JS modules
 - Dynamic header/footer includes (`public/includes.js`)
 - Page scripts (`profile.js`, `event-page.js`, etc.)
 
+`frontend/my-httpd.conf` keeps URLs tidy by redirecting `/index.html` to `/` and serving `/page` as `page.html`. Reproduce that behaviour if you swap the web server.
+
 Environment configuration compiled into `public/config.js` via:
 ```bash
 cd frontend
@@ -173,6 +212,7 @@ Frontend `.env` (compiled into JS):
 - Creates Checkout Sessions with our internal payment ID in metadata
 - Webhook (`/payments/webhooks/stripe`) marks payment succeeded on `checkout.session.completed`
 - Idempotent: repeated attempts reuse existing payment record
+- Production setup: register `https://<domain>/api/payments/webhooks/stripe` in the Stripe Dashboard, subscribe to `checkout.session.completed` and failure events, and store the signing secret in `STRIPE_WEBHOOK_SECRET`. Allow inbound Stripe webhook IP ranges at your firewall or reverse proxy.
 
 ### PayPal (Orders API)
 Flow: create order → client approval → capture → update registration.
@@ -184,6 +224,7 @@ POST /payments/paypal/orders/{order_id}/capture
 POST /payments/webhooks/paypal
 ```
 Sandbox: set `PAYPAL_ENV=sandbox` and credentials; optional `PAYPAL_WEBHOOK_ID` for signature verification.
+- Production setup: create a PayPal webhook for `https://<domain>/api/payments/webhooks/paypal`, copy the webhook ID into `PAYPAL_WEBHOOK_ID`, and ensure the endpoint is accessible over HTTPS without request body modifications.
 
 > **Note:** The legacy manual bank transfer (“Wero”) provider has been removed. Payments must be processed through Stripe or PayPal. Manual transfers, if needed, should be tracked outside the platform.
 
