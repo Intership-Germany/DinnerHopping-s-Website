@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from .. import db as db_mod
 from ..auth import require_admin
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import datetime
 from bson.objectid import ObjectId
 
@@ -770,3 +770,318 @@ async def admin_release_event_plans(event_id: str, _=Depends(require_admin)):
         'total_paid': len(paid_emails),
         'errors': errors
     }
+
+
+def _strip_or_none(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _split_name(value: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    if not value:
+        return (None, None)
+    parts = [p for p in str(value).strip().split() if p]
+    if not parts:
+        return (None, None)
+    if len(parts) == 1:
+        return (parts[0], None)
+    return (parts[0], ' '.join(parts[1:]))
+
+
+def _isoformat(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        if isinstance(value, datetime.datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=datetime.timezone.utc)
+            return value.isoformat()
+        if isinstance(value, datetime.date):
+            return value.isoformat()
+    except Exception:
+        return str(value)
+    return str(value)
+
+
+def _collect_team_label(team: Optional[dict], users_by_id: Dict[str, dict]) -> Optional[str]:
+    if not team:
+        return None
+    members = team.get('members') or []
+    labels: List[str] = []
+    for entry in members:
+        name = _strip_or_none(entry.get('name') or entry.get('display_name'))
+        if not name and entry.get('user_id'):
+            user = users_by_id.get(str(entry.get('user_id')))
+            if user:
+                fn = _strip_or_none(user.get('first_name') or user.get('firstname'))
+                ln = _strip_or_none(user.get('last_name') or user.get('lastname'))
+                name = ' '.join([p for p in [fn, ln] if p])
+                if not name:
+                    name = _strip_or_none(user.get('name'))
+        if not name:
+            name = _strip_or_none(entry.get('email'))
+        if name:
+            labels.append(name)
+    if labels:
+        return ' × '.join(labels)
+    return None
+
+
+class ParticipantOut(BaseModel):
+    registration_id: str
+    event_id: str
+    user_id: Optional[str] = None
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    full_name: Optional[str] = None
+    gender: Optional[str] = None
+    phone_number: Optional[str] = None
+    registration_status: Optional[str] = None
+    payment_status: str
+    payment_provider: Optional[str] = None
+    payment_amount_cents: Optional[int] = None
+    payment_currency: Optional[str] = None
+    payment_id: Optional[str] = None
+    payment_updated_at: Optional[str] = None
+    team_id: Optional[str] = None
+    team_role: Optional[str] = None
+    team_status: Optional[str] = None
+    team_name: Optional[str] = None
+    diet: Optional[str] = None
+    allergies: List[str] = Field(default_factory=list)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ParticipantsSummary(BaseModel):
+    total: int
+    by_payment_status: Dict[str, int] = Field(default_factory=dict)
+    by_registration_status: Dict[str, int] = Field(default_factory=dict)
+
+
+class ParticipantsResponse(BaseModel):
+    event_id: str
+    participants: List[ParticipantOut]
+    summary: ParticipantsSummary
+
+
+@router.get('/events/{event_id}/participants', response_model=ParticipantsResponse)
+async def admin_event_participants(event_id: str, search: Optional[str] = None, _=Depends(require_admin)):
+    try:
+        event_oid = ObjectId(event_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid event_id')
+
+    event = await db_mod.db.events.find_one({'_id': event_oid})
+    if not event:
+        raise HTTPException(status_code=404, detail='Event not found')
+
+    registrations: List[dict] = []
+    async for reg in db_mod.db.registrations.find({'event_id': event_oid}):
+        registrations.append(reg)
+
+    if not registrations:
+        empty_summary = ParticipantsSummary(total=0)
+        return ParticipantsResponse(event_id=event_id, participants=[], summary=empty_summary)
+
+    reg_ids = [reg.get('_id') for reg in registrations if reg.get('_id')]
+    user_ids: set[Any] = set()
+    team_ids: set[Any] = set()
+    for reg in registrations:
+        if reg.get('user_id'):
+            user_ids.add(reg['user_id'])
+        if reg.get('team_id'):
+            team_ids.add(reg['team_id'])
+
+    teams: Dict[str, dict] = {}
+    if team_ids:
+        async for team in db_mod.db.teams.find({'_id': {'$in': list(team_ids)}}):
+            teams[str(team.get('_id'))] = team
+            for member in team.get('members', []) or []:
+                if member.get('user_id'):
+                    user_ids.add(member['user_id'])
+
+    users_by_id: Dict[str, dict] = {}
+    users_by_email: Dict[str, dict] = {}
+    if user_ids:
+        async for user in db_mod.db.users.find({'_id': {'$in': list(user_ids)}}):
+            uid = str(user.get('_id'))
+            users_by_id[uid] = user
+            email = _strip_or_none(user.get('email'))
+            if email:
+                users_by_email[email.lower()] = user
+
+    payments_by_registration: Dict[str, List[dict]] = {}
+    if reg_ids:
+        async for payment in db_mod.db.payments.find({'registration_id': {'$in': reg_ids}}):
+            rid = payment.get('registration_id')
+            if rid:
+                payments_by_registration.setdefault(str(rid), []).append(payment)
+
+    def resolve_member_snapshot(team_doc: Optional[dict], reg_doc: dict, user_doc: Optional[dict]) -> Optional[dict]:
+        if not team_doc:
+            return None
+        members = team_doc.get('members') or []
+        reg_uid = reg_doc.get('user_id')
+        reg_uid_str = str(reg_uid) if reg_uid else None
+        reg_email = _strip_or_none(reg_doc.get('user_email_snapshot') or (user_doc or {}).get('email'))
+        reg_email_lower = reg_email.lower() if reg_email else None
+        for member in members:
+            mem_uid = member.get('user_id')
+            if mem_uid and reg_uid_str and str(mem_uid) == reg_uid_str:
+                return member
+            mem_email = _strip_or_none(member.get('email'))
+            if mem_email and reg_email_lower and mem_email.lower() == reg_email_lower:
+                return member
+        return None
+
+    def derive_payment_status(reg_status: Optional[str], documents: List[dict], team_role: Optional[str]) -> str:
+        reg_norm = (reg_status or '').lower()
+        statuses = [(doc.get('status') or '').lower() for doc in documents]
+        success_states = {'succeeded', 'paid'}
+        pending_states = {'pending', 'created', 'in_process', 'manual_review', 'requires_action'}
+        failure_states = {'failed', 'cancelled', 'cancelled_by_user', 'cancelled_admin', 'expired'}
+        if any(state in success_states for state in statuses) or reg_norm == 'paid':
+            return 'paid'
+        if team_role == 'partner' and reg_norm in {'confirmed', 'invited', 'pending'}:
+            return 'covered_by_team'
+        if any(state in pending_states for state in statuses) or reg_norm in {'pending_payment'}:
+            return 'pending'
+        if statuses and all(state in failure_states for state in statuses):
+            return 'failed'
+        if reg_norm in {'cancelled_by_user', 'cancelled_admin', 'refunded', 'expired'}:
+            return 'not_applicable'
+        if statuses:
+            return statuses[0]
+        return 'unpaid'
+
+    def latest_payment(documents: List[dict]) -> Optional[dict]:
+        def timestamp(doc: dict) -> Any:
+            for key in ('paid_at', 'updated_at', 'created_at'):
+                if doc.get(key):
+                    return doc.get(key)
+            return None
+        if not documents:
+            return None
+        return max(documents, key=lambda d: timestamp(d) or datetime.datetime.fromtimestamp(0, datetime.timezone.utc))
+
+    participants: List[ParticipantOut] = []
+    search_norm = _strip_or_none(search)
+
+    for reg in registrations:
+        reg_id = str(reg.get('_id'))
+        user_id = reg.get('user_id')
+        user_doc = users_by_id.get(str(user_id)) if user_id else None
+        email = _strip_or_none(reg.get('user_email_snapshot') or (user_doc or {}).get('email'))
+        if not user_doc and email and email.lower() in users_by_email:
+            user_doc = users_by_email[email.lower()]
+
+        team_id = reg.get('team_id')
+        team_doc = teams.get(str(team_id)) if team_id else None
+        member_snapshot = resolve_member_snapshot(team_doc, reg, user_doc)
+
+        fn = _strip_or_none((user_doc or {}).get('first_name') or (user_doc or {}).get('firstname'))
+        ln = _strip_or_none((user_doc or {}).get('last_name') or (user_doc or {}).get('lastname'))
+        if not fn and not ln:
+            fallback_name = _strip_or_none((user_doc or {}).get('name')) or _strip_or_none((member_snapshot or {}).get('name'))
+            split_fn, split_ln = _split_name(fallback_name)
+            fn = fn or split_fn
+            ln = ln or split_ln
+        full_name = _strip_or_none(' '.join([part for part in [fn, ln] if part]))
+        if not full_name:
+            full_name = _strip_or_none((member_snapshot or {}).get('name')) or _strip_or_none((user_doc or {}).get('name'))
+        if not full_name:
+            full_name = email
+
+        gender = _strip_or_none((user_doc or {}).get('gender') or (member_snapshot or {}).get('gender'))
+        phone = _strip_or_none((user_doc or {}).get('phone_number') or (member_snapshot or {}).get('phone'))
+
+        diet = _strip_or_none((member_snapshot or {}).get('diet') or reg.get('diet'))
+        allergies_raw = None
+        if member_snapshot and member_snapshot.get('allergies') is not None:
+            allergies_raw = member_snapshot.get('allergies')
+        elif user_doc and user_doc.get('allergies') is not None:
+            allergies_raw = user_doc.get('allergies')
+        elif reg.get('allergies') is not None:
+            allergies_raw = reg.get('allergies')
+        allergies: List[str] = []
+        if isinstance(allergies_raw, list):
+            allergies = [str(a).strip() for a in allergies_raw if str(a).strip()]
+
+        team_role = None
+        if team_doc:
+            creator_id = team_doc.get('created_by_user_id')
+            if creator_id and user_id and str(creator_id) == str(user_id):
+                team_role = 'creator'
+            else:
+                team_role = 'partner'
+
+        payments = payments_by_registration.get(reg_id, [])
+        payment_status = derive_payment_status(reg.get('status'), payments, team_role)
+        latest = latest_payment(payments)
+        amount_cents = None
+        payment_provider = None
+        payment_currency = None
+        payment_id = None
+        payment_updated_at = None
+        if latest:
+            payment_provider = _strip_or_none(latest.get('provider'))
+            payment_currency = _strip_or_none(latest.get('currency'))
+            payment_id = str(latest.get('_id')) if latest.get('_id') else None
+            raw_amount = latest.get('amount')
+            if raw_amount is not None:
+                try:
+                    amount_cents = int(round(float(raw_amount) * 100))
+                except Exception:
+                    amount_cents = None
+            payment_updated_at = _isoformat(latest.get('paid_at') or latest.get('updated_at') or latest.get('created_at'))
+
+        participant = ParticipantOut(
+            registration_id=reg_id,
+            event_id=event_id,
+            user_id=str(user_id) if user_id else None,
+            email=email,
+            first_name=fn,
+            last_name=ln,
+            full_name=full_name,
+            gender=gender,
+            phone_number=phone,
+            registration_status=reg.get('status'),
+            payment_status=payment_status,
+            payment_provider=payment_provider,
+            payment_amount_cents=amount_cents,
+            payment_currency=payment_currency,
+            payment_id=payment_id,
+            payment_updated_at=payment_updated_at,
+            team_id=str(team_id) if team_id else None,
+            team_role=team_role,
+            team_status=(team_doc or {}).get('status'),
+            team_name=_collect_team_label(team_doc, users_by_id),
+            diet=diet,
+            allergies=allergies,
+            created_at=_isoformat(reg.get('created_at')),
+            updated_at=_isoformat(reg.get('updated_at')),
+        )
+
+        if search_norm:
+            haystack = ' '.join(filter(None, [participant.full_name, participant.email, participant.team_name, participant.registration_status, participant.payment_status]))
+            if search_norm.lower() not in haystack.lower():
+                continue
+
+        participants.append(participant)
+
+    summary = ParticipantsSummary(
+        total=len(participants),
+    )
+    for item in participants:
+        pay_key = item.payment_status or 'unknown'
+        reg_key = item.registration_status or 'unknown'
+        summary.by_payment_status[pay_key] = summary.by_payment_status.get(pay_key, 0) + 1
+        summary.by_registration_status[reg_key] = summary.by_registration_status.get(reg_key, 0) + 1
+
+    return ParticipantsResponse(event_id=event_id, participants=participants, summary=summary)

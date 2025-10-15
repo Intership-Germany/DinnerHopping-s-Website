@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
-from typing import Dict, Iterable, List, Optional, Tuple
+import logging
+import time
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from bson.objectid import ObjectId
 
@@ -11,7 +14,11 @@ from ...utils import anonymize_public_address as _public_addr  # type: ignore
 
 from ..geocoding import geocode_address
 
-from .config import geocode_missing_enabled
+from .config import geocode_missing_enabled, geocode_parallelism
+
+logger = logging.getLogger(__name__)
+
+UserCache = Dict[str, dict]
 
 
 def _normalize_allergies(values: Iterable[object]) -> List[str]:
@@ -26,6 +33,30 @@ def _normalize_allergies(values: Iterable[object]) -> List[str]:
         seen.add(item)
         normalized.append(item)
     return normalized
+
+
+def _normalize_email(email: Optional[str]) -> Optional[str]:
+    if email is None:
+        return None
+    cleaned = str(email).strip().lower()
+    return cleaned or None
+
+
+async def _get_user(email: Optional[str], cache: Optional[UserCache] = None) -> Optional[dict]:
+    if email is None:
+        return None
+    raw = str(email).strip()
+    if not raw:
+        return None
+    normalized = raw.lower()
+    if cache is not None and normalized in cache:
+        return cache[normalized]
+    user = await db_mod.db.users.find_one({'email': raw})
+    if not user and normalized != raw:
+        user = await db_mod.db.users.find_one({'email': normalized})
+    if user and cache is not None:
+        cache[normalized] = user
+    return user
 
 
 async def get_event(event_id: str) -> Optional[dict]:
@@ -53,11 +84,11 @@ async def load_teams(event_oid: ObjectId) -> Dict[str, dict]:
     return teams
 
 
-async def user_profile(email: str) -> Optional[dict]:
-    return await db_mod.db.users.find_one({'email': email})
+async def user_profile(email: str, cache: Optional[UserCache] = None) -> Optional[dict]:
+    return await _get_user(email, cache)
 
 
-async def team_location(team: dict) -> Tuple[Optional[float], Optional[float]]:
+async def team_location(team: dict, cache: Optional[UserCache] = None, geocode_sem: Optional[asyncio.Semaphore] = None) -> Tuple[Optional[float], Optional[float]]:
     """Return representative (lat, lon) for the given team, geocoding when needed."""
     members = team.get('members') or []
     coords: List[Tuple[float, float]] = []
@@ -65,7 +96,7 @@ async def team_location(team: dict) -> Tuple[Optional[float], Optional[float]]:
         email = member.get('email')
         if not email:
             continue
-        user = await user_profile(email)
+        user = await _get_user(email, cache)
         if not user:
             continue
         lat = user.get('lat')
@@ -83,7 +114,14 @@ async def team_location(team: dict) -> Tuple[Optional[float], Optional[float]]:
         address = ", ".join([p for p in addr_parts if p]).strip()
         if not address:
             continue
-        latlon = await geocode_address(address)
+        async def _geocode() -> Optional[Tuple[float, float]]:
+            return await geocode_address(address)
+
+        if geocode_sem is None:
+            latlon = await _geocode()
+        else:
+            async with geocode_sem:
+                latlon = await _geocode()
         if not latlon:
             continue
         g_lat, g_lon = latlon
@@ -94,6 +132,13 @@ async def team_location(team: dict) -> Tuple[Optional[float], Optional[float]]:
                 {'_id': user['_id']},
                 {'$set': {'lat': float(g_lat), 'lon': float(g_lon), 'geocoded_at': now}},
             )
+            if cache is not None:
+                cache[_normalize_email(email) or str(email).lower()] = {
+                    **user,
+                    'lat': float(g_lat),
+                    'lon': float(g_lon),
+                    'geocoded_at': now,
+                }
         except Exception:
             pass
     if coords:
@@ -111,6 +156,7 @@ def team_key(registration: dict) -> str:
 
 
 async def build_teams(event_oid: ObjectId) -> List[dict]:
+    start = time.perf_counter()
     registrations = await load_registrations(event_oid)
     teams_docs = await load_teams(event_oid)
     event = await db_mod.db.events.find_one({'_id': event_oid})
@@ -119,6 +165,24 @@ async def build_teams(event_oid: ObjectId) -> List[dict]:
         for z in (event.get('valid_zip_codes') or [])
         if str(z).strip()
     } if event else set()
+
+    emails_for_query: Set[str] = set()
+    for registration in registrations:
+        email = registration.get('user_email_snapshot')
+        if email:
+            emails_for_query.add(str(email).strip())
+    for team_doc in teams_docs.values():
+        for member in (team_doc.get('members') or []):
+            email = member.get('email')
+            if email:
+                emails_for_query.add(str(email).strip())
+
+    user_cache: UserCache = {}
+    if emails_for_query:
+        async for user in db_mod.db.users.find({'email': {'$in': list(emails_for_query)}}):
+            key = _normalize_email(user.get('email'))
+            if key:
+                user_cache[key] = user
 
     grouped_regs: Dict[str, List[dict]] = {}
     for registration in registrations:
@@ -133,7 +197,7 @@ async def build_teams(event_oid: ObjectId) -> List[dict]:
         else:
             member_emails = [r.get('user_email_snapshot') for r in regs if r.get('user_email_snapshot')]
         if allowed_zips:
-            if not await _any_email_in_zip(member_emails, allowed_zips):
+            if not await _any_email_in_zip(member_emails, allowed_zips, user_cache):
                 continue
         size = max(reg.get('team_size') or 1 for reg in regs)
         pref = None
@@ -175,22 +239,35 @@ async def build_teams(event_oid: ObjectId) -> List[dict]:
 
     teams.sort(key=lambda entry: entry['team_id'])
 
+    geocode_sem = asyncio.Semaphore(geocode_parallelism())
+    location_tasks: List[asyncio.Task[Tuple[Optional[float], Optional[float]]]] = []
+
+    def fallback_members(entry: dict) -> List[dict]:
+        regs = entry.get('member_regs') or []
+        if not regs:
+            return []
+        first = regs[0].get('user_email_snapshot')
+        return [{'email': first}] if first else []
     for team_entry in teams:
-        team_doc = team_entry.get('team_doc') or {
-            'members': [{'email': (team_entry['member_regs'][0].get('user_email_snapshot'))}],
-        }
-        lat, lon = await team_location(team_doc)
+        team_doc = team_entry.get('team_doc') or {'members': fallback_members(team_entry)}
+        location_tasks.append(asyncio.create_task(team_location(team_doc, user_cache, geocode_sem)))
+    locations = await asyncio.gather(*location_tasks) if location_tasks else []
+    for team_entry, loc in zip(teams, locations):
+        lat, lon = loc
         team_entry['lat'] = lat
         team_entry['lon'] = lon
-        await _augment_capabilities(team_entry)
-        team_entry['allergies'] = await _collect_team_allergies(team_entry, team_doc)
-        team_entry['host_allergies'] = await _determine_host_allergies(team_entry, team_doc)
+        await _augment_capabilities(team_entry, user_cache)
+        team_doc = team_entry.get('team_doc') or {'members': fallback_members(team_entry)}
+        team_entry['allergies'] = await _collect_team_allergies(team_entry, team_doc, user_cache)
+        team_entry['host_allergies'] = await _determine_host_allergies(team_entry, team_doc, user_cache)
+        team_entry['_user_cache'] = user_cache
+    logger.debug('matching.build_teams teams=%d duration=%.3fs', len(teams), time.perf_counter() - start)
     return teams
 
 
-async def _any_email_in_zip(emails: List[str], allowed_zips: set[str]) -> bool:
-    for email in set(e for e in emails if e):
-        user = await db_mod.db.users.find_one({'email': email})
+async def _any_email_in_zip(emails: List[str], allowed_zips: set[str], cache: UserCache) -> bool:
+    for email in {e for e in emails if e}:
+        user = await _get_user(email, cache)
         if not user:
             continue
         postal = ((user.get('address_struct') or {}).get('postal_code'))
@@ -199,7 +276,7 @@ async def _any_email_in_zip(emails: List[str], allowed_zips: set[str]) -> bool:
     return False
 
 
-async def _augment_capabilities(team_entry: dict) -> None:
+async def _augment_capabilities(team_entry: dict, cache: UserCache) -> None:
     team_doc = team_entry.get('team_doc') or {}
     members = team_doc.get('members') or []
     can_main = False
@@ -209,18 +286,18 @@ async def _augment_capabilities(team_entry: dict) -> None:
         elif len(members) > 1:
             can_main = bool(members[1].get('main_course_possible'))
     if not can_main:
-        can_main = await _fallback_main_course_capability(team_entry, members)
+        can_main = await _fallback_main_course_capability(team_entry, members, cache)
     team_entry['can_host_main'] = bool(can_main)
 
     has_kitchen = team_doc.get('has_kitchen')
     if has_kitchen is None:
-        has_kitchen = await _fallback_has_kitchen(team_entry, members)
+        has_kitchen = await _fallback_has_kitchen(team_entry, members, cache)
     if has_kitchen is None:
         has_kitchen = bool(can_main)
     team_entry['can_host_any'] = bool(has_kitchen)
 
 
-async def _fallback_main_course_capability(team_entry: dict, members: List[dict]) -> bool:
+async def _fallback_main_course_capability(team_entry: dict, members: List[dict], cache: UserCache) -> bool:
     can_main = False
     for registration in team_entry.get('member_regs') or []:
         prefs = (registration.get('preferences') or {})
@@ -232,14 +309,14 @@ async def _fallback_main_course_capability(team_entry: dict, members: List[dict]
             email = registration.get('user_email_snapshot')
             if not email:
                 continue
-            user = await db_mod.db.users.find_one({'email': email})
+            user = await _get_user(email, cache)
             if user and user.get('main_course_possible') is True:
                 can_main = True
                 break
     return bool(can_main)
 
 
-async def _fallback_has_kitchen(team_entry: dict, members: List[dict]) -> Optional[bool]:
+async def _fallback_has_kitchen(team_entry: dict, members: List[dict], cache: UserCache) -> Optional[bool]:
     for member in members:
         if member.get('kitchen_available') is True:
             return True
@@ -251,16 +328,16 @@ async def _fallback_has_kitchen(team_entry: dict, members: List[dict]) -> Option
         email = registration.get('user_email_snapshot')
         if not email:
             continue
-        user = await db_mod.db.users.find_one({'email': email})
+        user = await _get_user(email, cache)
         if user and user.get('kitchen_available') is True:
             return True
     return None
 
 
-async def user_address_string(email: Optional[str]) -> Optional[Tuple[str, str]]:
+async def user_address_string(email: Optional[str], cache: Optional[UserCache] = None) -> Optional[Tuple[str, str]]:
     if not email:
         return None
-    user = await db_mod.db.users.find_one({'email': email})
+    user = await _get_user(email, cache)
     if not user:
         return None
     address_struct = user.get('address_struct') or {}
@@ -312,7 +389,7 @@ def augment_emails_map_with_splits(base: Dict[str, List[str]], groups: List[dict
     return mapping
 
 
-async def _collect_team_allergies(team_entry: dict, team_doc: dict) -> List[str]:
+async def _collect_team_allergies(team_entry: dict, team_doc: dict, cache: UserCache) -> List[str]:
     allergies: List[str] = []
 
     def extend(values: Iterable[object]) -> None:
@@ -336,13 +413,13 @@ async def _collect_team_allergies(team_entry: dict, team_doc: dict) -> List[str]
 
     if not allergies:
         for email in _collect_team_emails(team_entry):
-            user = await user_profile(email)
+            user = await _get_user(email, cache)
             if user:
                 extend(user.get('allergies') or [])
     return allergies
 
 
-async def _determine_host_allergies(team_entry: dict, team_doc: dict) -> List[str]:
+async def _determine_host_allergies(team_entry: dict, team_doc: dict, cache: UserCache) -> List[str]:
     members = (team_doc or {}).get('members') or []
     host_values: List[str] = []
 
@@ -367,7 +444,7 @@ async def _determine_host_allergies(team_entry: dict, team_doc: dict) -> List[st
     if (team_entry.get('cooking_location') or 'creator').lower() != 'creator' and len(host_emails) > 1:
         host_email = host_emails[1]
     if host_email:
-        user = await user_profile(host_email)
+        user = await _get_user(host_email, cache)
         if user:
             return _normalize_allergies(user.get('allergies') or [])
     return []

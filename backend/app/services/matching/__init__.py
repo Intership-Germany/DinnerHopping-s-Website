@@ -34,6 +34,11 @@ from .units import (
     group_units_in_triads as _group_units_in_triads,
     merge_two_solos,
 )
+from .jobs import (
+    enqueue_matching_job,
+    get_matching_job,
+    list_matching_jobs,
+)
 
 __all__ = [
     'ALGORITHMS',
@@ -57,4 +62,7 @@ __all__ = [
     '_compute_metrics',
     '_group_units_in_triads',
     '_user_address_string',
+    'enqueue_matching_job',
+    'get_matching_job',
+    'list_matching_jobs',
 ]
