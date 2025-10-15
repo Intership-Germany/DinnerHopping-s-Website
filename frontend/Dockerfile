@@ -4,6 +4,7 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 
 # Copy public assets to builder
+COPY frontend/package.json frontend/generate-config.js ./
 COPY frontend/public/ ./public/
 
 # Copy centralized env when present at build-time (deploy/frontend.env)

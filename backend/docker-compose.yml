@@ -4,7 +4,7 @@ services:
     image: mongodb/mongodb-community-server:6.0-ubi8
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "17027:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
       - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
@@ -15,7 +15,7 @@ services:
   backend:
     build: .
     ports:
-      - "8000:8000"
+      - "33240:8000"
     env_file:
       - ./app/.env
     environment:
@@ -30,26 +30,3 @@ services:
     volumes:
       # expose logs directory on host for persistence and inspection
       - ./logs:/var/log/dinnerhopping
-
-  # Development SMTP capture service (MailHog)
-  mailhog:
-    image: mailhog/mailhog:latest
-    container_name: dh_mailhog
-    ports:
-      - "1025:1025"    # SMTP
-      - "8025:8025"    # Web UI
-
-  # Simple nginx HTTPS front for sharing dev server over VPN (maps host:8443 -> container:443)
-  nginx-https:
-    image: nginx:stable-alpine
-    container_name: dh_dev_nginx
-    depends_on:
-      - backend
-    volumes:
-      - ../deploy/nginx/conf.d:/etc/nginx/conf.d:ro
-      - ../deploy/nginx/certs:/etc/nginx/certs:ro
-      
-    ports:
-      - "443:443"
-    restart: unless-stopped
-# Using host bind mounts for persistent data. No named volumes required.
