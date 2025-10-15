@@ -1,4 +1,6 @@
+import logging
 import os
+import time
 from typing import List, Tuple, Optional
 
 try:
@@ -19,6 +21,8 @@ ORS_API_KEY = os.getenv('ORS_API_KEY')
 PREFER = os.getenv('ROUTING_PREFER', 'osrm').lower()
 OSRM_PROFILE = os.getenv('OSRM_PROFILE', 'bike')  # user requested 'bike' path; default to bike
 
+logger = logging.getLogger(__name__)
+
 
 async def _osrm_route(coords: List[Tuple[float, float]]) -> Optional[float]:
     # coords: list of (lat,lon); OSRM expects lon,lat semicolon separated
@@ -29,16 +33,20 @@ async def _osrm_route(coords: List[Tuple[float, float]]) -> Optional[float]:
     pairs = [f"{lon:.6f},{lat:.6f}" for (lat, lon) in coords]
     url = f"{OSRM_BASE}/route/v1/{OSRM_PROFILE}/" + ";".join(pairs)
     params = {'overview': 'false', 'alternatives': 'false', 'steps': 'false'}
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(url, params=params)
-        if r.status_code != 200:
-            return None
-        data = r.json()
-        routes = (data or {}).get('routes') or []
-        if not routes:
-            return None
-        # duration in seconds
-        return float(routes[0].get('duration') or 0.0)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url, params=params)
+    except Exception as exc:  # pragma: no cover - network/socket errors
+        logger.warning('OSRM routing call failed: %s', exc)
+        return None
+    if r.status_code != 200:
+        return None
+    data = r.json()
+    routes = (data or {}).get('routes') or []
+    if not routes:
+        return None
+    # duration in seconds
+    return float(routes[0].get('duration') or 0.0)
 
 
 async def _ors_route(coords: List[Tuple[float, float]]) -> Optional[float]:
@@ -53,13 +61,17 @@ async def _ors_route(coords: List[Tuple[float, float]]) -> Optional[float]:
     if ORS_API_KEY:
         headers['Authorization'] = ORS_API_KEY
     payload = {'coordinates': locations, 'units': 'm'}
-    async with httpx.AsyncClient(timeout=12.0) as client:
-        r = await client.post(url, json=payload, headers=headers)
-        if r.status_code != 200:
-            return None
-        data = r.json()
-        summary = (((data or {}).get('routes') or [{}])[0].get('summary') or {})
-        return float(summary.get('duration') or 0.0)
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            r = await client.post(url, json=payload, headers=headers)
+    except Exception as exc:  # pragma: no cover - network/socket errors
+        logger.warning('ORS routing call failed: %s', exc)
+        return None
+    if r.status_code != 200:
+        return None
+    data = r.json()
+    summary = (((data or {}).get('routes') or [{}])[0].get('summary') or {})
+    return float(summary.get('duration') or 0.0)
 
 
 async def route_duration_seconds(coords: List[Tuple[float, float]]) -> Optional[float]:
@@ -67,16 +79,23 @@ async def route_duration_seconds(coords: List[Tuple[float, float]]) -> Optional[
 
     Tries the preferred engine first then falls back to the other.
     """
+    start = time.perf_counter()
     if PREFER == 'ors':
         d = await _ors_route(coords)
         if d is not None:
+            logger.debug('routing.route_duration_seconds engine=ors points=%d duration=%.3fs', len(coords or []), time.perf_counter() - start)
             return d
-        return await _osrm_route(coords)
+        result = await _osrm_route(coords)
+        logger.debug('routing.route_duration_seconds engine=osrm(points fallback) points=%d duration=%.3fs', len(coords or []), time.perf_counter() - start)
+        return result
     else:
         d = await _osrm_route(coords)
         if d is not None:
+            logger.debug('routing.route_duration_seconds engine=osrm points=%d duration=%.3fs', len(coords or []), time.perf_counter() - start)
             return d
-        return await _ors_route(coords)
+        result = await _ors_route(coords)
+        logger.debug('routing.route_duration_seconds engine=ors(points fallback) points=%d duration=%.3fs', len(coords or []), time.perf_counter() - start)
+        return result
 
 
 async def route_polyline(coords: List[Tuple[float, float]], *, alternatives: bool = True) -> Optional[List[List[float]]]:

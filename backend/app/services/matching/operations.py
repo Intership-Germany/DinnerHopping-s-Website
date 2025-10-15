@@ -138,6 +138,8 @@ async def list_issues(event_id: str, version: Optional[int] = None) -> dict:
                 register_issue('payment_missing', tid, role)
             if tid in team_payment_partial:
                 register_issue('payment_partial', tid, role)
+            if isinstance(team_id, str) and team_id.startswith('split:'):
+                register_issue('team_split_detected', tid, role)
 
         if group.get('uncovered_allergies'):
             register_issue('uncovered_allergy', str(host_id) if host_id is not None else None, 'host', {'allergies': list(group.get('uncovered_allergies') or [])})
@@ -152,6 +154,8 @@ async def list_issues(event_id: str, version: Optional[int] = None) -> dict:
                 continue
             elif warning == 'diet_conflict':
                 register_issue('diet_conflict')
+            elif warning == 'host_reuse':
+                register_issue('host_reuse', str(host_id) if host_id is not None else None, 'host')
 
         # Duplicate encounters (host-guest and guest-guest) occurring across groups/phases
         candidate_pairs: List[tuple[str, str]] = []

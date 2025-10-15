@@ -3,15 +3,19 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 
 from ... import db as db_mod
+from .data import user_address_string
 
 
 async def build_units_from_teams(teams: List[dict]) -> Tuple[List[dict], Dict[str, List[str]]]:
     units: List[dict] = []
     unit_emails: Dict[str, List[str]] = {}
+    address_cache: Dict[str, Optional[Tuple[str, str]]] = {}
     for team in teams:
         team_id = str(team['team_id'])
         emails = _collect_team_emails(team)
         host_emails = _select_host_emails(team, emails)
+        user_cache = team.get('_user_cache') if isinstance(team.get('_user_cache'), dict) else None
+        host_address_full, host_address_public = await _resolve_host_address(host_emails, user_cache, address_cache)
         unit = {
             'unit_id': team_id,
             'size': int(team.get('size') or max(1, len(emails) or 1)),
@@ -24,6 +28,9 @@ async def build_units_from_teams(teams: List[dict]) -> Tuple[List[dict], Dict[st
             'host_emails': host_emails,
             'allergies': list(team.get('allergies') or []),
             'host_allergies': list(team.get('host_allergies') or team.get('allergies') or []),
+            'host_address_full': host_address_full,
+            'host_address_public': host_address_public,
+            'user_cache_ref': user_cache,
         }
         units.append(unit)
         unit_emails[team_id] = emails
@@ -72,6 +79,25 @@ def _select_host_emails(team: dict, emails: List[str]) -> List[str]:
     if not host_emails and emails:
         host_emails = [emails[0]]
     return host_emails
+
+
+async def _resolve_host_address(
+    host_emails: List[str],
+    user_cache: Optional[Dict[str, dict]],
+    address_cache: Dict[str, Optional[Tuple[str, str]]],
+) -> Tuple[Optional[str], Optional[str]]:
+    if not host_emails:
+        return (None, None)
+    for email in host_emails:
+        if not email:
+            continue
+        key = email.strip().lower()
+        if key not in address_cache:
+            address_cache[key] = await user_address_string(email, cache=user_cache)
+        cached = address_cache.get(key)
+        if cached:
+            return cached
+    return (None, None)
 
 
 def emails_to_unit_index(units: List[dict], unit_emails: Dict[str, List[str]]) -> Dict[str, List[str]]:
@@ -171,6 +197,7 @@ def apply_required_splits(units: List[dict], unit_emails: Dict[str, List[str]], 
             continue
         removed.add(unit['unit_id'])
         mapping.pop(unit['unit_id'], None)
+        origin_id = unit['unit_id']
         for email in emails:
             unit_id = f'split:{email.lower()}'
             new_unit = {
@@ -179,12 +206,14 @@ def apply_required_splits(units: List[dict], unit_emails: Dict[str, List[str]], 
                 'lat': unit.get('lat'),
                 'lon': unit.get('lon'),
                 'team_diet': unit.get('team_diet') or 'omnivore',
-                'can_host_main': bool(unit.get('can_host_main')),
-                'can_host_any': bool(unit.get('can_host_any')),
+                # Split members cannot host alone; keep them as guests only.
+                'can_host_main': False,
+                'can_host_any': False,
                 'course_preference': None,
                 'host_emails': [email],
                 'allergies': list(unit.get('allergies') or []),
                 'host_allergies': list(unit.get('host_allergies') or unit.get('allergies') or []),
+                'split_origin': origin_id,
             }
             new_units.append(new_unit)
             mapping[unit_id] = [email]
@@ -197,50 +226,63 @@ async def apply_minimal_splits(units: List[dict], unit_emails: Dict[str, List[st
     if remainder == 0:
         return units, unit_emails
     needed = (3 - remainder) % 3
+    if needed == 0:
+        return units, unit_emails
+
+    base_units = list(units)
+    base_mapping = dict(unit_emails)
+
     candidates: List[Tuple[dict, List[str]]] = []
     for unit in units:
         unit_id = unit['unit_id']
         if isinstance(unit_id, str) and (unit_id.startswith('split:') or unit_id.startswith('pair:')):
             continue
         emails = list(unit_emails.get(unit_id, []))
-        if len(emails) >= 2:
+        # Only split teams of exactly two members to keep duos together later.
+        if len(emails) == 2:
             candidates.append((unit, emails))
-    candidates.sort(key=lambda item: len(item[1]))
+    candidates.sort(key=lambda item: str(item[0]['unit_id']))
+
     new_units: List[dict] = []
     removed = set()
     mapping = dict(unit_emails)
+    splits_applied = 0
+
     for unit, emails in candidates:
-        if needed <= 0:
+        if splits_applied >= needed:
             break
         unit_id = unit['unit_id']
         if unit_id in removed:
             continue
-        if needed >= 2 and len(emails) >= 3:
-            split_count = 3
-            reduction = 2
-        else:
-            split_count = 2
-            reduction = 1
         removed.add(unit_id)
         mapping.pop(unit_id, None)
-        for email in emails[:split_count]:
+        origin_id = unit_id
+        for email in emails:
             lat, lon = await _resolve_coords_from_user(email, unit)
+            new_unit_id = f'split:{email.lower()}'
             new_unit = {
-                'unit_id': f'split:{email.lower()}',
+                'unit_id': new_unit_id,
                 'size': 1,
                 'lat': lat,
                 'lon': lon,
                 'team_diet': unit.get('team_diet') or 'omnivore',
-                'can_host_main': bool(unit.get('can_host_main')),
-                'can_host_any': bool(unit.get('can_host_any')),
+                # Split members should not host separately.
+                'can_host_main': False,
+                'can_host_any': False,
                 'course_preference': None,
                 'host_emails': [email],
                 'allergies': list(unit.get('allergies') or []),
                 'host_allergies': list(unit.get('host_allergies') or unit.get('allergies') or []),
+                'split_origin': origin_id,
             }
             new_units.append(new_unit)
-            mapping[new_unit['unit_id']] = [email]
-        needed -= reduction
+            mapping[new_unit_id] = [email]
+        splits_applied += 1
+
+    if splits_applied < needed:
+        # Revert to original units if we cannot reach the required count.
+        return base_units, base_mapping
+
     kept = [unit for unit in units if unit['unit_id'] not in removed]
     return kept + new_units, mapping
 

@@ -19,6 +19,7 @@ from typing import Optional, Literal, List
 from datetime import timezone, timedelta
 from app import db as db_mod
 from app.auth import get_current_user, require_admin
+from app.schemas import EventStatus
 from app.utils import anonymize_address, encrypt_address, anonymize_public_address, require_event_registration_open, create_chat_group
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
@@ -133,6 +134,13 @@ def _fmt_date(v):
     if isinstance(v, datetime.date):
         return v.isoformat()
     return str(v)
+
+
+def _normalize_status(value: Optional[str]) -> EventStatus:
+    try:
+        return EventStatus.normalize(value)
+    except Exception:
+        return EventStatus.draft
 
 # Generic serializer (recursive) to convert ObjectId & datetime for JSON responses
 # (events.py referenced _serialize without defining it previously)

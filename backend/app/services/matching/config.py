@@ -61,12 +61,34 @@ def host_candidate_limit() -> int:
     return max(0, _int_env("MATCH_HOST_CANDIDATES", "4"))
 
 
+@lru_cache(maxsize=1)
+def guest_candidate_limit() -> int:
+    """Maximum number of guest units considered per host when forming groups."""
+    return max(0, _int_env("MATCH_GUEST_CANDIDATES", "10"))
+
+
 def geocode_missing_enabled() -> bool:
     return _bool_env("MATCH_GEOCODE_ON_MISSING", True)
 
 
 def travel_fast_mode() -> bool:
     return _bool_env("MATCH_TRAVEL_FAST", False)
+
+
+@lru_cache(maxsize=1)
+def allow_team_splits() -> bool:
+    """Return whether automatic team splitting is permitted (default: disabled)."""
+    return _bool_env("MATCH_ALLOW_TEAM_SPLITS", False)
+
+
+@lru_cache(maxsize=1)
+def routing_parallelism() -> int:
+    return max(1, _int_env("MATCH_ROUTING_PARALLELISM", "6"))
+
+
+@lru_cache(maxsize=1)
+def geocode_parallelism() -> int:
+    return max(1, _int_env("MATCH_GEOCODE_PARALLELISM", "4"))
 
 
 @lru_cache(maxsize=1)

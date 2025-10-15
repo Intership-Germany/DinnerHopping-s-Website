@@ -6,6 +6,12 @@
   const fmtDate = (s)=> s ? new Date(s).toLocaleString() : '';
   const toast = (msg, opts)=> (window.dh && window.dh.toast) ? window.dh.toast(msg, opts||{}) : null;
   const toastLoading = (msg)=> (window.dh && window.dh.toastLoading) ? window.dh.toastLoading(msg) : { update(){}, close(){} };
+  const ESCAPE_LOOKUP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  const ESCAPE_REGEX = /[&<>"']/g;
+  const escapeHtml = (value)=>{
+    if (value === null || value === undefined) return '';
+    return String(value).replace(ESCAPE_REGEX, (ch)=> ESCAPE_LOOKUP[ch] || ch);
+  };
 
   // --- Edit mode state ---
   let editingId = null;
@@ -15,6 +21,148 @@
   let detailsGroups = [];    // [{phase, host_team_id, guest_team_ids, score?, travel_seconds?, host_address_public?}]
   let teamDetails = {};      // { team_id: {size, team_diet, course_preference, can_host_main, lat, lon} }
   let unsaved = false;
+  // --- Matching job tracking ---
+  const MATCH_JOB_ACTIVE = new Set(['queued', 'running']);
+  const MATCH_JOB_STATUS_LABELS = {
+    queued: 'Queued',
+    running: 'In Progress',
+    completed: 'Completed',
+    failed: 'Failed',
+    cancelled: 'Cancelled',
+  };
+  const matchingJobWatcher = {
+    eventId: null,
+    jobId: null,
+    timer: null,
+    lastStatus: null,
+  };
+
+  function stopMatchingJobPolling(){
+    if (matchingJobWatcher.timer){
+      clearTimeout(matchingJobWatcher.timer);
+      matchingJobWatcher.timer = null;
+    }
+  }
+
+  function renderMatchingProgress(job){
+    const wrap = $('#matching-progress');
+    if (!wrap) return;
+    if (!job){
+      wrap.classList.add('hidden');
+      matchingJobWatcher.lastStatus = null;
+      return;
+    }
+    wrap.classList.remove('hidden');
+    const pct = Math.max(0, Math.min(100, Math.round((Number(job.progress) || 0) * 100)));
+    const bar = $('#matching-progress-bar');
+    if (bar){
+      bar.style.width = `${pct}%`;
+      bar.classList.remove('bg-[#008080]','bg-[#e53e3e]','bg-[#16a34a]');
+      if (job.status === 'failed') bar.classList.add('bg-[#e53e3e]');
+      else if (job.status === 'completed') bar.classList.add('bg-[#16a34a]');
+      else bar.classList.add('bg-[#008080]');
+    }
+    const pctLabel = $('#matching-progress-value');
+    if (pctLabel) pctLabel.textContent = `${pct}%`;
+    const labelEl = $('#matching-progress-label');
+    const statusLabel = MATCH_JOB_STATUS_LABELS[job.status] || job.status || 'In Progress';
+    const message = (job.message && job.message.trim()) ? job.message.trim() : statusLabel;
+    if (labelEl) labelEl.textContent = message;
+    const meta = $('#matching-progress-meta');
+    if (meta){
+      const parts = [];
+      if (statusLabel) parts.push(`Status: ${statusLabel}`);
+      if (job.updated_at) parts.push(`Updated ${fmtDate(job.updated_at)}`);
+      if (job.error && job.status === 'failed') parts.push(`Error: ${job.error}`);
+      meta.textContent = parts.join(' • ');
+    }
+  }
+
+  async function pollMatchingJob(eventId, jobId){
+    stopMatchingJobPolling();
+    matchingJobWatcher.eventId = eventId;
+    matchingJobWatcher.jobId = jobId;
+    try {
+      const res = await apiFetch(`/matching/${eventId}/jobs/${jobId}`);
+      if (!res.ok){
+        const txt = await res.text().catch(()=> '');
+        throw new Error(txt || 'Unable to fetch matching status');
+      }
+      const job = await res.json();
+      const prevStatus = matchingJobWatcher.lastStatus;
+      matchingJobWatcher.lastStatus = job.status;
+      renderMatchingProgress(job);
+      const msgBox = $('#matching-msg');
+
+      if (MATCH_JOB_ACTIVE.has(job.status)){
+        matchingJobWatcher.timer = setTimeout(()=> pollMatchingJob(eventId, jobId), 2000);
+      } else {
+        if (prevStatus && MATCH_JOB_ACTIVE.has(prevStatus)){
+          if (job.status === 'completed'){
+            if (msgBox) msgBox.textContent = 'Matching completed. Updating proposals...';
+            try {
+              await loadProposals();
+              await loadMatchDetails();
+              if (msgBox) msgBox.textContent = 'Matching completed.';
+            } catch(err){
+              if (msgBox) msgBox.textContent = 'Matching completed, but unable to refresh proposals.';
+              console.error('Failed to refresh after matching completion', err);
+            }
+          } else if (job.status === 'failed'){
+            if (msgBox) msgBox.textContent = 'Matching failed. Check logs.';
+            if (job.error) toast(`Matching failed: ${job.error}`, { type: 'error' });
+          } else if (job.status === 'cancelled'){
+            if (msgBox) msgBox.textContent = 'Matching cancelled.';
+          }
+        }
+      }
+    } catch(err){
+      const meta = $('#matching-progress-meta');
+      if (meta) meta.textContent = `Tracking error: ${err.message || err}`;
+      matchingJobWatcher.timer = setTimeout(()=> pollMatchingJob(eventId, jobId), 3500);
+    }
+  }
+
+  async function ensureMatchingJobStatus(eventId){
+    if (!eventId){
+      renderMatchingProgress(null);
+      stopMatchingJobPolling();
+      matchingJobWatcher.eventId = null;
+      matchingJobWatcher.jobId = null;
+      return;
+    }
+    if (matchingJobWatcher.eventId === eventId && matchingJobWatcher.jobId && MATCH_JOB_ACTIVE.has(matchingJobWatcher.lastStatus || '')){
+      // Already polling active job for this event
+      return;
+    }
+    try {
+      const res = await apiFetch(`/matching/${eventId}/jobs?limit=1`);
+      if (!res.ok){
+        throw new Error(await res.text().catch(()=> ''));
+      }
+      const jobs = await res.json().catch(()=> []);
+      const job = Array.isArray(jobs) && jobs.length ? jobs[0] : null;
+      if (!job){
+        renderMatchingProgress(null);
+        stopMatchingJobPolling();
+        matchingJobWatcher.eventId = eventId;
+        matchingJobWatcher.jobId = null;
+        matchingJobWatcher.lastStatus = null;
+        return;
+      }
+      matchingJobWatcher.eventId = eventId;
+      matchingJobWatcher.jobId = job.id;
+      matchingJobWatcher.lastStatus = job.status;
+      renderMatchingProgress(job);
+      if (MATCH_JOB_ACTIVE.has(job.status)){
+        stopMatchingJobPolling();
+        matchingJobWatcher.timer = setTimeout(()=> pollMatchingJob(eventId, job.id), 1500);
+      }
+    } catch(err){
+      const meta = $('#matching-progress-meta');
+      if (meta) meta.textContent = `Error loading tracking: ${err.message || err}`;
+    }
+  }
 
   // --- Map state ---
   let mainMap = null;
@@ -841,6 +989,409 @@
     fetchIssuesForDetails();
   }
 
+  const participantsModule = (function(){
+    const state = {
+      eventId: null,
+      rows: [],
+      summary: { total: 0, by_payment_status: {}, by_registration_status: {} },
+      loading: false,
+      visible: true,
+      sortKey: 'last_name',
+      sortDir: 'asc',
+      search: '',
+    };
+    let initialized = false;
+    const selectors = {
+      section: '#participants-section',
+      select: '#participants-event-select',
+      search: '#participants-search',
+      refresh: '#participants-refresh',
+      toggle: '#participants-toggle',
+      loading: '#participants-loading',
+      wrapper: '#participants-table-wrapper',
+      tbody: '#participants-tbody',
+      empty: '#participants-empty',
+      count: '#participants-count',
+      summary: '#participants-summary',
+      headers: '#participants-section th.sortable',
+    };
+    const PAYMENT_LABELS = {
+      paid: 'Payé',
+      pending: 'En attente',
+      pending_payment: 'En attente',
+      covered_by_team: "Payé par l'équipe",
+      failed: 'Échec',
+      not_applicable: 'N/A',
+      unpaid: 'Non payé',
+      unknown: 'Inconnu',
+    };
+    const PAYMENT_BADGES = {
+      paid: 'bg-[#bbf7d0] text-[#166534]',
+      pending: 'bg-[#fef3c7] text-[#92400e]',
+      pending_payment: 'bg-[#fef3c7] text-[#92400e]',
+      covered_by_team: 'bg-[#dbeafe] text-[#1d4ed8]',
+      failed: 'bg-[#fee2e2] text-[#b91c1c]',
+      not_applicable: 'bg-[#e2e8f0] text-[#334155]',
+      unpaid: 'bg-[#e2e8f0] text-[#334155]',
+      unknown: 'bg-[#e2e8f0] text-[#334155]',
+    };
+    const GENDER_LABELS = {
+      female: 'Femme',
+      male: 'Homme',
+      non_binary: 'Non binaire',
+      diverse: 'Divers',
+      other: 'Autre',
+      prefer_not_to_say: 'Non précisé',
+    };
+    const TEAM_ROLE_LABELS = {
+      creator: 'Capitaine',
+      partner: 'Partenaire',
+    };
+    const REGISTRATION_LABELS = {
+      confirmed: 'Confirmé',
+      pending: 'En attente',
+      pending_payment: 'En attente de paiement',
+      invited: 'Invité',
+      paid: 'Payé',
+      refunded: 'Remboursé',
+      cancelled_by_user: 'Annulé (participant)',
+      cancelled_admin: 'Annulé (admin)',
+      expired: 'Expiré',
+      draft: 'Brouillon',
+    };
+
+    function init(){
+      if (initialized) return;
+      const select = $(selectors.select);
+      if (select){
+        select.addEventListener('change', (event)=>{
+          state.eventId = event.target.value || null;
+          fetchAndRender(true);
+        });
+      }
+      const searchInput = $(selectors.search);
+      if (searchInput){
+        searchInput.addEventListener('input', (event)=>{
+          state.search = (event.target.value || '').trim();
+          render();
+        });
+      }
+      const refreshBtn = $(selectors.refresh);
+      if (refreshBtn){
+        refreshBtn.addEventListener('click', (event)=>{
+          event.preventDefault();
+          fetchAndRender(true);
+        });
+      }
+      const toggleBtn = $(selectors.toggle);
+      if (toggleBtn){
+        toggleBtn.addEventListener('click', (event)=>{
+          event.preventDefault();
+          state.visible = !state.visible;
+          toggleBtn.textContent = state.visible ? 'Masquer' : 'Afficher';
+          render();
+        });
+      }
+      const section = $(selectors.section);
+      if (section){
+        const head = section.querySelector('thead');
+        if (head){
+          head.addEventListener('click', (event)=>{
+            const th = event.target.closest('th.sortable');
+            if (!th) return;
+            const key = th.dataset.sort;
+            if (!key) return;
+            if (state.sortKey === key){
+              state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+              state.sortKey = key;
+              state.sortDir = 'asc';
+            }
+            render();
+          });
+        }
+      }
+      initialized = true;
+    }
+
+    function setLoading(active){
+      const el = $(selectors.loading);
+      if (!el) return;
+      if (active){
+        el.classList.remove('hidden');
+      } else {
+        el.classList.add('hidden');
+      }
+    }
+
+    function sortValue(row, key){
+      const value = row[key];
+      if (key === 'updated_display' || key === 'updated_at' || key === 'created_at'){
+        return value ? new Date(value).getTime() : null;
+      }
+      if (typeof value === 'string'){
+        return value.toLowerCase();
+      }
+      if (value === null || value === undefined){
+        return null;
+      }
+      return value;
+    }
+
+    function applyFilters(){
+      const rows = state.rows.slice();
+      const needle = state.search ? state.search.toLowerCase() : '';
+      let filtered = rows;
+      if (needle){
+        filtered = rows.filter((row)=> row.search_blob.includes(needle));
+      }
+      filtered.sort((a, b)=>{
+        const va = sortValue(a, state.sortKey);
+        const vb = sortValue(b, state.sortKey);
+        if (va === vb) return 0;
+        if (va === null || va === undefined) return state.sortDir === 'asc' ? -1 : 1;
+        if (vb === null || vb === undefined) return state.sortDir === 'asc' ? 1 : -1;
+        if (va < vb) return state.sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return state.sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+      return filtered;
+    }
+
+    function formatPaymentStatus(status){
+      if (!status) return PAYMENT_LABELS.unknown;
+      return PAYMENT_LABELS[status] || status;
+    }
+
+    function paymentBadgeClass(status){
+      if (!status) return PAYMENT_BADGES.unknown;
+      return PAYMENT_BADGES[status] || PAYMENT_BADGES.unknown;
+    }
+
+    function formatGender(value){
+      if (!value) return '';
+      return GENDER_LABELS[value] || value;
+    }
+
+    function formatRegistrationStatus(status){
+      if (!status) return '';
+      return REGISTRATION_LABELS[status] || status;
+    }
+
+    function formatTeamRole(row){
+      if (!row.team_id){
+        return 'Solo';
+      }
+      if (!row.team_role){
+        return '';
+      }
+      return TEAM_ROLE_LABELS[row.team_role] || row.team_role;
+    }
+
+    function updateSortHeaders(){
+      const headers = document.querySelectorAll(selectors.headers);
+      headers.forEach((th)=>{
+        const key = th.dataset.sort;
+        if (!key){
+          th.removeAttribute('aria-sort');
+          return;
+        }
+        if (key === state.sortKey){
+          th.setAttribute('aria-sort', state.sortDir === 'asc' ? 'ascending' : 'descending');
+        } else {
+          th.setAttribute('aria-sort', 'none');
+        }
+      });
+    }
+
+    function updateCount(filteredLength, el){
+      if (!el) return;
+      const total = state.summary.total || state.rows.length;
+      if (!total){
+        el.textContent = '0 participant';
+        return;
+      }
+      if (filteredLength === total){
+        el.textContent = total === 1 ? '1 participant' : `${total} participants`;
+      } else {
+        el.textContent = `${filteredLength} / ${total} participants`;
+      }
+    }
+
+    function updateSummary(el){
+      if (!el) return;
+      const entries = Object.entries(state.summary.by_payment_status || {});
+      if (!entries.length){
+        el.textContent = '';
+        return;
+      }
+      const parts = entries.map(([status, count])=> `${formatPaymentStatus(status)} (${count})`);
+      el.textContent = `Paiements : ${parts.join(' · ')}`;
+    }
+
+    function renderRow(row){
+      const lastName = escapeHtml(row.last_name || '');
+      const firstName = escapeHtml(row.first_name || '');
+      const email = escapeHtml(row.email || '');
+      const gender = escapeHtml(formatGender(row.gender));
+      const registration = escapeHtml(formatRegistrationStatus(row.registration_status));
+      const paymentLabel = escapeHtml(formatPaymentStatus(row.payment_status));
+      const paymentClass = paymentBadgeClass(row.payment_status);
+      const teamName = row.team_name ? escapeHtml(row.team_name) : (row.team_id ? '' : 'Solo');
+      const teamRole = escapeHtml(formatTeamRole(row));
+      const updatedRaw = row.updated_display || row.updated_at || row.created_at;
+      const updated = updatedRaw ? escapeHtml(fmtDate(updatedRaw)) : '';
+      return `\
+<tr class="border-b border-[#f0f4f7] last:border-b-0">\
+  <td class="p-2">${lastName}</td>\
+  <td class="p-2">${firstName}</td>\
+  <td class="p-2 font-medium text-[#1d4ed8]">${email}</td>\
+  <td class="p-2">${gender}</td>\
+  <td class="p-2">${registration}</td>\
+  <td class="p-2"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${paymentClass}">${paymentLabel}</span></td>\
+  <td class="p-2">${teamName || '—'}</td>\
+  <td class="p-2">${teamRole}</td>\
+  <td class="p-2">${updated}</td>\
+</tr>`;
+    }
+
+    function render(){
+      const wrapper = $(selectors.wrapper);
+      const tbody = $(selectors.tbody);
+      const empty = $(selectors.empty);
+      const countEl = $(selectors.count);
+      const summaryEl = $(selectors.summary);
+      if (!tbody) return;
+      const filtered = applyFilters();
+      if (state.visible){
+        wrapper && wrapper.classList.remove('hidden');
+        summaryEl && summaryEl.classList.remove('hidden');
+      } else {
+        wrapper && wrapper.classList.add('hidden');
+        summaryEl && summaryEl.classList.add('hidden');
+      }
+      if (!filtered.length){
+        tbody.innerHTML = '';
+        empty && empty.classList.remove('hidden');
+      } else {
+        empty && empty.classList.add('hidden');
+        tbody.innerHTML = filtered.map(renderRow).join('');
+      }
+      updateCount(filtered.length, countEl);
+      updateSummary(summaryEl);
+      updateSortHeaders();
+    }
+
+    async function fetchAndRender(force){
+      if (!state.eventId){
+        state.rows = [];
+        state.summary = { total: 0, by_payment_status: {}, by_registration_status: {} };
+        render();
+        return;
+      }
+      if (state.loading && !force){
+        return;
+      }
+      state.loading = true;
+      setLoading(true);
+      try {
+        const res = await apiFetch(`/admin/events/${state.eventId}/participants`);
+        if (!res.ok){
+          const text = await res.text().catch(()=> 'Erreur');
+          throw new Error(text || 'Erreur de chargement');
+        }
+        const data = await res.json().catch(()=> ({ participants: [], summary: { total: 0, by_payment_status: {}, by_registration_status: {} } }));
+        const participants = Array.isArray(data.participants) ? data.participants : [];
+        state.rows = participants.map((p)=>{
+          const blob = [p.full_name, p.email, p.team_name, p.registration_status, p.payment_status]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return {
+            ...p,
+            updated_display: p.payment_updated_at || p.updated_at || p.created_at,
+            search_blob: blob,
+          };
+        });
+        state.summary = data.summary || { total: state.rows.length, by_payment_status: {}, by_registration_status: {} };
+        if (!state.summary.total){
+          state.summary.total = state.rows.length;
+        }
+        render();
+      } catch (error){
+        console.error('participants.fetch', error);
+        toast('Impossible de charger les participants.', { type: 'error' });
+      } finally {
+        state.loading = false;
+        setLoading(false);
+      }
+    }
+
+    async function onEventsRefreshed(events){
+      init();
+      const hasEvents = Array.isArray(events) && events.length > 0;
+      const select = $(selectors.select);
+      const searchInput = $(selectors.search);
+      const toggleBtn = $(selectors.toggle);
+      const refreshBtn = $(selectors.refresh);
+
+      if (select){
+        if (hasEvents){
+          const options = events.map((ev)=>{
+            const value = escapeHtml(ev.id);
+            const labelText = `${ev.title || 'Évènement'}${ev.date ? ` (${ev.date})` : ''}`;
+            const label = escapeHtml(labelText);
+            return `<option value="${value}">${label}</option>`;
+          }).join('');
+          select.innerHTML = options;
+          if (state.eventId && events.some((ev)=> ev.id === state.eventId)){
+            select.value = state.eventId;
+          } else {
+            select.value = events[0].id;
+            state.eventId = events[0].id;
+          }
+          select.disabled = false;
+        } else {
+          select.innerHTML = '<option value="">Aucun évènement</option>';
+          select.disabled = true;
+          select.value = '';
+          state.eventId = null;
+        }
+      }
+
+      if (searchInput){
+        searchInput.disabled = !hasEvents;
+        if (!hasEvents){
+          searchInput.value = '';
+          state.search = '';
+        }
+      }
+
+      if (toggleBtn){
+        toggleBtn.disabled = !hasEvents;
+        toggleBtn.textContent = state.visible ? 'Masquer' : 'Afficher';
+      }
+
+      if (refreshBtn){
+        refreshBtn.disabled = !hasEvents;
+      }
+
+      if (hasEvents){
+        await fetchAndRender(true);
+      } else {
+        state.rows = [];
+        state.summary = { total: 0, by_payment_status: {}, by_registration_status: {} };
+        render();
+      }
+    }
+
+    return {
+      init,
+      onEventsRefreshed,
+      fetch: fetchAndRender,
+    };
+  })();
+
   async function fetchIssuesForDetails(){
     try {
       if (!detailsVersion) return;
@@ -1101,6 +1652,20 @@
     $('#events-count').textContent = `${events.length} events`;
     const selects = [$('#matching-event-select'), $('#refunds-event-select'), $('#map-event-select')];
     selects.forEach(sel=>{ if (!sel) return; sel.innerHTML = events.map(e=>`<option value="${e.id}">${e.title} (${e.date||''})</option>`).join(''); });
+    const matchingSelect = $('#matching-event-select');
+    if (matchingSelect && !matchingSelect.dataset.matchingJobBound){
+      matchingSelect.addEventListener('change', async ()=>{
+        const selectedId = matchingSelect.value;
+        await ensureMatchingJobStatus(selectedId);
+      });
+      matchingSelect.dataset.matchingJobBound = '1';
+    }
+    if (matchingSelect && matchingSelect.value){
+      await ensureMatchingJobStatus(matchingSelect.value);
+    } else {
+      await ensureMatchingJobStatus(null);
+    }
+    await participantsModule.onEventsRefreshed(events);
     tbody.onclick = async (e)=>{
       const btn = e.target.closest('button'); if (!btn) return;
       const id = btn.getAttribute('data-id'); const action = btn.getAttribute('data-action');
@@ -1199,19 +1764,61 @@
 
   async function startMatching(){
     $('#btn-start-matching').addEventListener('click', async (e)=>{
-      const btn = e.currentTarget; setBtnLoading(btn, 'Starting...');
+      const btn = e.currentTarget;
       const evId = $('#matching-event-select').value;
-      const weights = readWeights();
-      const algorithms = selectedAlgorithms();
-      const t = toastLoading('Starting matching...');
-      const res = await apiFetch(`/matching/${evId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ algorithms, weights }) });
       const msg = $('#matching-msg');
-      if (res.ok) { msg.textContent = 'Matching started.'; t.update('Matching started'); }
-      else { const tx = await res.text(); msg.textContent = `Failed: ${tx}`; t.update('Matching error'); }
-      await loadProposals();
-      await loadMatchDetails();
-      t.close();
-      clearBtnLoading(btn);
+      if (!evId){
+        toast('Veuillez sélectionner un évènement.', { type: 'warning' });
+        return;
+      }
+      const algorithms = selectedAlgorithms();
+      if (!algorithms.length){
+        toast('Sélectionnez au moins un algorithme de matching.', { type: 'warning' });
+        return;
+      }
+      const weights = readWeights();
+      setBtnLoading(btn, 'Lancement...');
+      const loader = toastLoading('Lancement du matching...');
+      try {
+        const res = await apiFetch(`/matching/${evId}/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ algorithms, weights }),
+        });
+        if (res.ok){
+          const data = await res.json().catch(()=>null);
+          if (data && data.job){
+            renderMatchingProgress(data.job);
+            stopMatchingJobPolling();
+            matchingJobWatcher.eventId = evId;
+            matchingJobWatcher.jobId = data.job_id;
+            matchingJobWatcher.lastStatus = data.job.status;
+            if (MATCH_JOB_ACTIVE.has(data.job.status)){
+              pollMatchingJob(evId, data.job_id);
+            }
+            if (msg){
+              msg.textContent = data.status === 'already_running'
+                ? 'Un matching est déjà en cours. Suivi mis à jour ci-dessous.'
+                : 'Matching lancé. Suivi disponible ci-dessous.';
+            }
+          } else if (msg){
+            msg.textContent = 'Matching lancé.';
+          }
+          loader.update('Matching lancé');
+          await loadProposals();
+        } else {
+          const errText = await res.text().catch(()=> 'Erreur lors du lancement du matching');
+          if (msg) msg.textContent = `Échec du lancement: ${errText}`;
+          loader.update('Erreur de matching');
+        }
+      } catch(err){
+        console.error('Failed to start matching', err);
+        if (msg) msg.textContent = `Erreur lors du lancement: ${err.message || err}`;
+        loader.update('Erreur de matching');
+      } finally {
+        loader.close();
+        clearBtnLoading(btn);
+      }
     });
     $('#btn-refresh-matches').addEventListener('click', async ()=>{ const t = toastLoading('Refreshing proposals...'); await loadProposals(); await loadMatchDetails(detailsVersion); t.update('Proposals refreshed'); t.close(); });
     const delAllBtn = $('#btn-delete-all-matches');
@@ -1422,6 +2029,7 @@
         }
       }
     }
+    await ensureMatchingJobStatus(evId);
   }
 
   // Removed old Manual Adjustments & Issues UI binding; handled dynamically via proposal issues button
