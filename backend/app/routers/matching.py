@@ -1,14 +1,22 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from .. import db as db_mod
 from bson.objectid import ObjectId
+from bson.errors import InvalidId
 from ..auth import require_admin
 from ..utils import require_event_published
 from typing import Optional, List, Dict, Any, Tuple, Set
 from ..services.matching import (
-    run_algorithms, persist_match_proposal, list_issues, 
-    finalize_and_generate_plans, _build_teams, 
-    _score_group_phase, _travel_time_for_phase, _compute_metrics, 
-    _team_emails_map, compute_team_paths
+    list_issues,
+    finalize_and_generate_plans,
+    _build_teams,
+    _score_group_phase,
+    _travel_time_for_phase,
+    _compute_metrics,
+    _team_emails_map,
+    compute_team_paths,
+    enqueue_matching_job,
+    get_matching_job,
+    list_matching_jobs,
 )
 from ..services.routing import route_polyline
 import datetime
@@ -42,7 +50,7 @@ def _collect_pairs(groups: List[dict]) -> Dict[Tuple[str,str], int]:
 
 
 @router.post('/{event_id}/start')
-async def start_matching(event_id: str, payload: dict | None = None, current_admin=Depends(require_admin)):
+async def start_matching(event_id: str, response: Response, payload: Optional[dict] = None, current_admin=Depends(require_admin)):
     # ensure event exists and is published/open
     ev = await require_event_published(event_id)
     # enforce registration deadline passed if set
@@ -66,18 +74,52 @@ async def start_matching(event_id: str, payload: dict | None = None, current_adm
     weights: Dict[str, float] = payload.get('weights') or {}
     dry_run: bool = bool(payload.get('dry_run', False))
 
-    results = await run_algorithms(event_id, algorithms=algorithms, weights=weights)
-    proposals: List[Dict[str, Any]] = []
-    for res in results:
-        if dry_run:
-            proposals.append({'algorithm': res.get('algorithm'), 'metrics': res.get('metrics'), 'preview_groups': res.get('groups')[:6]})
-        else:
-            saved = await persist_match_proposal(event_id, res)
-            proposals.append({'algorithm': res.get('algorithm'), 'version': saved.get('version'), 'metrics': saved.get('metrics')})
-    # update event matching_status when not dry-run
-    if not dry_run:
-        await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'matching_status': 'proposed', 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
-    return {'status': 'ok', 'dry_run': dry_run, 'proposals': proposals}
+    job_info = await enqueue_matching_job(
+        event_id,
+        algorithms=algorithms,
+        weights=weights,
+        dry_run=dry_run,
+        requested_by=str(current_admin.get('_id')) if current_admin.get('_id') is not None else None,
+    )
+    job = job_info['job']
+    poll_url = f"/matching/{event_id}/jobs/{job['id']}"
+    response.status_code = 202 if job_info['was_enqueued'] else 200
+    status_label = 'accepted' if job_info['was_enqueued'] else 'already_running'
+    return {
+        'status': status_label,
+        'job_id': job['id'],
+        'poll_url': poll_url,
+        'job': job,
+    }
+
+
+@router.get('/{event_id}/jobs')
+async def list_jobs(event_id: str, limit: int = 10, _=Depends(require_admin)):
+    try:
+        event_oid = ObjectId(event_id)
+    except InvalidId as exc:
+        raise HTTPException(status_code=404, detail='Event not found') from exc
+    event_exists = await db_mod.db.events.find_one({'_id': event_oid})
+    if not event_exists:
+        raise HTTPException(status_code=404, detail='Event not found')
+    limit = max(1, min(limit, 50))
+    jobs = await list_matching_jobs(event_id, limit=limit)
+    return jobs
+
+
+@router.get('/{event_id}/jobs/{job_id}')
+async def get_job_status(event_id: str, job_id: str, _=Depends(require_admin)):
+    try:
+        event_oid = ObjectId(event_id)
+    except InvalidId as exc:
+        raise HTTPException(status_code=404, detail='Event not found') from exc
+    event_exists = await db_mod.db.events.find_one({'_id': event_oid})
+    if not event_exists:
+        raise HTTPException(status_code=404, detail='Event not found')
+    job = await get_matching_job(job_id)
+    if not job or job.get('event_id') != event_id:
+        raise HTTPException(status_code=404, detail='Job introuvable')
+    return job
 
 
 @router.get('/{event_id}/matches')

@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 import datetime as dt
 from bson.objectid import ObjectId
@@ -55,7 +57,21 @@ async def test_matching_team_capabilities_fallbacks(client, admin_token):
         reg_ids.append(rid)
     # Start matching (persist proposal)
     resp = await client.post(f"/matching/{ev_id}/start", json={'algorithms': ['greedy']}, headers={'Authorization': f'Bearer {admin_token}'})
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code in (200, 202), resp.text
+    job_payload = resp.json()
+    job_url = job_payload['poll_url']
+
+    job_data = None
+    for _ in range(60):
+        job_resp = await client.get(job_url, headers={'Authorization': f'Bearer {admin_token}'})
+        assert job_resp.status_code == 200, job_resp.text
+        job_data = job_resp.json()
+        if job_data['status'] in {'completed', 'failed', 'cancelled'}:
+            break
+        await asyncio.sleep(0.1)
+    else:
+        pytest.fail('matching job did not complete in time')
+    assert job_data['status'] == 'completed', job_data
     # Retrieve details
     details = await client.get(f"/matching/{ev_id}/details", headers={'Authorization': f'Bearer {admin_token}'})
     assert details.status_code == 200, details.text

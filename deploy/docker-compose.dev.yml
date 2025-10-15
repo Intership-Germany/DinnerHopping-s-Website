@@ -1,0 +1,57 @@
+services:
+  mongo:
+    image: mongo
+    restart: unless-stopped
+    ports:
+      - "17027:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
+      - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
+    volumes:
+      - mongo-data:/data/db
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: dinnerhopping/backend:dev
+    # Use centralized deploy/backend.env for dev as well
+    env_file:
+      - ./backend.env
+    environment:
+      - LOG_TO_FILES=false
+    ports:
+      - "33240:8000" # expose to host for local dev
+    volumes:
+      - ../backend:/app # mount source for fast iteration (backend uses uvicorn/autoreload)
+      - ../backend/logs:/var/log/dinnerhopping
+    depends_on:
+      - mongo
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    image: dinnerhopping/frontend:dev
+    ports:
+      - "3000:80" # serve on host port 3000 for local dev convenience
+    volumes:
+      - ../frontend/public:/usr/local/apache2/htdocs:ro
+    environment:
+      - DEV=true
+
+  # Development SMTP capture service (MailHog) - start with dev stack so local mail isn't missing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: dh_mailhog
+    ports:
+      - "1025:1025"    # SMTP
+      - "8025:8025"    # Web UI
+
+volumes:
+  mongo-data:
+    external: false
+
+# Usage:
+# From repo root:
+# docker compose -f deploy/docker-compose.prod.yml -f deploy/docker-compose.dev.yml up --build

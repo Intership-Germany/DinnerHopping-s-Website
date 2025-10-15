@@ -389,6 +389,34 @@
             } catch (e) { alert(e.message || 'Accept failed'); }
           });
         }
+        // Add decline button behavior (revoke invitation) if present on the card
+        const btnDecline = node.querySelector('.reg-decline');
+        if (btnDecline) {
+          btnDecline.classList.remove('hidden');
+          btnDecline.addEventListener('click', async () => {
+            try {
+              // Prefer revoking by registration id when available, otherwise by invitation id
+              const regId = regInfo.registration_id || regInfo._id || regInfo.id;
+              let resp;
+              if (regId) {
+                resp = await window.dh.apiPost(`/invitations/by-registration/${encodeURIComponent(regId)}/revoke`, {});
+              } else {
+                const invId = regInfo.invitation_id || (regInfo.invitation && regInfo.invitation.id) || regInfo.inv_id || regInfo.invitation_id_str;
+                if (!invId) return alert('Invitation id missing');
+                resp = await window.dh.apiPost(`/invitations/${encodeURIComponent(invId)}/revoke`, {});
+              }
+              if (!resp.res.ok) {
+                const err = resp.data?.detail || 'Failed to decline invitation';
+                return alert(err);
+              }
+              // refresh registrations & invitations
+              if (window.dh?.components?.renderMyRegistrations) {
+                try { window.dh.apiGet('/registrations/registration-status').then(({res,data})=> window.dh.components.renderMyRegistrations(data?.registrations || [])); } catch(e){}
+                try { window.dh.apiGet('/invitations/').then(()=> window.dh.components.renderMyRegistrations()); } catch(e){}
+              } else location.reload();
+            } catch (e) { alert(e.message || 'Decline failed'); }
+          });
+        }
       }
       const amountDue =
         regInfo && typeof regInfo.amount_due_cents === 'number' ? regInfo.amount_due_cents : null;

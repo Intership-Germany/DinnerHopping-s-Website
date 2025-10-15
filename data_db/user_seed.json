@@ -1,0 +1,6608 @@
+[
+  {
+    "email": "anna.s@email.de",
+    "first_name": "Anna",
+    "last_name": "Schmidt",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Bahnhofstraße",
+      "street_no": "5",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "dairy"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Bahnhofstraße 5, 37073 Göttingen",
+    "address_public": "Bahnhofstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:00:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:01:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:00:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Informatik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Bahnhofstraße",
+    "street_no": "5"
+  },
+  {
+    "email": "ben.weber@email.de",
+    "first_name": "Ben",
+    "last_name": "Weber",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Goßlerstraße",
+      "street_no": "19",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5430025,
+    "lon": 9.9368556,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Goßlerstraße 19, 37073 Göttingen",
+    "address_public": "Goßlerstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:01:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:02:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:01:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Goßlerstraße",
+    "street_no": "19"
+  },
+  {
+    "email": "clara.fischer@email.de",
+    "first_name": "Clara",
+    "last_name": "Fischer",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Goßlerstraße",
+      "street_no": "19",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5430025,
+    "lon": 9.9368556,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Goßlerstraße 19, 37073 Göttingen",
+    "address_public": "Goßlerstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:02:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:04:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:02:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Medizin",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Goßlerstraße",
+    "street_no": "19"
+  },
+  {
+    "email": "david.m@email.de",
+    "first_name": "David",
+    "last_name": "Meier",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Weender Landstraße",
+      "street_no": "80",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "nuts"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Weender Landstraße 80, 37075 Göttingen",
+    "address_public": "Weender Landstraße, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:03:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:04:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:03:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "BWL",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37075",
+    "street": "Weender Landstraße",
+    "street_no": "80"
+  },
+  {
+    "email": "eva.klein@email.de",
+    "first_name": "Eva",
+    "last_name": "Klein",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Grätzelstraße",
+      "street_no": "12",
+      "postal_code": "37079",
+      "city": "Göttingen"
+    },
+    "lat": 51.5437148,
+    "lon": 9.9107588,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Grätzelstraße 12, 37079 Göttingen",
+    "address_public": "Grätzelstraße, 37079 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:04:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:05:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:04:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Medizin",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37079",
+    "street": "Grätzelstraße",
+    "street_no": "12"
+  },
+  {
+    "email": "felix.lang@email.de",
+    "first_name": "Felix",
+    "last_name": "Lang",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Grätzelstraße",
+      "street_no": "12",
+      "postal_code": "37079",
+      "city": "Göttingen"
+    },
+    "lat": 51.5437148,
+    "lon": 9.9107588,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Grätzelstraße 12, 37079 Göttingen",
+    "address_public": "Grätzelstraße, 37079 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:05:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:07:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:05:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37079",
+    "street": "Grätzelstraße",
+    "street_no": "12"
+  },
+  {
+    "email": "greta.h@email.de",
+    "first_name": "Greta",
+    "last_name": "Hoffmann",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Danziger Straße",
+      "street_no": "2",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Danziger Straße 2, 37083 Göttingen",
+    "address_public": "Danziger Straße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:06:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:07:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:06:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Soziologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37083",
+    "street": "Danziger Straße",
+    "street_no": "2"
+  },
+  {
+    "email": "hans.zimmer@email.de",
+    "first_name": "Hans",
+    "last_name": "Zimmer",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Papenberg",
+      "street_no": "1",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": 51.5546275,
+    "lon": 9.9465471,
+    "allergies": [
+      "gluten"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Papenberg 1, 37075 Göttingen",
+    "address_public": "Am Papenberg, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:07:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:08:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:07:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37075",
+    "street": "Am Papenberg",
+    "street_no": "1"
+  },
+  {
+    "email": "ida.schulz@email.de",
+    "first_name": "Ida",
+    "last_name": "Schulz",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Papenberg",
+      "street_no": "1",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": 51.5546275,
+    "lon": 9.9465471,
+    "allergies": [
+      "gluten"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Papenberg 1, 37075 Göttingen",
+    "address_public": "Am Papenberg, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:08:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:10:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:08:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Chemie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37075",
+    "street": "Am Papenberg",
+    "street_no": "1"
+  },
+  {
+    "email": "jonas.w@email.de",
+    "first_name": "Jonas",
+    "last_name": "Wolf",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Robert-Koch-Straße",
+      "street_no": "40",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Robert-Koch-Straße 40, 37075 Göttingen",
+    "address_public": "Robert-Koch-Straße, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:09:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:10:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:09:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Chemie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37075",
+    "street": "Robert-Koch-Straße",
+    "street_no": "40"
+  },
+  {
+    "email": "kira.brand@email.de",
+    "first_name": "Kira",
+    "last_name": "Brand",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Tulpenweg",
+      "street_no": "9",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5483449,
+    "lon": 9.9160065,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Tulpenweg 9, 37085 Göttingen",
+    "address_public": "Tulpenweg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:10:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:11:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:10:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Anglistik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Tulpenweg",
+    "street_no": "9"
+  },
+  {
+    "email": "leo.roth@email.de",
+    "first_name": "Leo",
+    "last_name": "Roth",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Tulpenweg",
+      "street_no": "9",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5483449,
+    "lon": 9.9160065,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Tulpenweg 9, 37085 Göttingen",
+    "address_public": "Tulpenweg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:11:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:13:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:11:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Geschichte",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Tulpenweg",
+    "street_no": "9"
+  },
+  {
+    "email": "max.n@email.de",
+    "first_name": "Max",
+    "last_name": "Neumann",
+    "gender": "diverse",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Königsallee",
+      "street_no": "23",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Königsallee 23, 37083 Göttingen",
+    "address_public": "Königsallee, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:12:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:13:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:12:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Wirtschaftsinformatik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37083",
+    "street": "Königsallee",
+    "street_no": "23"
+  },
+  {
+    "email": "nora.beck@email.de",
+    "first_name": "Nora",
+    "last_name": "Beck",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Humboldtallee",
+      "street_no": "11",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5408839,
+    "lon": 9.9413225,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Humboldtallee 11, 37073 Göttingen",
+    "address_public": "Humboldtallee, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:13:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:14:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:13:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Geschichte",
+    "kitchen_available": true,
+    "main_course_possible": false,
+    "postal_code": "37073",
+    "street": "Humboldtallee",
+    "street_no": "11"
+  },
+  {
+    "email": "otto.hahn@email.de",
+    "first_name": "Otto",
+    "last_name": "Hahn",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Humboldtallee",
+      "street_no": "11",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5408839,
+    "lon": 9.9413225,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Humboldtallee 11, 37073 Göttingen",
+    "address_public": "Humboldtallee, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:14:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:16:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:14:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": false,
+    "postal_code": "37073",
+    "street": "Humboldtallee",
+    "street_no": "11"
+  },
+  {
+    "email": "paula.s@email.de",
+    "first_name": "Paula",
+    "last_name": "Sommer",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Bühlstraße",
+      "street_no": "22",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Bühlstraße 22, 37073 Göttingen",
+    "address_public": "Bühlstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:15:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:16:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:15:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Psychologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Bühlstraße",
+    "street_no": "22"
+  },
+  {
+    "email": "quintus.voss@email.de",
+    "first_name": "Quintus",
+    "last_name": "Voss",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Geismar Landstraße",
+      "street_no": "55",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5224592,
+    "lon": 9.9501778,
+    "allergies": [
+      "celery"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Geismar Landstraße 55, 37083 Göttingen",
+    "address_public": "Geismar Landstraße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:16:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:17:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:16:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Kunstgeschichte",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Geismar Landstraße",
+    "street_no": "55"
+  },
+  {
+    "email": "rosa.berg@email.de",
+    "first_name": "Rosa",
+    "last_name": "Berg",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Geismar Landstraße",
+      "street_no": "55",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5224592,
+    "lon": 9.9501778,
+    "allergies": [
+      "celery"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Geismar Landstraße 55, 37083 Göttingen",
+    "address_public": "Geismar Landstraße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:17:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:19:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:17:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Philosophie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Geismar Landstraße",
+    "street_no": "55"
+  },
+  {
+    "email": "sofia.w@email.de",
+    "first_name": "Sofia",
+    "last_name": "Wagner",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Bürgerstraße",
+      "street_no": "50",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Bürgerstraße 50, 37073 Göttingen",
+    "address_public": "Bürgerstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:18:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:19:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:18:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Politikwissenschaft",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Bürgerstraße",
+    "street_no": "50"
+  },
+  {
+    "email": "tom.richter@email.de",
+    "first_name": "Tom",
+    "last_name": "Richter",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Nikolausberger Weg",
+      "street_no": "7",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5421502,
+    "lon": 9.947431,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Nikolausberger Weg 7, 37073 Göttingen",
+    "address_public": "Nikolausberger Weg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:19:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:20:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:19:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Forstwissenschaft",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Nikolausberger Weg",
+    "street_no": "7"
+  },
+  {
+    "email": "lina.koch@email.de",
+    "first_name": "Lina",
+    "last_name": "Koch",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Nikolausberger Weg",
+      "street_no": "7",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5421502,
+    "lon": 9.947431,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Nikolausberger Weg 7, 37073 Göttingen",
+    "address_public": "Nikolausberger Weg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:20:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:22:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:20:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Biologie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Nikolausberger Weg",
+    "street_no": "7"
+  },
+  {
+    "email": "ursula.m@email.de",
+    "first_name": "Ursula",
+    "last_name": "Meyer",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Schillerstraße",
+      "street_no": "44",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Schillerstraße 44, 37083 Göttingen",
+    "address_public": "Schillerstraße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:21:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:22:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:21:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Germanistik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37083",
+    "street": "Schillerstraße",
+    "street_no": "44"
+  },
+  {
+    "email": "viktor.b@email.de",
+    "first_name": "Viktor",
+    "last_name": "Bauer",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Reinhäuser Landstraße",
+      "street_no": "91",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5207834,
+    "lon": 9.9410017,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Reinhäuser Landstraße 91, 37083 Göttingen",
+    "address_public": "Reinhäuser Landstraße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:22:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:23:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:22:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Agrarwissenschaften",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Reinhäuser Landstraße",
+    "street_no": "91"
+  },
+  {
+    "email": "zoe.schroeder@email.de",
+    "first_name": "Zoe",
+    "last_name": "Schröder",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Reinhäuser Landstraße",
+      "street_no": "91",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5207834,
+    "lon": 9.9410017,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Reinhäuser Landstraße 91, 37083 Göttingen",
+    "address_public": "Reinhäuser Landstraße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:23:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:25:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:23:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Geographie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Reinhäuser Landstraße",
+    "street_no": "91"
+  },
+  {
+    "email": "walter.s@email.de",
+    "first_name": "Walter",
+    "last_name": "Schwarz",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Theodor-Heuss-Straße",
+      "street_no": "21",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "fish"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Theodor-Heuss-Straße 21, 37075 Göttingen",
+    "address_public": "Theodor-Heuss-Straße, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:24:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:25:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:24:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Sportwissenschaft",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37075",
+    "street": "Theodor-Heuss-Straße",
+    "street_no": "21"
+  },
+  {
+    "email": "xenia.z@email.de",
+    "first_name": "Xenia",
+    "last_name": "Zimmermann",
+    "gender": "diverse",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Düstere-Eichen-Weg",
+      "street_no": "60",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Düstere-Eichen-Weg 60, 37073 Göttingen",
+    "address_public": "Düstere-Eichen-Weg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:25:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:26:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:25:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Philosophie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Düstere-Eichen-Weg",
+    "street_no": "60"
+  },
+  {
+    "email": "yannick.b@email.de",
+    "first_name": "Yannick",
+    "last_name": "Becker",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Kiesseestraße",
+      "street_no": "33",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5112444,
+    "lon": 9.9508335,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Kiesseestraße 33, 37083 Göttingen",
+    "address_public": "Kiesseestraße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:26:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:27:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:26:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Geographie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Kiesseestraße",
+    "street_no": "33"
+  },
+  {
+    "email": "amelie.schaefer@email.de",
+    "first_name": "Amelie",
+    "last_name": "Schäfer",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Kiesseestraße",
+      "street_no": "33",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5112444,
+    "lon": 9.9508335,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Kiesseestraße 33, 37083 Göttingen",
+    "address_public": "Kiesseestraße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:27:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:29:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:27:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Soziologie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Kiesseestraße",
+    "street_no": "33"
+  },
+  {
+    "email": "lena.k@email.de",
+    "first_name": "Lena",
+    "last_name": "Keller",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Goethe-Allee",
+      "street_no": "13",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Goethe-Allee 13, 37073 Göttingen",
+    "address_public": "Goethe-Allee, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:28:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:29:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:28:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Jura",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Goethe-Allee",
+    "street_no": "13"
+  },
+  {
+    "email": "moritz.horn@email.de",
+    "first_name": "Moritz",
+    "last_name": "Horn",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Zindelstraße",
+      "street_no": "3",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5324957,
+    "lon": 9.9342087,
+    "allergies": [
+      "dairy"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Zindelstraße 3, 37073 Göttingen",
+    "address_public": "Zindelstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:29:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:30:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:29:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Medizin",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Zindelstraße",
+    "street_no": "3"
+  },
+  {
+    "email": "charlotte.graf@email.de",
+    "first_name": "Charlotte",
+    "last_name": "Graf",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Zindelstraße",
+      "street_no": "3",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5324957,
+    "lon": 9.9342087,
+    "allergies": [
+      "dairy"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Zindelstraße 3, 37073 Göttingen",
+    "address_public": "Zindelstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:30:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:32:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:30:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Pharmazie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Zindelstraße",
+    "street_no": "3"
+  },
+  {
+    "email": "elias.v@email.de",
+    "first_name": "Elias",
+    "last_name": "Voigt",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Petrikirchstraße",
+      "street_no": "9",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Petrikirchstraße 9, 37077 Göttingen",
+    "address_public": "Petrikirchstraße, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:31:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:32:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:31:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Physik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37077",
+    "street": "Petrikirchstraße",
+    "street_no": "9"
+  },
+  {
+    "email": "hannah.k@email.de",
+    "first_name": "Hannah",
+    "last_name": "Kraus",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Groner-Tor-Straße",
+      "street_no": "31",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5331672,
+    "lon": 9.9288392,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Groner-Tor-Straße 31, 37073 Göttingen",
+    "address_public": "Groner-Tor-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:32:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:33:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:32:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Psychologie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Groner-Tor-Straße",
+    "street_no": "31"
+  },
+  {
+    "email": "julian.lorenz@email.de",
+    "first_name": "Julian",
+    "last_name": "Lorenz",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Groner-Tor-Straße",
+      "street_no": "31",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5331672,
+    "lon": 9.9288392,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Groner-Tor-Straße 31, 37073 Göttingen",
+    "address_public": "Groner-Tor-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:33:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:35:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:33:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Sportwissenschaft",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Groner-Tor-Straße",
+    "street_no": "31"
+  },
+  {
+    "email": "noah.s@email.de",
+    "first_name": "Noah",
+    "last_name": "Stein",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Papendiek",
+      "street_no": "16",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Papendiek 16, 37073 Göttingen",
+    "address_public": "Papendiek, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:34:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:35:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:34:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Informatik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Papendiek",
+    "street_no": "16"
+  },
+  {
+    "email": "lara.huber@email.de",
+    "first_name": "Lara",
+    "last_name": "Huber",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Kurze-Geismar-Straße",
+      "street_no": "20",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5307586,
+    "lon": 9.9387977,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Kurze-Geismar-Straße 20, 37073 Göttingen",
+    "address_public": "Kurze-Geismar-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:35:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:36:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:35:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "BWL",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Kurze-Geismar-Straße",
+    "street_no": "20"
+  },
+  {
+    "email": "finn.pohl@email.de",
+    "first_name": "Finn",
+    "last_name": "Pohl",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Kurze-Geismar-Straße",
+      "street_no": "20",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5307586,
+    "lon": 9.9387977,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Kurze-Geismar-Straße 20, 37073 Göttingen",
+    "address_public": "Kurze-Geismar-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:36:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:38:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:36:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Wirtschaftsinformatik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Kurze-Geismar-Straße",
+    "street_no": "20"
+  },
+  {
+    "email": "emil.s@email.de",
+    "first_name": "Emil",
+    "last_name": "Seidel",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Obere Karspüle",
+      "street_no": "22",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "gluten"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Obere Karspüle 22, 37073 Göttingen",
+    "address_public": "Obere Karspüle, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:37:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:38:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:37:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Geschichte",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Obere Karspüle",
+    "street_no": "22"
+  },
+  {
+    "email": "marie.pohl@email.de",
+    "first_name": "Marie",
+    "last_name": "Pohl",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Rosdorfer Weg",
+      "street_no": "1",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5316665,
+    "lon": 9.9265023,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Rosdorfer Weg 1, 37073 Göttingen",
+    "address_public": "Rosdorfer Weg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:38:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:39:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:38:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Anglistik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Rosdorfer Weg",
+    "street_no": "1"
+  },
+  {
+    "email": "lukas.engel@email.de",
+    "first_name": "Lukas",
+    "last_name": "Engel",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Rosdorfer Weg",
+      "street_no": "1",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5316665,
+    "lon": 9.9265023,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Rosdorfer Weg 1, 37073 Göttingen",
+    "address_public": "Rosdorfer Weg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:39:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:41:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:39:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Germanistik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Rosdorfer Weg",
+    "street_no": "1"
+  },
+  {
+    "email": "paul.w@email.de",
+    "first_name": "Paul",
+    "last_name": "Werner",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Theaterplatz",
+      "street_no": "7",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Theaterplatz 7, 37073 Göttingen",
+    "address_public": "Theaterplatz, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:40:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:41:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:40:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Soziologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Theaterplatz",
+    "street_no": "7"
+  },
+  {
+    "email": "mia.brandt@email.de",
+    "first_name": "Mia",
+    "last_name": "Brandt",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Untere-Masch-Straße",
+      "street_no": "10",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5359702,
+    "lon": 9.9302553,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Untere-Masch-Straße 10, 37073 Göttingen",
+    "address_public": "Untere-Masch-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:41:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:42:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:41:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Chemie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Untere-Masch-Straße",
+    "street_no": "10"
+  },
+  {
+    "email": "leon.herrmann@email.de",
+    "first_name": "Leon",
+    "last_name": "Herrmann",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Untere-Masch-Straße",
+      "street_no": "10",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5359702,
+    "lon": 9.9302553,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Untere-Masch-Straße 10, 37073 Göttingen",
+    "address_public": "Untere-Masch-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:42:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:44:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:42:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Biologie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Untere-Masch-Straße",
+    "street_no": "10"
+  },
+  {
+    "email": "felix.w@email.de",
+    "first_name": "Felix",
+    "last_name": "Wunderlich",
+    "gender": "diverse",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Weißen Steine",
+      "street_no": "8",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Weißen Steine 8, 37085 Göttingen",
+    "address_public": "Am Weißen Steine, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:43:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:44:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:43:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Biologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37085",
+    "street": "Am Weißen Steine",
+    "street_no": "8"
+  },
+  {
+    "email": "julia.peters@email.de",
+    "first_name": "Julia",
+    "last_name": "Peters",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Auf dem Greite",
+      "street_no": "15",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5361945,
+    "lon": 9.9016586,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Auf dem Greite 15, 37083 Göttingen",
+    "address_public": "Auf dem Greite, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:44:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:45:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:44:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Medizin",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Auf dem Greite",
+    "street_no": "15"
+  },
+  {
+    "email": "tim.kramer@email.de",
+    "first_name": "Tim",
+    "last_name": "Kramer",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Auf dem Greite",
+      "street_no": "15",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5361945,
+    "lon": 9.9016586,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Auf dem Greite 15, 37083 Göttingen",
+    "address_public": "Auf dem Greite, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:45:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:47:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:45:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Zahnmedizin",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Auf dem Greite",
+    "street_no": "15"
+  },
+  {
+    "email": "niklas.f@email.de",
+    "first_name": "Niklas",
+    "last_name": "Franke",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Im Hassel",
+      "street_no": "2",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Im Hassel 2, 37077 Göttingen",
+    "address_public": "Im Hassel, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:46:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:47:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:46:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Sportwissenschaft",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37077",
+    "street": "Im Hassel",
+    "street_no": "2"
+  },
+  {
+    "email": "sarah.berger@email.de",
+    "first_name": "Sarah",
+    "last_name": "Berger",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "An der Lutter",
+      "street_no": "22",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": 51.5553405,
+    "lon": 9.9401445,
+    "allergies": [
+      "nuts"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "An der Lutter 22, 37075 Göttingen",
+    "address_public": "An der Lutter, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:47:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:48:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:47:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": false,
+    "postal_code": "37075",
+    "street": "An der Lutter",
+    "street_no": "22"
+  },
+  {
+    "email": "david.roth@email.de",
+    "first_name": "David",
+    "last_name": "Roth",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "An der Lutter",
+      "street_no": "22",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": 51.5553405,
+    "lon": 9.9401445,
+    "allergies": [
+      "nuts"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "An der Lutter 22, 37075 Göttingen",
+    "address_public": "An der Lutter, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:48:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:50:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:48:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": false,
+    "postal_code": "37075",
+    "street": "An der Lutter",
+    "street_no": "22"
+  },
+  {
+    "email": "laura.h@email.de",
+    "first_name": "Laura",
+    "last_name": "Haas",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Nonnenstieg",
+      "street_no": "1",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Nonnenstieg 1, 37075 Göttingen",
+    "address_public": "Nonnenstieg, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:49:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:50:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:49:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Philosophie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37075",
+    "street": "Nonnenstieg",
+    "street_no": "1"
+  },
+  {
+    "email": "anton.schubert@email.de",
+    "first_name": "Anton",
+    "last_name": "Schubert",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Greifswalder Straße",
+      "street_no": "5",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5904937,
+    "lon": 9.9402002,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Greifswalder Straße 5, 37085 Göttingen",
+    "address_public": "Greifswalder Straße, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:50:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:51:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:50:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Informatik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Greifswalder Straße",
+    "street_no": "5"
+  },
+  {
+    "email": "ida.simon@email.de",
+    "first_name": "Ida",
+    "last_name": "Simon",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Greifswalder Straße",
+      "street_no": "5",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5904937,
+    "lon": 9.9402002,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Greifswalder Straße 5, 37085 Göttingen",
+    "address_public": "Greifswalder Straße, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:51:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:53:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:51:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Mathematik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Greifswalder Straße",
+    "street_no": "5"
+  },
+  {
+    "email": "klara.l@email.de",
+    "first_name": "Klara",
+    "last_name": "Ludwig",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Herzberger Landstraße",
+      "street_no": "100",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "fructose"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Herzberger Landstraße 100, 37085 Göttingen",
+    "address_public": "Herzberger Landstraße, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:52:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:53:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:52:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Psychologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37085",
+    "street": "Herzberger Landstraße",
+    "street_no": "100"
+  },
+  {
+    "email": "max.boehm@email.de",
+    "first_name": "Maximilian",
+    "last_name": "Böhm",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Göttinger Straße",
+      "street_no": "4",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5060982,
+    "lon": 9.9003021,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Göttinger Straße 4, 37073 Göttingen",
+    "address_public": "Göttinger Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:53:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:54:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:53:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "BWL",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Göttinger Straße",
+    "street_no": "4"
+  },
+  {
+    "email": "lea.otto@email.de",
+    "first_name": "Lea",
+    "last_name": "Otto",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Göttinger Straße",
+      "street_no": "4",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5060982,
+    "lon": 9.9003021,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Göttinger Straße 4, 37073 Göttingen",
+    "address_public": "Göttinger Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:54:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:56:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:54:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "VWL",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Göttinger Straße",
+    "street_no": "4"
+  },
+  {
+    "email": "lisa.l@email.de",
+    "first_name": "Lisa",
+    "last_name": "Langhans",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Gartetalbahnhof",
+      "street_no": "1",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Gartetalbahnhof 1, 37073 Göttingen",
+    "address_public": "Am Gartetalbahnhof, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:55:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:56:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:55:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Germanistik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Am Gartetalbahnhof",
+    "street_no": "1"
+  },
+  {
+    "email": "oskar.f@email.de",
+    "first_name": "Oskar",
+    "last_name": "Friedrich",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Stettiner Straße",
+      "street_no": "12",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5200798,
+    "lon": 9.9351039,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Stettiner Straße 12, 37083 Göttingen",
+    "address_public": "Stettiner Straße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:56:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:57:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:56:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Stettiner Straße",
+    "street_no": "12"
+  },
+  {
+    "email": "mathilda.vogel@email.de",
+    "first_name": "Mathilda",
+    "last_name": "Vogel",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Stettiner Straße",
+      "street_no": "12",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5200798,
+    "lon": 9.9351039,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Stettiner Straße 12, 37083 Göttingen",
+    "address_public": "Stettiner Straße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:57:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:59:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:57:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Stettiner Straße",
+    "street_no": "12"
+  },
+  {
+    "email": "johanna.k@email.de",
+    "first_name": "Johanna",
+    "last_name": "Keller",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Von-Bar-Straße",
+      "street_no": "2",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Von-Bar-Straße 2, 37075 Göttingen",
+    "address_public": "Von-Bar-Straße, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:58:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T18:59:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:58:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Medizin",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37075",
+    "street": "Von-Bar-Straße",
+    "street_no": "2"
+  },
+  {
+    "email": "timon.g@email.de",
+    "first_name": "Timon",
+    "last_name": "Gärtner",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Christophorusweg",
+      "street_no": "7",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": 51.5492783,
+    "lon": 9.9384964,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Christophorusweg 7, 37075 Göttingen",
+    "address_public": "Christophorusweg, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T18:59:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:00:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T19:59:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Chemie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37075",
+    "street": "Christophorusweg",
+    "street_no": "7"
+  },
+  {
+    "email": "luisa.ernst@email.de",
+    "first_name": "Luisa",
+    "last_name": "Ernst",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Christophorusweg",
+      "street_no": "7",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": 51.5492783,
+    "lon": 9.9384964,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Christophorusweg 7, 37075 Göttingen",
+    "address_public": "Christophorusweg, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:00:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:02:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:00:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Biochemie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37075",
+    "street": "Christophorusweg",
+    "street_no": "7"
+  },
+  {
+    "email": "amelie.f@email.de",
+    "first_name": "Amelie",
+    "last_name": "Fuchs",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Mittelberg",
+      "street_no": "19",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Mittelberg 19, 37085 Göttingen",
+    "address_public": "Mittelberg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:01:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:02:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:01:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Soziologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37085",
+    "street": "Mittelberg",
+    "street_no": "19"
+  },
+  {
+    "email": "jan.winter@email.de",
+    "first_name": "Jan",
+    "last_name": "Winter",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Feuerschanzengraben",
+      "street_no": "14",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5272785,
+    "lon": 9.941781,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Feuerschanzengraben 14, 37073 Göttingen",
+    "address_public": "Am Feuerschanzengraben, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:02:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:03:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:02:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Geschichte",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Am Feuerschanzengraben",
+    "street_no": "14"
+  },
+  {
+    "email": "sophie.sommer@email.de",
+    "first_name": "Sophie",
+    "last_name": "Sommer",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Feuerschanzengraben",
+      "street_no": "14",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5272785,
+    "lon": 9.941781,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Feuerschanzengraben 14, 37073 Göttingen",
+    "address_public": "Am Feuerschanzengraben, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:03:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:05:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:03:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Archäologie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Am Feuerschanzengraben",
+    "street_no": "14"
+  },
+  {
+    "email": "carla.j@email.de",
+    "first_name": "Carla",
+    "last_name": "Jung",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Lohberg",
+      "street_no": "7",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Lohberg 7, 37073 Göttingen",
+    "address_public": "Lohberg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:04:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:05:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:04:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Kunstgeschichte",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Lohberg",
+    "street_no": "7"
+  },
+  {
+    "email": "florian.g@email.de",
+    "first_name": "Florian",
+    "last_name": "Grimm",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Asternweg",
+      "street_no": "5",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5436651,
+    "lon": 9.9127119,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Asternweg 5, 37085 Göttingen",
+    "address_public": "Asternweg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:05:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:06:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:05:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Asternweg",
+    "street_no": "5"
+  },
+  {
+    "email": "nele.schreiber@email.de",
+    "first_name": "Nele",
+    "last_name": "Schreiber",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Asternweg",
+      "street_no": "5",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5436651,
+    "lon": 9.9127119,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Asternweg 5, 37085 Göttingen",
+    "address_public": "Asternweg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:06:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:08:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:06:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Rechtswissenschaften",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Asternweg",
+    "street_no": "5"
+  },
+  {
+    "email": "pia.l@email.de",
+    "first_name": "Pia",
+    "last_name": "Linke",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Stegemühlenweg",
+      "street_no": "55",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "gluten"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Stegemühlenweg 55, 37083 Göttingen",
+    "address_public": "Stegemühlenweg, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:07:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:08:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:07:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Biologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37083",
+    "street": "Stegemühlenweg",
+    "street_no": "55"
+  },
+  {
+    "email": "simon.j@email.de",
+    "first_name": "Simon",
+    "last_name": "Jäger",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Wilhelm-Weber-Straße",
+      "street_no": "20",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5388396,
+    "lon": 9.944609,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Wilhelm-Weber-Straße 20, 37073 Göttingen",
+    "address_public": "Wilhelm-Weber-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:08:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:09:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:08:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Informatik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Wilhelm-Weber-Straße",
+    "street_no": "20"
+  },
+  {
+    "email": "elisa.kurz@email.de",
+    "first_name": "Elisa",
+    "last_name": "Kurz",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Wilhelm-Weber-Straße",
+      "street_no": "20",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5388396,
+    "lon": 9.944609,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Wilhelm-Weber-Straße 20, 37073 Göttingen",
+    "address_public": "Wilhelm-Weber-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:09:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:11:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:09:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Informatik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Wilhelm-Weber-Straße",
+    "street_no": "20"
+  },
+  {
+    "email": "theresa.m@email.de",
+    "first_name": "Theresa",
+    "last_name": "May",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Platz der Göttinger Sieben",
+      "street_no": "5",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Platz der Göttinger Sieben 5, 37073 Göttingen",
+    "address_public": "Platz der Göttinger Sieben, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:10:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:11:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:10:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Politikwissenschaft",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Platz der Göttinger Sieben",
+    "street_no": "5"
+  },
+  {
+    "email": "adrian.m@email.de",
+    "first_name": "Adrian",
+    "last_name": "Muth",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Windausweg",
+      "street_no": "2",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5234769,
+    "lon": 9.9326331,
+    "allergies": [
+      "dairy"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Windausweg 2, 37073 Göttingen",
+    "address_public": "Windausweg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:11:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:12:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:11:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Windausweg",
+    "street_no": "2"
+  },
+  {
+    "email": "isabell.hahn@email.de",
+    "first_name": "Isabell",
+    "last_name": "Hahn",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Windausweg",
+      "street_no": "2",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5234769,
+    "lon": 9.9326331,
+    "allergies": [
+      "dairy"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Windausweg 2, 37073 Göttingen",
+    "address_public": "Windausweg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:12:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:14:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:12:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Mathematik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Windausweg",
+    "street_no": "2"
+  },
+  {
+    "email": "melina.b@email.de",
+    "first_name": "Melina",
+    "last_name": "Busch",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Hermann-Rein-Straße",
+      "street_no": "3",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Hermann-Rein-Straße 3, 37075 Göttingen",
+    "address_public": "Hermann-Rein-Straße, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:13:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:14:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:13:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Medizin",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37075",
+    "street": "Hermann-Rein-Straße",
+    "street_no": "3"
+  },
+  {
+    "email": "erik.l@email.de",
+    "first_name": "Erik",
+    "last_name": "Lange",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Tammannstraße",
+      "street_no": "4",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": 51.5585241,
+    "lon": 9.9490017,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Tammannstraße 4, 37077 Göttingen",
+    "address_public": "Tammannstraße, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:14:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:15:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:14:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Chemie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37077",
+    "street": "Tammannstraße",
+    "street_no": "4"
+  },
+  {
+    "email": "marie.john@email.de",
+    "first_name": "Marie",
+    "last_name": "John",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Tammannstraße",
+      "street_no": "4",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": 51.5585241,
+    "lon": 9.9490017,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Tammannstraße 4, 37077 Göttingen",
+    "address_public": "Tammannstraße, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:15:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:17:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:15:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Chemie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37077",
+    "street": "Tammannstraße",
+    "street_no": "4"
+  },
+  {
+    "email": "vanessa.k@email.de",
+    "first_name": "Vanessa",
+    "last_name": "König",
+    "gender": "diverse",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Geiststraße",
+      "street_no": "10",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Geiststraße 10, 37073 Göttingen",
+    "address_public": "Geiststraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:16:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:17:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:16:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Psychologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Geiststraße",
+    "street_no": "10"
+  },
+  {
+    "email": "justus.r@email.de",
+    "first_name": "Justus",
+    "last_name": "Ritter",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Friedländer Weg",
+      "street_no": "2",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5344067,
+    "lon": 9.9442613,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Friedländer Weg 2, 37085 Göttingen",
+    "address_public": "Friedländer Weg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:17:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:18:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:17:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Friedländer Weg",
+    "street_no": "2"
+  },
+  {
+    "email": "hannah.thiel@email.de",
+    "first_name": "Hannah",
+    "last_name": "Thiel",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Friedländer Weg",
+      "street_no": "2",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5344067,
+    "lon": 9.9442613,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Friedländer Weg 2, 37085 Göttingen",
+    "address_public": "Friedländer Weg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:18:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:20:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:18:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Friedländer Weg",
+    "street_no": "2"
+  },
+  {
+    "email": "chiara.a@email.de",
+    "first_name": "Chiara",
+    "last_name": "Adam",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Berliner Straße",
+      "street_no": "28",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Berliner Straße 28, 37073 Göttingen",
+    "address_public": "Berliner Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:19:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:20:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:19:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "BWL",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Berliner Straße",
+    "street_no": "28"
+  },
+  {
+    "email": "fabian.n@email.de",
+    "first_name": "Fabian",
+    "last_name": "Neumann",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Rote Straße",
+      "street_no": "15",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.532819,
+    "lon": 9.9364608,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Rote Straße 15, 37073 Göttingen",
+    "address_public": "Rote Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:20:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:21:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:20:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Informatik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Rote Straße",
+    "street_no": "15"
+  },
+  {
+    "email": "lina.beck@email.de",
+    "first_name": "Lina",
+    "last_name": "Beck",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Rote Straße",
+      "street_no": "15",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.532819,
+    "lon": 9.9364608,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Rote Straße 15, 37073 Göttingen",
+    "address_public": "Rote Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:21:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:23:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:21:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Wirtschaftsinformatik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Rote Straße",
+    "street_no": "15"
+  },
+  {
+    "email": "alina.w@email.de",
+    "first_name": "Alina",
+    "last_name": "Wagner",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Jüdenstraße",
+      "street_no": "33",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Jüdenstraße 33, 37073 Göttingen",
+    "address_public": "Jüdenstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:22:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:23:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:22:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Germanistik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Jüdenstraße",
+    "street_no": "33"
+  },
+  {
+    "email": "jannik.s@email.de",
+    "first_name": "Jannik",
+    "last_name": "Schulz",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Dahlmannstraße",
+      "street_no": "1",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5362754,
+    "lon": 9.9499209,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Dahlmannstraße 1, 37073 Göttingen",
+    "address_public": "Dahlmannstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:23:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:24:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:23:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Dahlmannstraße",
+    "street_no": "1"
+  },
+  {
+    "email": "lara.simon@email.de",
+    "first_name": "Lara",
+    "last_name": "Simon",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Dahlmannstraße",
+      "street_no": "1",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5362754,
+    "lon": 9.9499209,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Dahlmannstraße 1, 37073 Göttingen",
+    "address_public": "Dahlmannstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:24:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:26:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:24:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Astronomie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Dahlmannstraße",
+    "street_no": "1"
+  },
+  {
+    "email": "ronja.w@email.de",
+    "first_name": "Ronja",
+    "last_name": "Wolf",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Gartenstraße",
+      "street_no": "25",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "gluten"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Gartenstraße 25, 37073 Göttingen",
+    "address_public": "Gartenstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:25:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:26:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:25:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Biologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Gartenstraße",
+    "street_no": "25"
+  },
+  {
+    "email": "sebastian.h@email.de",
+    "first_name": "Sebastian",
+    "last_name": "Horn",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Lotzestraße",
+      "street_no": "16",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Lotzestraße 16, 37083 Göttingen",
+    "address_public": "Lotzestraße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:26:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:27:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:26:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Sportwissenschaft",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37083",
+    "street": "Lotzestraße",
+    "street_no": "16"
+  },
+  {
+    "email": "emilia.g@email.de",
+    "first_name": "Emilia",
+    "last_name": "Graf",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Planckstraße",
+      "street_no": "1",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5367349,
+    "lon": 9.9435827,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Planckstraße 1, 37073 Göttingen",
+    "address_public": "Planckstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:27:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:28:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:27:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Medizin",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Planckstraße",
+    "street_no": "1"
+  },
+  {
+    "email": "leo.keller@email.de",
+    "first_name": "Leo",
+    "last_name": "Keller",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Planckstraße",
+      "street_no": "1",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5367349,
+    "lon": 9.9435827,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Planckstraße 1, 37073 Göttingen",
+    "address_public": "Planckstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:28:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:30:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:28:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Medizin",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Planckstraße",
+    "street_no": "1"
+  },
+  {
+    "email": "henry.v@email.de",
+    "first_name": "Henry",
+    "last_name": "Vogel",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Calsowstraße",
+      "street_no": "5",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Calsowstraße 5, 37085 Göttingen",
+    "address_public": "Calsowstraße, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:29:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:30:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:29:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Geschichte",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37085",
+    "street": "Calsowstraße",
+    "street_no": "5"
+  },
+  {
+    "email": "mila.r@email.de",
+    "first_name": "Mila",
+    "last_name": "Roth",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Baurat-Gerber-Straße",
+      "street_no": "2",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5357666,
+    "lon": 9.9426604,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Baurat-Gerber-Straße 2, 37073 Göttingen",
+    "address_public": "Baurat-Gerber-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:30:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:31:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:30:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Architektur",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Baurat-Gerber-Straße",
+    "street_no": "2"
+  },
+  {
+    "email": "ben.kruse@email.de",
+    "first_name": "Ben",
+    "last_name": "Kruse",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Baurat-Gerber-Straße",
+      "street_no": "2",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5357666,
+    "lon": 9.9426604,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Baurat-Gerber-Straße 2, 37073 Göttingen",
+    "address_public": "Baurat-Gerber-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:31:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:33:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:31:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Bauingenieurwesen",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Baurat-Gerber-Straße",
+    "street_no": "2"
+  },
+  {
+    "email": "jakob.e@email.de",
+    "first_name": "Jakob",
+    "last_name": "Ernst",
+    "gender": "diverse",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Walkemühlenweg",
+      "street_no": "11",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Walkemühlenweg 11, 37083 Göttingen",
+    "address_public": "Walkemühlenweg, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:32:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:33:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:32:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Philosophie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37083",
+    "street": "Walkemühlenweg",
+    "street_no": "11"
+  },
+  {
+    "email": "ida.k@email.de",
+    "first_name": "Ida",
+    "last_name": "Klein",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Wagnerstraße",
+      "street_no": "3",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.534078,
+    "lon": 9.9468446,
+    "allergies": [
+      "nuts"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Wagnerstraße 3, 37085 Göttingen",
+    "address_public": "Wagnerstraße, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:33:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:34:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:33:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Musikwissenschaft",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Wagnerstraße",
+    "street_no": "3"
+  },
+  {
+    "email": "noah.schreiber@email.de",
+    "first_name": "Noah",
+    "last_name": "Schreiber",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Wagnerstraße",
+      "street_no": "3",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.534078,
+    "lon": 9.9468446,
+    "allergies": [
+      "nuts"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Wagnerstraße 3, 37085 Göttingen",
+    "address_public": "Wagnerstraße, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:34:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:36:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:34:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Kunstgeschichte",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Wagnerstraße",
+    "street_no": "3"
+  },
+  {
+    "email": "matthias.k@email.de",
+    "first_name": "Matthias",
+    "last_name": "Koch",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Albaniplatz",
+      "street_no": "8",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Albaniplatz 8, 37073 Göttingen",
+    "address_public": "Albaniplatz, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:35:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:36:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:35:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Theologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Albaniplatz",
+    "street_no": "8"
+  },
+  {
+    "email": "leni.b@email.de",
+    "first_name": "Leni",
+    "last_name": "Bauer",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Tilsiter Straße",
+      "street_no": "19",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5225709,
+    "lon": 9.9443798,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Tilsiter Straße 19, 37083 Göttingen",
+    "address_public": "Tilsiter Straße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:36:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:37:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:36:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Tilsiter Straße",
+    "street_no": "19"
+  },
+  {
+    "email": "moritz.seidel@email.de",
+    "first_name": "Moritz",
+    "last_name": "Seidel",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Tilsiter Straße",
+      "street_no": "19",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5225709,
+    "lon": 9.9443798,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Tilsiter Straße 19, 37083 Göttingen",
+    "address_public": "Tilsiter Straße, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:37:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:39:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:37:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Tilsiter Straße",
+    "street_no": "19"
+  },
+  {
+    "email": "timo.l@email.de",
+    "first_name": "Timo",
+    "last_name": "Lorenz",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Friedrich-Hund-Platz",
+      "street_no": "1",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Friedrich-Hund-Platz 1, 37077 Göttingen",
+    "address_public": "Friedrich-Hund-Platz, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:38:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:39:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:38:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Physik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37077",
+    "street": "Friedrich-Hund-Platz",
+    "street_no": "1"
+  },
+  {
+    "email": "ella.w@email.de",
+    "first_name": "Ella",
+    "last_name": "Winter",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Maschmühlenweg",
+      "street_no": "4",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.538767,
+    "lon": 9.9321586,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Maschmühlenweg 4, 37073 Göttingen",
+    "address_public": "Maschmühlenweg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:39:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:40:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:39:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "BWL",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Maschmühlenweg",
+    "street_no": "4"
+  },
+  {
+    "email": "finn.brandt@email.de",
+    "first_name": "Finn",
+    "last_name": "Brandt",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Maschmühlenweg",
+      "street_no": "4",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.538767,
+    "lon": 9.9321586,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Maschmühlenweg 4, 37073 Göttingen",
+    "address_public": "Maschmühlenweg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:40:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:42:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:40:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "BWL",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Maschmühlenweg",
+    "street_no": "4"
+  },
+  {
+    "email": "hannes.b@email.de",
+    "first_name": "Hannes",
+    "last_name": "Bergmann",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Godehardstraße",
+      "street_no": "11",
+      "postal_code": "37081",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Godehardstraße 11, 37081 Göttingen",
+    "address_public": "Godehardstraße, 37081 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:41:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:42:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:41:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Soziologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37081",
+    "street": "Godehardstraße",
+    "street_no": "11"
+  },
+  {
+    "email": "frida.p@email.de",
+    "first_name": "Frida",
+    "last_name": "Peters",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Königsstieg",
+      "street_no": "90",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5352387,
+    "lon": 9.9133819,
+    "allergies": [
+      "dairy"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Königsstieg 90, 37085 Göttingen",
+    "address_public": "Königsstieg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:42:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:43:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:42:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Pädagogik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Königsstieg",
+    "street_no": "90"
+  },
+  {
+    "email": "leon.pohl@email.de",
+    "first_name": "Leon",
+    "last_name": "Pohl",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Königsstieg",
+      "street_no": "90",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5352387,
+    "lon": 9.9133819,
+    "allergies": [
+      "dairy"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Königsstieg 90, 37085 Göttingen",
+    "address_public": "Königsstieg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:43:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:45:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:43:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Soziale Arbeit",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Königsstieg",
+    "street_no": "90"
+  },
+  {
+    "email": "theo.g@email.de",
+    "first_name": "Theo",
+    "last_name": "Grimm",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Grüner Weg",
+      "street_no": "7",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Grüner Weg 7, 37075 Göttingen",
+    "address_public": "Grüner Weg, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:44:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:45:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:44:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Forstwissenschaft",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37075",
+    "street": "Grüner Weg",
+    "street_no": "7"
+  },
+  {
+    "email": "lilly.h@email.de",
+    "first_name": "Lilly",
+    "last_name": "Hahn",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Heinrich-Düker-Weg",
+      "street_no": "12",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5422574,
+    "lon": 9.9393195,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Heinrich-Düker-Weg 12, 37073 Göttingen",
+    "address_public": "Heinrich-Düker-Weg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:45:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:46:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:45:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Psychologie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Heinrich-Düker-Weg",
+    "street_no": "12"
+  },
+  {
+    "email": "david.engel@email.de",
+    "first_name": "David",
+    "last_name": "Engel",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Heinrich-Düker-Weg",
+      "street_no": "12",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5422574,
+    "lon": 9.9393195,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Heinrich-Düker-Weg 12, 37073 Göttingen",
+    "address_public": "Heinrich-Düker-Weg, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:46:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:48:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:46:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Psychologie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Heinrich-Düker-Weg",
+    "street_no": "12"
+  },
+  {
+    "email": "aaron.f@email.de",
+    "first_name": "Aaron",
+    "last_name": "Franke",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Kreuzbergring",
+      "street_no": "2",
+      "postal_code": "37075",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Kreuzbergring 2, 37075 Göttingen",
+    "address_public": "Kreuzbergring, 37075 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:47:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:48:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:47:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Informatik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37075",
+    "street": "Kreuzbergring",
+    "street_no": "2"
+  },
+  {
+    "email": "maja.n@email.de",
+    "first_name": "Maja",
+    "last_name": "Neumann",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Menzelberg",
+      "street_no": "8",
+      "postal_code": "37081",
+      "city": "Göttingen"
+    },
+    "lat": 51.560689,
+    "lon": 10.0085017,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Menzelberg 8, 37081 Göttingen",
+    "address_public": "Am Menzelberg, 37081 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:48:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:49:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:48:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Medizin",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37081",
+    "street": "Am Menzelberg",
+    "street_no": "8"
+  },
+  {
+    "email": "julia.sommer@email.de",
+    "first_name": "Julia",
+    "last_name": "Sommer",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Menzelberg",
+      "street_no": "8",
+      "postal_code": "37081",
+      "city": "Göttingen"
+    },
+    "lat": 51.560689,
+    "lon": 10.0085017,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Menzelberg 8, 37081 Göttingen",
+    "address_public": "Am Menzelberg, 37081 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:49:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:51:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:49:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Medizin",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37081",
+    "street": "Am Menzelberg",
+    "street_no": "8"
+  },
+  {
+    "email": "bruno.s@email.de",
+    "first_name": "Bruno",
+    "last_name": "Schubert",
+    "gender": "diverse",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Leinestraße",
+      "street_no": "21",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Leinestraße 21, 37073 Göttingen",
+    "address_public": "Leinestraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:50:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:51:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:50:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Geographie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Leinestraße",
+    "street_no": "21"
+  },
+  {
+    "email": "zoe.f@email.de",
+    "first_name": "Zoe",
+    "last_name": "Friedrich",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Klausberge",
+      "street_no": "10",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": 51.5510936,
+    "lon": 9.9592137,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Klausberge 10, 37077 Göttingen",
+    "address_public": "Am Klausberge, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:51:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:52:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:51:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Chemie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37077",
+    "street": "Am Klausberge",
+    "street_no": "10"
+  },
+  {
+    "email": "tom.berger@email.de",
+    "first_name": "Tom",
+    "last_name": "Berger",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Klausberge",
+      "street_no": "10",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": 51.5510936,
+    "lon": 9.9592137,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Klausberge 10, 37077 Göttingen",
+    "address_public": "Am Klausberge, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:52:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:54:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:52:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Chemie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37077",
+    "street": "Am Klausberge",
+    "street_no": "10"
+  },
+  {
+    "email": "oskar.k@email.de",
+    "first_name": "Oskar",
+    "last_name": "Keller",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Hospitalstraße",
+      "street_no": "7",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "fructose"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Hospitalstraße 7, 37073 Göttingen",
+    "address_public": "Hospitalstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:53:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:54:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:53:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Geschichte",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Hospitalstraße",
+    "street_no": "7"
+  },
+  {
+    "email": "hannah.j@email.de",
+    "first_name": "Hannah",
+    "last_name": "Jäger",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Carl-Zeiss-Straße",
+      "street_no": "3",
+      "postal_code": "37081",
+      "city": "Göttingen"
+    },
+    "lat": 51.5388359,
+    "lon": 9.9209933,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Carl-Zeiss-Straße 3, 37081 Göttingen",
+    "address_public": "Carl-Zeiss-Straße, 37081 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:54:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:55:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:54:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37081",
+    "street": "Carl-Zeiss-Straße",
+    "street_no": "3"
+  },
+  {
+    "email": "elias.may@email.de",
+    "first_name": "Elias",
+    "last_name": "May",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Carl-Zeiss-Straße",
+      "street_no": "3",
+      "postal_code": "37081",
+      "city": "Göttingen"
+    },
+    "lat": 51.5388359,
+    "lon": 9.9209933,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Carl-Zeiss-Straße 3, 37081 Göttingen",
+    "address_public": "Carl-Zeiss-Straße, 37081 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:55:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:57:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:55:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37081",
+    "street": "Carl-Zeiss-Straße",
+    "street_no": "3"
+  },
+  {
+    "email": "vincent.k@email.de",
+    "first_name": "Vincent",
+    "last_name": "Kurz",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Eisenacher Straße",
+      "street_no": "14",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Eisenacher Straße 14, 37085 Göttingen",
+    "address_public": "Eisenacher Straße, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:56:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:57:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:56:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Sportwissenschaft",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37085",
+    "street": "Eisenacher Straße",
+    "street_no": "14"
+  },
+  {
+    "email": "sophia.h@email.de",
+    "first_name": "Sophia",
+    "last_name": "Herrmann",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Ritterplan",
+      "street_no": "4",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5358358,
+    "lon": 9.9376994,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Ritterplan 4, 37073 Göttingen",
+    "address_public": "Ritterplan, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:57:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T19:58:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:57:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Kunstgeschichte",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Ritterplan",
+    "street_no": "4"
+  },
+  {
+    "email": "janis.kramer@email.de",
+    "first_name": "Janis",
+    "last_name": "Kramer",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Ritterplan",
+      "street_no": "4",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5358358,
+    "lon": 9.9376994,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Ritterplan 4, 37073 Göttingen",
+    "address_public": "Ritterplan, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:58:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:00:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:58:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Archäologie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Ritterplan",
+    "street_no": "4"
+  },
+  {
+    "email": "leo.o@email.de",
+    "first_name": "Leo",
+    "last_name": "Otto",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Im Moore",
+      "street_no": "19",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "gluten"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Im Moore 19, 37085 Göttingen",
+    "address_public": "Im Moore, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T19:59:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:00:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T20:59:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Agrarwissenschaften",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37085",
+    "street": "Im Moore",
+    "street_no": "19"
+  },
+  {
+    "email": "lina.b@email.de",
+    "first_name": "Lina",
+    "last_name": "Busch",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Gothaer Platz",
+      "street_no": "2",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5251917,
+    "lon": 9.9483035,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Gothaer Platz 2, 37083 Göttingen",
+    "address_public": "Gothaer Platz, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:00:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:01:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:00:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Gothaer Platz",
+    "street_no": "2"
+  },
+  {
+    "email": "anton.linke@email.de",
+    "first_name": "Anton",
+    "last_name": "Linke",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Gothaer Platz",
+      "street_no": "2",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5251917,
+    "lon": 9.9483035,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Gothaer Platz 2, 37083 Göttingen",
+    "address_public": "Gothaer Platz, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:01:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:03:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:01:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Gothaer Platz",
+    "street_no": "2"
+  },
+  {
+    "email": "paulina.k@email.de",
+    "first_name": "Paulina",
+    "last_name": "König",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Feuerschanzengraben",
+      "street_no": "30",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Feuerschanzengraben 30, 37073 Göttingen",
+    "address_public": "Am Feuerschanzengraben, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:02:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:03:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:02:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Germanistik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Am Feuerschanzengraben",
+    "street_no": "30"
+  },
+  {
+    "email": "jonathan.t@email.de",
+    "first_name": "Jonathan",
+    "last_name": "Thiel",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Sollingstraße",
+      "street_no": "5",
+      "postal_code": "37081",
+      "city": "Göttingen"
+    },
+    "lat": 51.5254598,
+    "lon": 9.8971142,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Sollingstraße 5, 37081 Göttingen",
+    "address_public": "Sollingstraße, 37081 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:03:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:04:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:03:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "BWL",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37081",
+    "street": "Sollingstraße",
+    "street_no": "5"
+  },
+  {
+    "email": "pia.adam@email.de",
+    "first_name": "Pia",
+    "last_name": "Adam",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Sollingstraße",
+      "street_no": "5",
+      "postal_code": "37081",
+      "city": "Göttingen"
+    },
+    "lat": 51.5254598,
+    "lon": 9.8971142,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Sollingstraße 5, 37081 Göttingen",
+    "address_public": "Sollingstraße, 37081 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:04:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:06:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:04:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "VWL",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37081",
+    "street": "Sollingstraße",
+    "street_no": "5"
+  },
+  {
+    "email": "frieda.r@email.de",
+    "first_name": "Frieda",
+    "last_name": "Richter",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Obere-Masch-Straße",
+      "street_no": "20",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Obere-Masch-Straße 20, 37073 Göttingen",
+    "address_public": "Obere-Masch-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:05:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:06:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:05:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Philosophie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Obere-Masch-Straße",
+    "street_no": "20"
+  },
+  {
+    "email": "karl.s@email.de",
+    "first_name": "Karl",
+    "last_name": "Simon",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Ascherberg",
+      "street_no": "1",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5159944,
+    "lon": 9.9174104,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Ascherberg 1, 37085 Göttingen",
+    "address_public": "Ascherberg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:06:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:07:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:06:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Informatik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Ascherberg",
+    "street_no": "1"
+  },
+  {
+    "email": "nele.gaertner@email.de",
+    "first_name": "Nele",
+    "last_name": "Gärtner",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Ascherberg",
+      "street_no": "1",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5159944,
+    "lon": 9.9174104,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Ascherberg 1, 37085 Göttingen",
+    "address_public": "Ascherberg, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:07:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:09:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:07:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Informatik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Ascherberg",
+    "street_no": "1"
+  },
+  {
+    "email": "luisa.f@email.de",
+    "first_name": "Luisa",
+    "last_name": "Fuchs",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Baurat-Gerber-Straße",
+      "street_no": "17",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Baurat-Gerber-Straße 17, 37073 Göttingen",
+    "address_public": "Baurat-Gerber-Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:08:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:09:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:08:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Medizin",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Baurat-Gerber-Straße",
+    "street_no": "17"
+  },
+  {
+    "email": "ferdinand.w@email.de",
+    "first_name": "Ferdinand",
+    "last_name": "Winter",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Auf der Lieth",
+      "street_no": "9",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": 51.5599548,
+    "lon": 9.986813,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Auf der Lieth 9, 37077 Göttingen",
+    "address_public": "Auf der Lieth, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:09:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:10:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:09:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Geschichte",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37077",
+    "street": "Auf der Lieth",
+    "street_no": "9"
+  },
+  {
+    "email": "clara.jung@email.de",
+    "first_name": "Clara",
+    "last_name": "Jung",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Auf der Lieth",
+      "street_no": "9",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": 51.5599548,
+    "lon": 9.986813,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Auf der Lieth 9, 37077 Göttingen",
+    "address_public": "Auf der Lieth, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:10:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:12:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:10:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Geschichte",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37077",
+    "street": "Auf der Lieth",
+    "street_no": "9"
+  },
+  {
+    "email": "helene.s@email.de",
+    "first_name": "Helene",
+    "last_name": "Sommer",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Stumpfebiel",
+      "street_no": "2",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "nuts"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Stumpfebiel 2, 37073 Göttingen",
+    "address_public": "Stumpfebiel, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:11:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:12:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:11:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Psychologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Stumpfebiel",
+    "street_no": "2"
+  },
+  {
+    "email": "arthur.g@email.de",
+    "first_name": "Arthur",
+    "last_name": "Grimm",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Wiesenstraße",
+      "street_no": "22",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5295055,
+    "lon": 9.9283748,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Wiesenstraße 22, 37073 Göttingen",
+    "address_public": "Wiesenstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:12:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:13:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:12:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Wiesenstraße",
+    "street_no": "22"
+  },
+  {
+    "email": "leni.ritter@email.de",
+    "first_name": "Leni",
+    "last_name": "Ritter",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Wiesenstraße",
+      "street_no": "22",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5295055,
+    "lon": 9.9283748,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Wiesenstraße 22, 37073 Göttingen",
+    "address_public": "Wiesenstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:13:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:15:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:13:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Wiesenstraße",
+    "street_no": "22"
+  },
+  {
+    "email": "charlotte.j@email.de",
+    "first_name": "Charlotte",
+    "last_name": "Jäger",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Am Kirschberge",
+      "street_no": "11",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Am Kirschberge 11, 37085 Göttingen",
+    "address_public": "Am Kirschberge, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:14:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:15:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:14:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Biologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37085",
+    "street": "Am Kirschberge",
+    "street_no": "11"
+  },
+  {
+    "email": "richard.k@email.de",
+    "first_name": "Richard",
+    "last_name": "Kurz",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Glockenweg",
+      "street_no": "6",
+      "postal_code": "37081",
+      "city": "Göttingen"
+    },
+    "lat": 51.5178648,
+    "lon": 9.959513,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Glockenweg 6, 37081 Göttingen",
+    "address_public": "Glockenweg, 37081 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:15:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:16:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:15:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Jura",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37081",
+    "street": "Glockenweg",
+    "street_no": "6"
+  },
+  {
+    "email": "amelie.muth@email.de",
+    "first_name": "Amelie",
+    "last_name": "Muth",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Glockenweg",
+      "street_no": "6",
+      "postal_code": "37081",
+      "city": "Göttingen"
+    },
+    "lat": 51.5178648,
+    "lon": 9.959513,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Glockenweg 6, 37081 Göttingen",
+    "address_public": "Glockenweg, 37081 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:16:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:18:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:16:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Rechtswissenschaften",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37081",
+    "street": "Glockenweg",
+    "street_no": "6"
+  },
+  {
+    "email": "martha.m@email.de",
+    "first_name": "Martha",
+    "last_name": "May",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Turmstraße",
+      "street_no": "7",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Turmstraße 7, 37073 Göttingen",
+    "address_public": "Turmstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:17:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:18:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:17:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegan",
+    "field_of_study": "Soziologie",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Turmstraße",
+    "street_no": "7"
+  },
+  {
+    "email": "valentin.h@email.de",
+    "first_name": "Valentin",
+    "last_name": "Hahn",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Springstraße",
+      "street_no": "1",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": 51.5631887,
+    "lon": 9.937386,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Springstraße 1, 37077 Göttingen",
+    "address_public": "Springstraße, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:18:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:19:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:18:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Chemie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37077",
+    "street": "Springstraße",
+    "street_no": "1"
+  },
+  {
+    "email": "zoe.busch@email.de",
+    "first_name": "Zoe",
+    "last_name": "Busch",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Springstraße",
+      "street_no": "1",
+      "postal_code": "37077",
+      "city": "Göttingen"
+    },
+    "lat": 51.5631887,
+    "lon": 9.937386,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Springstraße 1, 37077 Göttingen",
+    "address_public": "Springstraße, 37077 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:19:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:21:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:19:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Biochemie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37077",
+    "street": "Springstraße",
+    "street_no": "1"
+  },
+  {
+    "email": "greta.l@email.de",
+    "first_name": "Greta",
+    "last_name": "Lange",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Untere Karspüle",
+      "street_no": "15",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Untere Karspüle 15, 37073 Göttingen",
+    "address_public": "Untere Karspüle, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:20:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:21:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:20:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Germanistik",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Untere Karspüle",
+    "street_no": "15"
+  },
+  {
+    "email": "konrad.j@email.de",
+    "first_name": "Konrad",
+    "last_name": "John",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Sandweg",
+      "street_no": "5",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5173224,
+    "lon": 9.9259395,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Sandweg 5, 37083 Göttingen",
+    "address_public": "Sandweg, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:21:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:22:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:21:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Informatik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Sandweg",
+    "street_no": "5"
+  },
+  {
+    "email": "lina.koenig@email.de",
+    "first_name": "Lina",
+    "last_name": "König",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Sandweg",
+      "street_no": "5",
+      "postal_code": "37083",
+      "city": "Göttingen"
+    },
+    "lat": 51.5173224,
+    "lon": 9.9259395,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Sandweg 5, 37083 Göttingen",
+    "address_public": "Sandweg, 37083 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:22:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:24:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:22:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Informatik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37083",
+    "street": "Sandweg",
+    "street_no": "5"
+  },
+  {
+    "email": "victoria.t@email.de",
+    "first_name": "Victoria",
+    "last_name": "Thiel",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Böttingerstraße",
+      "street_no": "12",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [
+      "dairy"
+    ],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Böttingerstraße 12, 37073 Göttingen",
+    "address_public": "Böttingerstraße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:23:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:24:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:23:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Medizin",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37073",
+    "street": "Böttingerstraße",
+    "street_no": "12"
+  },
+  {
+    "email": "johannes.a@email.de",
+    "first_name": "Johannes",
+    "last_name": "Adam",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Keplerstraße",
+      "street_no": "24",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5292023,
+    "lon": 9.94396,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Keplerstraße 24, 37085 Göttingen",
+    "address_public": "Keplerstraße, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:24:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:25:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:24:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Physik",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Keplerstraße",
+    "street_no": "24"
+  },
+  {
+    "email": "frida.ritter@email.de",
+    "first_name": "Frida",
+    "last_name": "Ritter",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Keplerstraße",
+      "street_no": "24",
+      "postal_code": "37085",
+      "city": "Göttingen"
+    },
+    "lat": 51.5292023,
+    "lon": 9.94396,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Keplerstraße 24, 37085 Göttingen",
+    "address_public": "Keplerstraße, 37085 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:25:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:27:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:25:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "vegetarian",
+    "field_of_study": "Astronomie",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37085",
+    "street": "Keplerstraße",
+    "street_no": "24"
+  },
+  {
+    "email": "elisabeth.s@email.de",
+    "first_name": "Elisabeth",
+    "last_name": "Schmidt",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Rosmarinstraße",
+      "street_no": "3",
+      "postal_code": "37081",
+      "city": "Göttingen"
+    },
+    "lat": null,
+    "lon": null,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Rosmarinstraße 3, 37081 Göttingen",
+    "address_public": "Rosmarinstraße, 37081 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:26:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:27:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:26:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "Geschichte",
+    "kitchen_available": null,
+    "main_course_possible": null,
+    "postal_code": "37081",
+    "street": "Rosmarinstraße",
+    "street_no": "3"
+  },
+  {
+    "email": "max.w@email.de",
+    "first_name": "Maximilian",
+    "last_name": "Weber",
+    "gender": "male",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Düstere Straße",
+      "street_no": "20",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5310694,
+    "lon": 9.93298,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Düstere Straße 20, 37073 Göttingen",
+    "address_public": "Düstere Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:27:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:28:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:27:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "BWL",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Düstere Straße",
+    "street_no": "20"
+  },
+  {
+    "email": "sophie.fischer@email.de",
+    "first_name": "Sophie",
+    "last_name": "Fischer",
+    "gender": "female",
+    "phone_number": null,
+    "address_struct": {
+      "street": "Düstere Straße",
+      "street_no": "20",
+      "postal_code": "37073",
+      "city": "Göttingen"
+    },
+    "lat": 51.5310694,
+    "lon": 9.93298,
+    "allergies": [],
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$by1lTMlZa21NSSnlPGfsvQ$s8rbqUCEWPjqRQ5jxOQvtvj9qi9HYW9IjRyaDW06/wM",
+    "failed_login_attempts": 0,
+    "email_verified": true,
+    "profile_prompt_pending": false,
+    "optional_profile_completed": true,
+    "roles": [
+      "user"
+    ],
+    "address_encrypted": "Düstere Straße 20, 37073 Göttingen",
+    "address_public": "Düstere Straße, 37073 Göttingen",
+    "created_at": {
+      "$date": "2025-10-01T20:28:00Z"
+    },
+    "updated_at": {
+      "$date": "2025-10-01T20:30:00Z"
+    },
+    "deleted_at": null,
+    "first_login_at": {
+      "$date": "2025-10-01T21:28:00Z"
+    },
+    "city": "Göttingen",
+    "default_dietary_preference": "omnivore",
+    "field_of_study": "VWL",
+    "kitchen_available": true,
+    "main_course_possible": true,
+    "postal_code": "37073",
+    "street": "Düstere Straße",
+    "street_no": "20"
+  }
+]

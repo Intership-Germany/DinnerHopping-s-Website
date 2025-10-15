@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import random
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Awaitable, Callable, Dict, List, Optional, Set, Tuple
 
 from bson.objectid import ObjectId
 
 from ... import db as db_mod
 
-from .config import algorithm_seed, phases, weight_defaults
+from .config import (
+    allow_team_splits,
+    algorithm_seed,
+    guest_candidate_limit,
+    phases,
+    routing_parallelism,
+    travel_fast_mode,
+    weight_defaults,
+)
 from .data import build_teams, get_event
-from .grouping import phase_groups
+from .grouping import TravelTimeResolver, phase_groups
 from .metrics import compute_metrics
 from .units import (
     apply_forced_pairs,
@@ -28,13 +36,21 @@ async def algo_greedy(event_oid: ObjectId, weights: Dict[str, float], seed: Opti
         constraints = await _load_constraints(event_id_str)
         units, unit_emails = apply_forced_pairs(units, unit_emails, constraints.get('forced_pairs') or [])
         units, unit_emails = apply_required_splits(units, unit_emails, constraints.get('split_team_ids') or [])
-    units, unit_emails = await apply_minimal_splits(units, unit_emails)
+    if allow_team_splits():
+        units, unit_emails = await apply_minimal_splits(units, unit_emails)
     random_instance = random.Random(seed if seed is not None else algorithm_seed('greedy', 42))
     random_instance.shuffle(units)
     used_pairs: Set[Tuple[str, str]] = set()
     all_groups: List[dict] = []
     last_at: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
     party_point = _after_party_point(event)
+    travel_resolver = TravelTimeResolver(
+        fast_mode=travel_fast_mode(),
+        parallelism=routing_parallelism(),
+    )
+    distance_cache: Dict[Tuple[str, str], float] = {}
+    guest_limit = guest_candidate_limit()
+    host_usage: Dict[str, int] = {}
     for index, phase in enumerate(phases()[:3]):
         if index > 0:
             units = units[1:] + units[:1]
@@ -45,8 +61,18 @@ async def algo_greedy(event_oid: ObjectId, weights: Dict[str, float], seed: Opti
             weights,
             last_at_host=last_at,
             after_party_point=(party_point if phase == 'dessert' else None),
+            travel_resolver=travel_resolver,
+            candidate_guest_limit=guest_limit,
+            distance_cache=distance_cache,
+            host_usage=host_usage,
+            host_limit=1,
         )
         all_groups.extend(groups)
+        for group in groups:
+            host_id = group.get('host_team_id')
+            if host_id is None:
+                continue
+            host_usage[host_id] = host_usage.get(host_id, 0) + 1
         _update_last_locations(groups, last_at, units)
     metrics = compute_metrics(all_groups, weights)
     return {'algorithm': 'greedy', 'groups': all_groups, 'metrics': metrics}
@@ -61,12 +87,20 @@ async def algo_random(event_oid: ObjectId, weights: Dict[str, float], seed: Opti
         constraints = await _load_constraints(event_id_str)
         units, unit_emails = apply_forced_pairs(units, unit_emails, constraints.get('forced_pairs') or [])
         units, unit_emails = apply_required_splits(units, unit_emails, constraints.get('split_team_ids') or [])
-    units, unit_emails = await apply_minimal_splits(units, unit_emails)
+    if allow_team_splits():
+        units, unit_emails = await apply_minimal_splits(units, unit_emails)
     random_instance = random.Random(seed if seed is not None else algorithm_seed('random', 99))
     used_pairs: Set[Tuple[str, str]] = set()
     all_groups: List[dict] = []
     last_at: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
     party_point = _after_party_point(event)
+    travel_resolver = TravelTimeResolver(
+        fast_mode=travel_fast_mode(),
+        parallelism=routing_parallelism(),
+    )
+    distance_cache: Dict[Tuple[str, str], float] = {}
+    guest_limit = guest_candidate_limit()
+    host_usage: Dict[str, int] = {}
     for phase in phases()[:3]:
         random_instance.shuffle(units)
         groups = await phase_groups(
@@ -76,8 +110,18 @@ async def algo_random(event_oid: ObjectId, weights: Dict[str, float], seed: Opti
             weights,
             last_at_host=last_at,
             after_party_point=(party_point if phase == 'dessert' else None),
+            travel_resolver=travel_resolver,
+            candidate_guest_limit=guest_limit,
+            distance_cache=distance_cache,
+            host_usage=host_usage,
+            host_limit=1,
         )
         all_groups.extend(groups)
+        for group in groups:
+            host_id = group.get('host_team_id')
+            if host_id is None:
+                continue
+            host_usage[host_id] = host_usage.get(host_id, 0) + 1
         _update_last_locations(groups, last_at, units)
     metrics = compute_metrics(all_groups, weights)
     return {'algorithm': 'random', 'groups': all_groups, 'metrics': metrics}
@@ -97,20 +141,44 @@ ALGORITHMS = {
 }
 
 
-async def run_algorithms(event_id: str, *, algorithms: List[str], weights: Optional[Dict[str, float]] = None) -> List[dict]:
+ProgressCallback = Callable[[dict], Awaitable[None]]
+
+
+async def run_algorithms(
+    event_id: str,
+    *,
+    algorithms: List[str],
+    weights: Optional[Dict[str, float]] = None,
+    progress_cb: Optional[ProgressCallback] = None,
+) -> List[dict]:
     event = await get_event(event_id)
     if not event:
         raise ValueError('event not found')
     oid = event['_id']
     weights = weights or {}
     results: List[dict] = []
-    for name in algorithms:
+    total = max(1, len(algorithms))
+    for index, name in enumerate(algorithms, start=1):
         fn = ALGORITHMS.get(name)
         if not fn:
             continue
+        if progress_cb:
+            await progress_cb({
+                'stage': 'start',
+                'algorithm': name,
+                'index': index,
+                'total': total,
+            })
         res = await fn(oid, weights)
         res['event_id'] = str(event['_id'])
         results.append(res)
+        if progress_cb:
+            await progress_cb({
+                'stage': 'done',
+                'algorithm': name,
+                'index': index,
+                'total': total,
+            })
     return results
 
 
