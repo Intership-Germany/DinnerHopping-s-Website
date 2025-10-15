@@ -10,7 +10,7 @@ BRANCH=${1:-main}
 SERVICE=${2:-docker-compose-app.service}
 APP_DIR=/opt/dinnerhopping
 COMPOSE_DIR="$APP_DIR/deploy"
-COMPOSE_FILE=production-docker-compose.yml
+COMPOSE_FILE=docker-compose.prod.yml
 
 log() { echo "[deploy] $(date +'%Y-%m-%dT%H:%M:%S') $*"; }
 
@@ -69,6 +69,8 @@ else
     sudo mkdir -p /var/www/dinnerhopping
     sudo rsync -a --delete "$APP_DIR/frontend/public/" /var/www/dinnerhopping/
   fi
+  # Use the central env file in deploy/backend.env. Ensure deploy/backend.env exists on the server
+  # before running this script (do not commit production secrets).
   eval "$DC_CMD -f $COMPOSE_FILE up -d"
 fi
 

@@ -1,6 +1,6 @@
 services:
   mongo:
-    image: mongodb/mongodb-community-server:6.0-ubi8
+    image: mongo
     restart: unless-stopped
     ports:
       - "27017:27017"
@@ -15,8 +15,10 @@ services:
       dockerfile: Dockerfile
     image: dinnerhopping/backend
     restart: unless-stopped
+    # Load backend environment from the central `deploy/backend.env` so builds
+    # and runtime don't require an app/.env file inside the backend folder.
     env_file:
-      - ../backend/app/.env
+      - ./backend.env
     environment:
       - LOG_TO_FILES=true
       - LOG_DIR=/var/log/dinnerhopping
@@ -28,8 +30,8 @@ services:
       - ../backend/logs:/var/log/dinnerhopping
   frontend:
     build:
-      context: ../frontend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: frontend/Dockerfile
     image: dinnerhopping/frontend
     restart: unless-stopped
     depends_on:

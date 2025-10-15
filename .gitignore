@@ -4,7 +4,10 @@
 
 
 # Local env files
-/backend/app/.env
+# The project centralizes environment examples and deploy-time envs in `deploy/`.
+# Do not commit real secrets. Ignore local .env files and the deploy backend env if present.
+.env
+deploy/backend.env
 cookies.txt
 backend/logs/
 backend/app/data/
@@ -413,3 +416,4 @@ $RECYCLE.BIN/
 frontend/package-lock.json
 frontend/my-httpd.conf
 /.vscode
+*.env
