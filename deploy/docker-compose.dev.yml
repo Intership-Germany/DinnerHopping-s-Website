@@ -3,7 +3,7 @@ services:
     image: mongo
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "17027:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
       - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
@@ -21,7 +21,7 @@ services:
     environment:
       - LOG_TO_FILES=false
     ports:
-      - "8000:8000" # expose to host for local dev
+      - "33240:8000" # expose to host for local dev
     volumes:
       - ../backend:/app # mount source for fast iteration (backend uses uvicorn/autoreload)
       - ../backend/logs:/var/log/dinnerhopping

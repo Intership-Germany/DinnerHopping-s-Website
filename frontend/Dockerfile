@@ -3,8 +3,6 @@
 FROM node:18-alpine AS builder
 WORKDIR /app
 
-# Copy package and generator (when build context is repo root these files are under frontend/)
-COPY frontend/package.json frontend/package-lock.json frontend/generate-config.js ./
 # Copy public assets to builder
 COPY frontend/public/ ./public/
 

@@ -3,7 +3,7 @@ services:
     image: mongo
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "17027:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=dinnerhopping
       - MONGO_INITDB_ROOT_PASSWORD=babyschnaps
@@ -25,7 +25,7 @@ services:
     depends_on:
       - mongo
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:33240:8000"
     volumes:
       - ../backend/logs:/var/log/dinnerhopping
   frontend:
