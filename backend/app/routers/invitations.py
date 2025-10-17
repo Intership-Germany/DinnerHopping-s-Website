@@ -485,19 +485,19 @@ async def create_invitation(payload: CreateInvitation, current_user=Depends(get_
 @router.get('/')
 async def list_invitations(registration_id: Optional[str] = None, current_user=Depends(get_current_user)):
     """List invitations. Owners see invitations for their registrations; admins can list by registration or all if no filter provided."""
-    roles = current_user.get('roles') or []
-    is_admin = 'admin' in roles
 
     query = {}
     if registration_id:
         try:
-            query['registration_id'] = ObjectId(registration_id)
+            reg_oid = ObjectId(registration_id)
         except (InvalidId, TypeError) as exc:
             raise HTTPException(status_code=400, detail='invalid registration_id') from exc
+        # require the requester to be the registration owner or admin
+        await require_registration_owner_or_admin(current_user, reg_oid)
+        query['registration_id'] = reg_oid
     else:
-        if not is_admin:
-            # default: show invitations created for or by the current user
-            query = {"$or": [{"invited_email": current_user.get('email')}, {"created_by_user_id": current_user.get('_id')}]}
+        # default: show invitations created for or by the current user
+        query = {"$or": [{"invited_email": current_user.get('email')}, {"created_by_user_id": current_user.get('_id')}]}
 
     out = []
     async for inv in db_mod.db.invitations.find(query).sort([('created_at', -1)]):
@@ -560,9 +560,8 @@ async def view_invitation(token: str, request: Request):
         inv = await db_mod.db.invitations.find_one({"token_hash": token_hash})
         if not inv:
             raise HTTPException(status_code=404, detail='Invitation not found')
-        
+
         # Create a temporary login state record
-        import secrets
         temp_state = secrets.token_urlsafe(32)
         state_doc = {
             'state_id': temp_state,
@@ -572,7 +571,7 @@ async def view_invitation(token: str, request: Request):
             'used': False
         }
         await db_mod.db.invitation_login_states.insert_one(state_doc)
-        
+
         frontend_base = os.getenv('FRONTEND_BASE_URL')
         login_url = f"{frontend_base}/login.html?next=/invitations/by-state/{temp_state}"
         return RedirectResponse(url=login_url, status_code=303)
