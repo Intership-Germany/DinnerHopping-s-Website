@@ -1,6 +1,6 @@
 services:
   mongo:
-    image: mongo
+    image: mongo:6.0
     restart: unless-stopped
     ports:
       - "17027:27017"
@@ -28,7 +28,10 @@ services:
       - "127.0.0.1:33240:8000"
     volumes:
       - ../backend/logs:/var/log/dinnerhopping
-      - /opt/dinnerhopping_mongo-data:/data/db:ro
+      # The backend should not mount MongoDB's data directory. If the backend
+      # needs to access backups or DB files, mount a separate path or use the
+      # named volume. Mounting the DB path into the app can cause conflicts
+      # and is likely the source of compose metadata issues.
   frontend:
     build:
       context: ..
