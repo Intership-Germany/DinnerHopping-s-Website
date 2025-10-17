@@ -28,6 +28,7 @@ services:
       - "127.0.0.1:33240:8000"
     volumes:
       - ../backend/logs:/var/log/dinnerhopping
+      - /opt/dinnerhopping_mongo-data:/data/db:ro
   frontend:
     build:
       context: ..
