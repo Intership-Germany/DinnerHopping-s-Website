@@ -25,7 +25,10 @@ services:
     depends_on:
       - mongo
     ports:
-      - "127.0.0.1:33240:8000"
+      # Uvicorn in the backend image listens on port 33240 (see backend/Dockerfile)
+      # Map the host loopback 127.0.0.1:33240 to the container's 33240 so the
+      # reverse proxy (Apache/nginx) on the host can reach the app.
+      - "127.0.0.1:33240:33240"
     volumes:
       - ../backend/logs:/var/log/dinnerhopping
       # The backend should not mount MongoDB's data directory. If the backend
