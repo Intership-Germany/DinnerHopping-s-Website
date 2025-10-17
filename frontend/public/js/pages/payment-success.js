@@ -103,8 +103,8 @@
         const data = await res.json();
         const latest = Array.isArray(data) && data.length ? data[0] : null;
         if(latest && latest.id && goDashboard){
-          goDashboard.href = `/event?id=${encodeURIComponent(latest.id)}`;
-          if(!target) target = `/event?id=${encodeURIComponent(latest.id)}`;
+          goDashboard.href = `/event.html?id=${encodeURIComponent(latest.id)}`;
+          if(!target) target = `/event.html?id=${encodeURIComponent(latest.id)}`;
         }
       }
     }catch{}

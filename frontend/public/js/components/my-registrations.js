@@ -100,6 +100,24 @@
       return [];
     }
   }
+
+  // Helper to determine current user's email (frontend auth helper or profile endpoint)
+  async function getCurrentUserEmail() {
+    try {
+      if (window.auth && window.auth.getCurrentUser) {
+        const u = await window.auth.getCurrentUser();
+        if (u && u.email) return String(u.email).toLowerCase();
+      }
+    } catch (e) {}
+    // fallback to profile endpoint
+    try {
+      if (window.dh && window.dh.apiGet) {
+        const { res, data } = await window.dh.apiGet('/users/profile');
+        if (res.ok && data && data.email) return String(data.email).toLowerCase();
+      }
+    } catch (e) {}
+    return null;
+  }
   async function fetchActiveEvents() {
     if (!window.dh?.apiGet) return [];
     try {
@@ -254,8 +272,31 @@
       try {
         invs = await fetchInvitations();
       } catch {}
+      // Determine current user identity to filter invitations - only show invites relevant to them
+      const currentUserEmail = await getCurrentUserEmail();
       if (Array.isArray(invs) && invs.length) {
         for (const inv of invs) {
+          // If invitation is not targeted at current user and current user didn't create it, skip it
+          try {
+            const invited = inv && inv.invited_email ? String(inv.invited_email).toLowerCase() : null;
+            const createdBy = inv && (inv.created_by || inv.created_by_user_id) ? (inv.created_by_user_id || inv.created_by) : null;
+            // allow show if invited email matches current user email, or if current user is the creator
+            if (invited && currentUserEmail && String(invited) === String(currentUserEmail).toLowerCase()) {
+              // allowed
+            } else if (createdBy && currentUserEmail && String(createdBy) === String(currentUserEmail).toLowerCase()) {
+              // created_by may be an id or email; allow if equals current user's email
+            } else if (createdBy && typeof createdBy === 'object' && createdBy._id && String(createdBy._id) === String(currentUserEmail)) {
+              // unlikely, skip - fallback
+            } else {
+              // Not relevant to current user: skip
+              continue;
+            }
+          } catch (e) {
+            // if any error while checking, be conservative and skip
+            continue;
+          }
+          
+        
           // skip invitations already represented by a registration in the combined list
           const already = combined.some((c) => {
             const rr = c.regInfo || {};
@@ -307,7 +348,7 @@
       const spanPaymentId = node.querySelector('.reg-payment-id');
       const aGo = node.querySelector('.reg-go');
       const eventId = ev.id || ev._id || ev.eventId;
-      if (aGo) aGo.href = `/event?id=${encodeURIComponent(eventId)}`;
+  if (aGo) aGo.href = `/event.html?id=${encodeURIComponent(eventId)}`;
       if (titleEl)
         titleEl.textContent = ev.title || ev.name || (regInfo && regInfo.event_title) || 'Event';
       // add a small view-invitation action when invited
