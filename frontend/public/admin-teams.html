@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Team Management | DinnerHopping Admin</title>
+  <title>User Management | DinnerHopping Admin</title>
   <script src="js/core/auth-guard.js"></script>
   <script src="js/core/admin-guard.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
@@ -36,7 +36,7 @@
         <li><a href="admin-dashboard.html" class="text-sm text-gray-700 hover:text-[#f46f47]">Dashboard</a></li>
         <li><a href="admin-email-templates.html" class="text-sm text-gray-700 hover:text-[#f46f47]">Email Templates</a></li>
         <li><a href="admin-chat-management.html" class="text-sm text-gray-700 hover:text-[#f46f47]">Chat Management</a></li>
-        <li><a href="admin-teams.html" class="text-sm font-bold text-[#f46f47]">Team Management</a></li>
+        <li><a href="admin-teams.html" class="text-sm font-bold text-[#f46f47]">User Management</a></li>
       </ul>
     </div>
   </nav>
@@ -44,8 +44,8 @@
   <main class="flex-grow max-w-6xl mx-auto w-full px-4 py-10 space-y-8">
     <!-- Header -->
     <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
-      <h1 class="text-2xl font-bold text-[#f46f47] mb-2">Team Management</h1>
-      <p class="text-sm text-gray-600">Monitor and manage team registrations, handle incomplete teams, and track team status.</p>
+      <h1 class="text-2xl font-bold text-[#f46f47] mb-2">User Management</h1>
+      <p class="text-sm text-gray-600">Monitor registrations, manage teams, review participants, and handle cancellations from a single workspace.</p>
     </section>
 
     <!-- Event Selection & Overview -->
@@ -130,6 +130,60 @@
         </table>
       </div>
     </section>
+    <!-- Participants Section -->
+    <section id="participants-section" class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold text-[#f46f47]">Participants</h2>
+        <div class="text-sm text-[#4a5568]" id="participants-count"></div>
+      </div>
+      <div class="flex flex-wrap gap-3 items-center mb-4">
+        <select id="participants-event-select" class="border border-[#f0f4f7] rounded-xl p-3 min-w-[200px] focus:ring-2 focus:ring-[#f46f47] outline-none">
+          <option value="">Select an event</option>
+        </select>
+        <input id="participants-search" type="search" placeholder="Search name, email, or team" class="border border-[#f0f4f7] rounded-xl p-3 flex-1 min-w-[180px] focus:ring-2 focus:ring-[#f46f47] outline-none" autocomplete="off">
+        <div class="flex items-center gap-2">
+          <button id="participants-refresh" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Refresh</button>
+          <button id="participants-toggle" class="bg-[#4a5568] text-white rounded-xl px-4 py-2 font-semibold shadow hover:opacity-90 transition">Hide</button>
+        </div>
+      </div>
+      <div id="participants-loading" class="hidden text-sm text-[#4a5568] flex items-center gap-2">
+        <span class="spinner"></span>
+  <span>Loading participants...</span>
+      </div>
+      <div id="participants-summary" class="text-sm text-[#4a5568] mb-3"></div>
+      <div id="participants-table-wrapper" class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="bg-[#f0f4f7]">
+              <th data-sort="last_name" class="p-2 text-left sortable">Last name</th>
+              <th data-sort="first_name" class="p-2 text-left sortable">First name</th>
+              <th data-sort="email" class="p-2 text-left sortable">Email</th>
+              <th data-sort="gender" class="p-2 text-left sortable">Gender</th>
+              <th data-sort="registration_status" class="p-2 text-left sortable">Registration status</th>
+              <th data-sort="payment_status" class="p-2 text-left sortable">Payment status</th>
+              <th data-sort="team_name" class="p-2 text-left sortable">Team</th>
+              <th data-sort="team_role" class="p-2 text-left sortable">Role</th>
+              <th data-sort="updated_display" class="p-2 text-left sortable">Updated</th>
+            </tr>
+          </thead>
+          <tbody id="participants-tbody"></tbody>
+        </table>
+      </div>
+      <div id="participants-empty" class="hidden text-sm text-[#4a5568] mt-3">No participants to display for this event.</div>
+    </section>
+
+    <!-- Cancellations / Refunds -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
+      <h2 class="text-xl font-bold mb-4 text-[#f46f47]">Cancellations &amp; Refunds</h2>
+      <div class="flex flex-wrap gap-3 items-end">
+        <select id="refunds-event-select" class="border border-[#f0f4f7] rounded-xl p-3 min-w-[200px] focus:ring-2 focus:ring-[#f46f47] outline-none"></select>
+        <button id="btn-load-refunds" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Load Overview</button>
+        <button id="btn-process-refunds" class="hidden bg-[#1b5e20] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#2f7f33] transition">Process All</button>
+        <span id="refunds-msg" class="text-sm text-[#4a5568]"></span>
+      </div>
+      <div id="refunds-overview" class="mt-4 text-sm"></div>
+  </section>
+
   </main>
 
   <!-- Footer -->
@@ -137,6 +191,6 @@
   
   <!-- Toast utility -->
   <script src="js/utils/toast.js"></script>
-  <script src="js/pages/admin-teams.js"></script>
+  <script src="js/pages/admin-user-management.js"></script>
 </body>
 </html>

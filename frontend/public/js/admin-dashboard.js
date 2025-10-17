@@ -21,149 +21,6 @@
   let detailsGroups = [];    // [{phase, host_team_id, guest_team_ids, score?, travel_seconds?, host_address_public?}]
   let teamDetails = {};      // { team_id: {size, team_diet, course_preference, can_host_main, lat, lon} }
   let unsaved = false;
-  // --- Matching job tracking ---
-  const MATCH_JOB_ACTIVE = new Set(['queued', 'running']);
-  const MATCH_JOB_STATUS_LABELS = {
-    queued: 'Queued',
-    running: 'In Progress',
-    completed: 'Completed',
-    failed: 'Failed',
-    cancelled: 'Cancelled',
-  };
-  const matchingJobWatcher = {
-    eventId: null,
-    jobId: null,
-    timer: null,
-    lastStatus: null,
-  };
-
-  function stopMatchingJobPolling(){
-    if (matchingJobWatcher.timer){
-      clearTimeout(matchingJobWatcher.timer);
-      matchingJobWatcher.timer = null;
-    }
-  }
-
-  function renderMatchingProgress(job){
-    const wrap = $('#matching-progress');
-    if (!wrap) return;
-    if (!job){
-      wrap.classList.add('hidden');
-      matchingJobWatcher.lastStatus = null;
-      return;
-    }
-    wrap.classList.remove('hidden');
-    const pct = Math.max(0, Math.min(100, Math.round((Number(job.progress) || 0) * 100)));
-    const bar = $('#matching-progress-bar');
-    if (bar){
-      bar.style.width = `${pct}%`;
-      bar.classList.remove('bg-[#008080]','bg-[#e53e3e]','bg-[#16a34a]');
-      if (job.status === 'failed') bar.classList.add('bg-[#e53e3e]');
-      else if (job.status === 'completed') bar.classList.add('bg-[#16a34a]');
-      else bar.classList.add('bg-[#008080]');
-    }
-    const pctLabel = $('#matching-progress-value');
-    if (pctLabel) pctLabel.textContent = `${pct}%`;
-    const labelEl = $('#matching-progress-label');
-    const statusLabel = MATCH_JOB_STATUS_LABELS[job.status] || job.status || 'In Progress';
-    const message = (job.message && job.message.trim()) ? job.message.trim() : statusLabel;
-    if (labelEl) labelEl.textContent = message;
-    const meta = $('#matching-progress-meta');
-    if (meta){
-      const parts = [];
-      if (statusLabel) parts.push(`Status: ${statusLabel}`);
-      if (job.updated_at) parts.push(`Updated ${fmtDate(job.updated_at)}`);
-      if (job.error && job.status === 'failed') parts.push(`Error: ${job.error}`);
-      meta.textContent = parts.join(' • ');
-    }
-  }
-
-  async function pollMatchingJob(eventId, jobId){
-    stopMatchingJobPolling();
-    matchingJobWatcher.eventId = eventId;
-    matchingJobWatcher.jobId = jobId;
-    try {
-      const res = await apiFetch(`/matching/${eventId}/jobs/${jobId}`);
-      if (!res.ok){
-        const txt = await res.text().catch(()=> '');
-        throw new Error(txt || 'Unable to fetch matching status');
-      }
-      const job = await res.json();
-      const prevStatus = matchingJobWatcher.lastStatus;
-      matchingJobWatcher.lastStatus = job.status;
-      renderMatchingProgress(job);
-      const msgBox = $('#matching-msg');
-
-      if (MATCH_JOB_ACTIVE.has(job.status)){
-        matchingJobWatcher.timer = setTimeout(()=> pollMatchingJob(eventId, jobId), 2000);
-      } else {
-        if (prevStatus && MATCH_JOB_ACTIVE.has(prevStatus)){
-          if (job.status === 'completed'){
-            if (msgBox) msgBox.textContent = 'Matching completed. Updating proposals...';
-            try {
-              await loadProposals();
-              await loadMatchDetails();
-              if (msgBox) msgBox.textContent = 'Matching completed.';
-            } catch(err){
-              if (msgBox) msgBox.textContent = 'Matching completed, but unable to refresh proposals.';
-              console.error('Failed to refresh after matching completion', err);
-            }
-          } else if (job.status === 'failed'){
-            if (msgBox) msgBox.textContent = 'Matching failed. Check logs.';
-            if (job.error) toast(`Matching failed: ${job.error}`, { type: 'error' });
-          } else if (job.status === 'cancelled'){
-            if (msgBox) msgBox.textContent = 'Matching cancelled.';
-          }
-        }
-      }
-    } catch(err){
-      const meta = $('#matching-progress-meta');
-      if (meta) meta.textContent = `Tracking error: ${err.message || err}`;
-      matchingJobWatcher.timer = setTimeout(()=> pollMatchingJob(eventId, jobId), 3500);
-    }
-  }
-
-  async function ensureMatchingJobStatus(eventId){
-    if (!eventId){
-      renderMatchingProgress(null);
-      stopMatchingJobPolling();
-      matchingJobWatcher.eventId = null;
-      matchingJobWatcher.jobId = null;
-      return;
-    }
-    if (matchingJobWatcher.eventId === eventId && matchingJobWatcher.jobId && MATCH_JOB_ACTIVE.has(matchingJobWatcher.lastStatus || '')){
-      // Already polling active job for this event
-      return;
-    }
-    try {
-      const res = await apiFetch(`/matching/${eventId}/jobs?limit=1`);
-      if (!res.ok){
-        throw new Error(await res.text().catch(()=> ''));
-      }
-      const jobs = await res.json().catch(()=> []);
-      const job = Array.isArray(jobs) && jobs.length ? jobs[0] : null;
-      if (!job){
-        renderMatchingProgress(null);
-        stopMatchingJobPolling();
-        matchingJobWatcher.eventId = eventId;
-        matchingJobWatcher.jobId = null;
-        matchingJobWatcher.lastStatus = null;
-        return;
-      }
-      matchingJobWatcher.eventId = eventId;
-      matchingJobWatcher.jobId = job.id;
-      matchingJobWatcher.lastStatus = job.status;
-      renderMatchingProgress(job);
-      if (MATCH_JOB_ACTIVE.has(job.status)){
-        stopMatchingJobPolling();
-        matchingJobWatcher.timer = setTimeout(()=> pollMatchingJob(eventId, job.id), 1500);
-      }
-    } catch(err){
-      const meta = $('#matching-progress-meta');
-      if (meta) meta.textContent = `Error loading tracking: ${err.message || err}`;
-    }
-  }
-
   // --- Map state ---
   let mainMap = null;
   let mainLayers = [];
@@ -1652,19 +1509,6 @@
     $('#events-count').textContent = `${events.length} events`;
     const selects = [$('#matching-event-select'), $('#refunds-event-select'), $('#map-event-select')];
     selects.forEach(sel=>{ if (!sel) return; sel.innerHTML = events.map(e=>`<option value="${e.id}">${e.title} (${e.date||''})</option>`).join(''); });
-    const matchingSelect = $('#matching-event-select');
-    if (matchingSelect && !matchingSelect.dataset.matchingJobBound){
-      matchingSelect.addEventListener('change', async ()=>{
-        const selectedId = matchingSelect.value;
-        await ensureMatchingJobStatus(selectedId);
-      });
-      matchingSelect.dataset.matchingJobBound = '1';
-    }
-    if (matchingSelect && matchingSelect.value){
-      await ensureMatchingJobStatus(matchingSelect.value);
-    } else {
-      await ensureMatchingJobStatus(null);
-    }
     await participantsModule.onEventsRefreshed(events);
     tbody.onclick = async (e)=>{
       const btn = e.target.closest('button'); if (!btn) return;
@@ -1692,6 +1536,7 @@
         else { const t = await r.text(); alert(`Failed to delete: ${t}`); }
       }
     }
+    await resumeMatchingProgressIfNeeded();
   }
 
   async function handleCreate(){
@@ -1762,23 +1607,244 @@
     return algos;
   }
 
+  const matchingProgressEls = {
+    container: document.getElementById('matching-progress'),
+    label: document.getElementById('matching-progress-label'),
+    value: document.getElementById('matching-progress-value'),
+    bar: document.getElementById('matching-progress-bar'),
+    meta: document.getElementById('matching-progress-meta'),
+  };
+  const matchingProgressState = { current: 0, target: 0, rafId: null };
+  let matchingJobPoll = null;
+
+  function showMatchingProgressContainer(){
+    const el = matchingProgressEls.container;
+    if (!el) return;
+    el.classList.remove('hidden');
+    requestAnimationFrame(()=>{ el.classList.remove('opacity-0'); });
+  }
+
+  function hideMatchingProgressContainer(){
+    const el = matchingProgressEls.container;
+    if (!el) return;
+    el.classList.add('opacity-0');
+    setTimeout(()=>{
+      if (!el.classList.contains('opacity-0')) return;
+      el.classList.add('hidden');
+      flashMatchingMessage('');
+    }, 250);
+  }
+
+  function applyMatchingProgress(value){
+    const pct = Math.max(0, Math.min(1, value));
+    if (matchingProgressEls.bar) matchingProgressEls.bar.style.width = `${(pct * 100).toFixed(1)}%`;
+    if (matchingProgressEls.value) matchingProgressEls.value.textContent = `${Math.round(pct * 100)}%`;
+  }
+
+  function resetMatchingProgress(){
+    if (matchingProgressState.rafId){
+      cancelAnimationFrame(matchingProgressState.rafId);
+      matchingProgressState.rafId = null;
+    }
+    matchingProgressState.current = 0;
+    matchingProgressState.target = 0;
+    applyMatchingProgress(0);
+    if (matchingProgressEls.meta) matchingProgressEls.meta.textContent = '';
+  }
+
+  function animateMatchingProgress(target){
+    matchingProgressState.target = Math.max(0, Math.min(1, target));
+    if (matchingProgressState.rafId) return;
+    const step = ()=>{
+      const diff = matchingProgressState.target - matchingProgressState.current;
+      if (Math.abs(diff) < 0.001){
+        matchingProgressState.current = matchingProgressState.target;
+        applyMatchingProgress(matchingProgressState.current);
+        matchingProgressState.rafId = null;
+        return;
+      }
+      matchingProgressState.current += diff * 0.18;
+      applyMatchingProgress(matchingProgressState.current);
+      matchingProgressState.rafId = requestAnimationFrame(step);
+    };
+    matchingProgressState.rafId = requestAnimationFrame(step);
+  }
+
+  function translateJobMessage(message){
+    if (!message) return '';
+    const map = [
+      { pattern: /En attente de démarrage/i, text: 'Waiting to start' },
+      { pattern: /Initialisation/i, text: 'Initializing...' },
+      { pattern: /Chargement des données/i, text: 'Loading data...' },
+      { pattern: /Traitement des résultats/i, text: 'Processing results...' },
+      { pattern: /Terminé/i, text: 'Completed' },
+      { pattern: /Échec du matching/i, text: 'Matching failed' },
+      { pattern: /Annulé/i, text: 'Cancelled' },
+    ];
+    for (const entry of map){
+      if (entry.pattern.test(message)) return entry.text;
+    }
+  const startMatch = message.match(/Démarrage de l'algorithme\s+(.+)/i);
+  if (startMatch) return `Starting ${startMatch[1].trim()} algorithm`;
+  const doneMatch = message.match(/Algorithme\s+(.+) terminé/i);
+  if (doneMatch) return `Algorithm ${doneMatch[1].trim()} finished`;
+    if (message.includes(' - ')){
+      const [prefix, suffix] = message.split(' - ', 2);
+      if (prefix && suffix) return `${prefix.trim()}: ${suffix.trim()}`;
+    }
+    return message;
+  }
+
+  function flashMatchingMessage(text){
+    const el = document.getElementById('matching-msg');
+    if (!el) return;
+    if (typeof text === 'string') el.textContent = text;
+    el.classList.remove('matching-flash');
+    void el.offsetWidth;
+    el.classList.add('matching-flash');
+  }
+
+  function updateMatchingProgressUI(job){
+    if (!job) return;
+    const status = (job.status || '').toLowerCase();
+    const progress = typeof job.progress === 'number' ? job.progress : 0;
+    const labelEl = matchingProgressEls.label;
+    if (labelEl){
+      switch(status){
+        case 'queued': labelEl.textContent = 'Waiting to start'; break;
+        case 'running': labelEl.textContent = 'Matching in progress'; break;
+        case 'completed': labelEl.textContent = 'Completed'; break;
+        case 'failed': labelEl.textContent = 'Failed'; break;
+        case 'cancelled': labelEl.textContent = 'Cancelled'; break;
+        default: labelEl.textContent = 'Matching status'; break;
+      }
+    }
+    if (matchingProgressEls.meta){
+      const metaParts = [];
+      const message = translateJobMessage(job.message || '');
+      if (message) metaParts.push(message);
+      if (Array.isArray(job.algorithms) && job.algorithms.length){
+        metaParts.push(`Algorithms: ${job.algorithms.join(', ')}`);
+      }
+      matchingProgressEls.meta.textContent = metaParts.join(' • ');
+    }
+    showMatchingProgressContainer();
+    const minProgress = status === 'queued' ? Math.max(progress, 0.05) : progress;
+    animateMatchingProgress(minProgress);
+  }
+
+  function extractProposalVersions(job){
+    if (!job || !Array.isArray(job.proposals)) return [];
+    return job.proposals
+      .map(entry => Number(entry && entry.version))
+      .filter(num => Number.isFinite(num));
+  }
+
+  function stopMatchingJobPolling(){
+    if (!matchingJobPoll) return;
+    if (matchingJobPoll.timer) clearTimeout(matchingJobPoll.timer);
+    matchingJobPoll = null;
+  }
+
+  async function handleMatchingJobCompletion(eventId, job){
+    const status = (job.status || '').toLowerCase();
+    const versions = extractProposalVersions(job);
+    if (status === 'completed'){
+      await loadProposals({ highlightVersions: versions });
+      flashMatchingMessage('Matching completed. Latest proposals highlighted.');
+      toast('Matching completed successfully.', { type: 'success' });
+    } else if (status === 'failed'){
+      await loadProposals();
+      flashMatchingMessage('Matching failed. Please review the logs.');
+      toast('Matching failed. Please review the logs.', { type: 'error' });
+    } else if (status === 'cancelled'){
+      flashMatchingMessage('Matching was cancelled.');
+      toast('Matching was cancelled.', { type: 'warning' });
+    }
+    setTimeout(()=>{ hideMatchingProgressContainer(); resetMatchingProgress(); }, 1200);
+  }
+
+  async function pollMatchingJob(){
+    const ctx = matchingJobPoll;
+    if (!ctx) return;
+    try{
+      const res = await apiFetch(`/matching/${ctx.eventId}/jobs/${ctx.jobId}`);
+      if (!matchingJobPoll || matchingJobPoll !== ctx) return;
+      if (!res.ok) throw new Error(`Polling failed with status ${res.status}`);
+      const job = await res.json().catch(()=>null);
+      if (!job) throw new Error('Invalid job payload');
+      updateMatchingProgressUI(job);
+      const status = (job.status || '').toLowerCase();
+      if (status === 'completed' || status === 'failed' || status === 'cancelled'){
+        stopMatchingJobPolling();
+        await handleMatchingJobCompletion(ctx.eventId, job);
+      } else {
+        ctx.timer = setTimeout(pollMatchingJob, 2000);
+      }
+    } catch(err){
+      if (!matchingJobPoll || matchingJobPoll !== ctx) return;
+      console.error('Matching job polling failed', err);
+      ctx.timer = setTimeout(pollMatchingJob, 4000);
+    }
+  }
+
+  function beginMatchingJobTracking(eventId, job){
+    if (!job || !job.id) return;
+    stopMatchingJobPolling();
+    flashMatchingMessage('Matching is in progress. Progress is updating below.');
+    updateMatchingProgressUI(job);
+    matchingJobPoll = { eventId, jobId: job.id, timer: null };
+    pollMatchingJob();
+  }
+
+  async function resumeMatchingProgressIfNeeded(){
+    stopMatchingJobPolling();
+    const select = document.getElementById('matching-event-select');
+    const eventId = select ? select.value : '';
+    if (!eventId){
+      hideMatchingProgressContainer();
+      resetMatchingProgress();
+      return;
+    }
+    try{
+      const res = await apiFetch(`/matching/${eventId}/jobs?limit=3`);
+      if (!res.ok){
+        hideMatchingProgressContainer();
+        resetMatchingProgress();
+        return;
+      }
+      const jobs = await res.json().catch(()=>[]);
+      const active = Array.isArray(jobs) ? jobs.find(job=>{
+        const status = (job.status || '').toLowerCase();
+        return status === 'running' || status === 'queued';
+      }) : null;
+      if (active){
+        beginMatchingJobTracking(eventId, active);
+      } else {
+        hideMatchingProgressContainer();
+        resetMatchingProgress();
+      }
+    } catch(err){
+      console.error('Failed to resume matching progress', err);
+    }
+  }
+
   async function startMatching(){
     $('#btn-start-matching').addEventListener('click', async (e)=>{
       const btn = e.currentTarget;
       const evId = $('#matching-event-select').value;
-      const msg = $('#matching-msg');
       if (!evId){
-        toast('Veuillez sélectionner un évènement.', { type: 'warning' });
+        toast('Please select an event first.', { type: 'warning' });
         return;
       }
       const algorithms = selectedAlgorithms();
       if (!algorithms.length){
-        toast('Sélectionnez au moins un algorithme de matching.', { type: 'warning' });
+        toast('Select at least one matching algorithm.', { type: 'warning' });
         return;
       }
       const weights = readWeights();
-      setBtnLoading(btn, 'Lancement...');
-      const loader = toastLoading('Lancement du matching...');
+      setBtnLoading(btn, 'Starting...');
+  const loader = toastLoading('Starting matching...');
       try {
         const res = await apiFetch(`/matching/${evId}/start`, {
           method: 'POST',
@@ -1787,34 +1853,32 @@
         });
         if (res.ok){
           const data = await res.json().catch(()=>null);
-          if (data && data.job){
-            renderMatchingProgress(data.job);
-            stopMatchingJobPolling();
-            matchingJobWatcher.eventId = evId;
-            matchingJobWatcher.jobId = data.job_id;
-            matchingJobWatcher.lastStatus = data.job.status;
-            if (MATCH_JOB_ACTIVE.has(data.job.status)){
-              pollMatchingJob(evId, data.job_id);
+          if (data){
+            if (data.status === 'already_running'){
+              flashMatchingMessage('A matching job is already running for this event.');
+              toast('A matching job is already running.', { type: 'info' });
+            } else {
+              flashMatchingMessage('Matching started. We will notify you when it finishes.');
+              toast('Matching started successfully.', { type: 'success' });
             }
-            if (msg){
-              msg.textContent = data.status === 'already_running'
-                ? 'Un matching est déjà en cours. Suivi mis à jour ci-dessous.'
-                : 'Matching lancé. Suivi disponible ci-dessous.';
+            if (data.job && data.job.id){
+              beginMatchingJobTracking(evId, data.job);
             }
-          } else if (msg){
-            msg.textContent = 'Matching lancé.';
+          } else {
+            flashMatchingMessage('Matching started. We will notify you when it finishes.');
+            toast('Matching started successfully.', { type: 'success' });
           }
-          loader.update('Matching lancé');
+          loader.update('Matching started');
           await loadProposals();
         } else {
-          const errText = await res.text().catch(()=> 'Erreur lors du lancement du matching');
-          if (msg) msg.textContent = `Échec du lancement: ${errText}`;
-          loader.update('Erreur de matching');
+          const errText = await res.text().catch(()=> 'Failed to start matching');
+          flashMatchingMessage(`Failed to start: ${errText}`);
+          loader.update('Matching error');
         }
       } catch(err){
         console.error('Failed to start matching', err);
-        if (msg) msg.textContent = `Erreur lors du lancement: ${err.message || err}`;
-        loader.update('Erreur de matching');
+        flashMatchingMessage(`Failed to start: ${err.message || err}`);
+        loader.update('Matching error');
       } finally {
         loader.close();
         clearBtnLoading(btn);
@@ -1843,9 +1907,22 @@
         clearBtnLoading(btn);
       });
     }
+    const eventSelect = document.getElementById('matching-event-select');
+    if (eventSelect){
+      eventSelect.addEventListener('change', resumeMatchingProgressIfNeeded);
+    }
   }
 
-  async function loadProposals(){
+  async function loadProposals(options){
+    const opts = options || {};
+    const highlightVersions = new Set();
+    if (Array.isArray(opts.highlightVersions)){
+      opts.highlightVersions.forEach(val=>{
+        const num = Number(val);
+        if (Number.isFinite(num)) highlightVersions.add(num);
+      });
+    }
+    const highlightDuration = typeof opts.highlightDuration === 'number' ? Math.max(0, opts.highlightDuration) : 5000;
     const evId = $('#matching-event-select').value;
     const res = await apiFetch(`/matching/${evId}/matches`);
     const list = await res.json().catch(()=>[]);
@@ -1904,6 +1981,12 @@
           <button data-issues="${version}" class="bg-[#008080] text-white rounded-xl px-3 py-1 text-sm">View issues</button>
           <button data-delete="${version}" class="bg-[#e53e3e] text-white rounded-xl px-3 py-1 text-sm">Delete</button>
         </div>`;
+      if (highlightVersions.has(version)){
+        card.classList.add('matching-highlight');
+        if (highlightDuration > 0){
+          setTimeout(()=>{ card.classList.remove('matching-highlight'); }, highlightDuration);
+        }
+      }
       box.appendChild(card);
     });
     box.onclick = async (e)=>{
@@ -2029,7 +2112,6 @@
         }
       }
     }
-    await ensureMatchingJobStatus(evId);
   }
 
   // Removed old Manual Adjustments & Issues UI binding; handled dynamically via proposal issues button
@@ -2219,7 +2301,7 @@
     const processBtn = $('#btn-process-refunds');
     $('#btn-load-refunds').addEventListener('click', async ()=>{
       const evId = $('#refunds-event-select').value;
-  const res = await apiFetch(`payments/admin/events/${evId}/refunds`);
+      const res = await apiFetch(`payments/admin/events/${evId}/refunds`);
       const data = await res.json().catch(()=>({ enabled:false, items:[], total_refund_cents:0 }));
       const box = $('#refunds-overview');
       const msg = $('#refunds-msg');
@@ -2238,7 +2320,7 @@
       processBtn.addEventListener('click', async ()=>{
         const evId = $('#refunds-event-select').value; if (!evId) return;
         const t = toastLoading('Processing refunds...');
-  const r = await apiFetch(`/events/${evId}/refunds/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+        const r = await apiFetch(`/events/${evId}/refunds/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
         const data = await r.json().catch(()=>({}));
         if (r.ok){ t.update(`Processed ${data.processed||0}`); toast(`Refunds processed: ${data.processed||0}`, { type: 'success' }); }
         else { t.update('Error'); toast('Refund processing failed', { type: 'error' }); }
@@ -2256,7 +2338,7 @@
       const evId = $('#refunds-event-select').value; if (!evId || !regId) return;
       const t = toastLoading('Refunding...');
       btn.disabled = true; btn.classList.add('opacity-70');
-  const r = await apiFetch(`/events/${evId}/refunds/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registration_ids: [regId] }) });
+      const r = await apiFetch(`/events/${evId}/refunds/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registration_ids: [regId] }) });
       const data = await r.json().catch(()=>({}));
       if (r.ok){ t.update('Done'); toast('Refund processed', { type: 'success' }); }
       else { t.update('Error'); toast('Refund failed', { type: 'error' }); }

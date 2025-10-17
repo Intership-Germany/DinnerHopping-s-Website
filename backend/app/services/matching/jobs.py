@@ -69,7 +69,7 @@ async def enqueue_matching_job(
         'event_id': event_id,
         'status': 'queued',
         'progress': 0.0,
-        'message': 'En attente de démarrage',
+        'message': 'Waiting to start',
         'algorithms': algorithms,
         'weights': weights,
         'dry_run': dry_run,
@@ -122,7 +122,7 @@ async def _update_job(job_id: str, *, unset: Optional[List[str]] = None, **field
 
 async def _run_matching_job(job_id: str, event_id: str, algorithms: List[str], weights: Dict[str, float], dry_run: bool) -> None:
     try:
-        await _update_job(job_id, status='running', progress=0.05, message='Initialisation...', started_at=_now())
+        await _update_job(job_id, status='running', progress=0.05, message='Initializing...', started_at=_now())
 
         if not dry_run:
             try:
@@ -143,19 +143,29 @@ async def _run_matching_job(job_id: str, event_id: str, algorithms: List[str], w
             base = 0.1
             total_local = int(payload.get('total') or total)
             total_local = max(1, total_local)
+            ratio = float(payload.get('ratio') or 0.0)
+            ratio = max(0.0, min(1.0, ratio))
+            custom_message = payload.get('message')
             if stage == 'start':
                 progress = base + span * ((index - 1) / total_local)
-                message = f"Démarrage de l'algorithme {algorithm}"
+                message = custom_message or f"Starting {algorithm}..."
+            elif stage == 'step':
+                progress = base + span * ((index - 1 + ratio) / total_local)
+                if custom_message:
+                    message = custom_message
+                else:
+                    percent = int(round(ratio * 100))
+                    message = f"{algorithm} {percent}% complete"
             else:
                 progress = base + span * (index / total_local)
-                message = f"Algorithme {algorithm} terminé"
-            await _update_job(job_id, progress=min(progress, 0.9), message=message)
+                message = custom_message or f"Finished {algorithm}"
+            await _update_job(job_id, progress=min(progress, 0.95), message=message)
 
-        await _update_job(job_id, message='Chargement des données...')
+        await _update_job(job_id, message='Loading data...')
         results = await run_algorithms(event_id, algorithms=algorithms, weights=weights, progress_cb=_progress_callback)
 
         proposals: List[Dict[str, Any]] = []
-        await _update_job(job_id, progress=0.9, message='Traitement des résultats...')
+        await _update_job(job_id, progress=0.96, message='Processing results...')
         for res in results:
             algo_name = res.get('algorithm')
             if dry_run:
@@ -174,7 +184,7 @@ async def _run_matching_job(job_id: str, event_id: str, algorithms: List[str], w
         update_fields: Dict[str, Any] = {
             'status': 'completed',
             'progress': 1.0,
-            'message': 'Terminé',
+            'message': 'Completed',
             'proposals': proposals,
             'completed_at': _now(),
         }
@@ -189,7 +199,7 @@ async def _run_matching_job(job_id: str, event_id: str, algorithms: List[str], w
             except Exception:
                 logger.exception('Failed to mark event %s as proposed', event_id)
     except asyncio.CancelledError:
-        await _update_job(job_id, status='cancelled', progress=1.0, message='Annulé', completed_at=_now())
+        await _update_job(job_id, status='cancelled', progress=1.0, message='Cancelled', completed_at=_now())
         raise
     except Exception as exc:  # pylint: disable=broad-except
         logger.exception('Matching job %s failed: %s', job_id, exc)
@@ -198,7 +208,7 @@ async def _run_matching_job(job_id: str, event_id: str, algorithms: List[str], w
             job_id,
             status='failed',
             progress=1.0,
-            message='Échec du matching',
+            message='Matching failed',
             error=error_message,
             completed_at=_now(),
         )
