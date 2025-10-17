@@ -12,9 +12,9 @@ WorkingDirectory=/opt/dinnerhopping/deploy
 ## NOTE: The original version used the Docker CLI plugin syntax `docker compose`.
 ## On this host only the standalone binary `/usr/bin/docker-compose` is installed.
 ## Adjusted accordingly to avoid service start failure (exit code 203 / file not found).
-ExecStartPre=-/usr/bin/docker-compose -f production-docker-compose.yml build --pull
-ExecStart=/usr/bin/docker-compose -f production-docker-compose.yml up -d
-ExecStop=/usr/bin/docker-compose -f production-docker-compose.yml down
+ExecStartPre=-/usr/bin/docker-compose -f docker-compose.prod.yml build --pull
+ExecStart=/usr/bin/docker-compose -f docker-compose.prod.yml up -d
+ExecStop=/usr/bin/docker-compose -f docker-compose.prod.yml down
 TimeoutStartSec=0
 Restart=on-failure
 RestartSec=5s

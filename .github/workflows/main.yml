@@ -50,7 +50,7 @@ jobs:
           set -euo pipefail
           
           APP_DIR="/opt/dinnerhopping"
-          COMPOSE_FILE="deploy/production-docker-compose.yml"
+          COMPOSE_FILE="deploy/docker-compose.prod.yml"
           SERVICE_NAME="docker-compose-app.service"
           HEALTH_URL="https://dinnerhoppings.acrevon.fr/api/health"
           
