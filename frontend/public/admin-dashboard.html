@@ -115,8 +115,22 @@
         </div>
         <div class="md:col-span-3">
           <label class="block text-sm font-semibold mb-1">Valid ZIP codes (optional)</label>
-          <input name="valid_zip_codes" type="text" placeholder="Comma-separated: 37073, 37075, ..." class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
-          <div id="zip-codes-status" class="mt-1 text-xs text-[#4a5568]"></div>
+          <div class="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] px-4 py-3 shadow-inner">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <p class="text-sm text-[#4a5568]">Select the postal codes where registrations are allowed.</p>
+              <div class="flex items-center gap-2">
+                <button type="button" id="zip-select-all" class="text-xs font-semibold px-3 py-1 rounded-full border border-[#cbd5f5] text-[#1d4ed8] bg-white hover:bg-[#eff6ff] transition">Check all</button>
+                <button type="button" id="zip-unselect-all" class="text-xs font-semibold px-3 py-1 rounded-full border border-[#cbd5f5] text-[#1d4ed8] bg-white hover:bg-[#eff6ff] transition">Uncheck all</button>
+              </div>
+            </div>
+            <div id="zip-checkboxes" class="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2"></div>
+            <div class="mt-3 flex flex-wrap gap-2 items-center">
+              <input id="zip-manual-input" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Add a ZIP code" class="flex-1 min-w-[160px] border border-[#d1d5db] rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#cbd5f5]">
+              <button type="button" id="zip-add-btn" class="text-sm font-semibold px-4 py-2 rounded-xl bg-[#2563eb] text-white hover:bg-[#1d4ed8] transition shadow-sm">Add</button>
+            </div>
+            <div id="zip-codes-status" class="mt-2 text-xs text-[#4a5568]"></div>
+          </div>
+          <input name="valid_zip_codes" type="hidden">
         </div>
         <div class="md:col-span-3">
           <label class="block text-sm font-semibold mb-1">Final party address (optional)</label>
@@ -247,9 +261,21 @@
         </div>
       </div>
       <div class="mt-4 flex flex-wrap gap-3 items-center">
-        <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-greedy" checked> Greedy</label>
-        <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-random" checked> Random</label>
-        <label class="flex items-center gap-2"><input type="checkbox" class="accent-[#f46f47]" id="algo-local" > Local search</label>
+        <div class="flex items-center gap-2 bg-white/90 border border-[#e2e8f0] rounded-full px-3 py-1 shadow-sm">
+          <input type="checkbox" class="accent-[#f46f47] h-4 w-4" id="algo-greedy" checked>
+          <label for="algo-greedy" class="text-sm font-semibold text-[#172a3a]">Greedy</label>
+          <button type="button" class="algo-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-[#bfdbfe] focus:ring-offset-1" data-info="Le greedy construit une proposition phase par phase en choisissant toujours l'option la plus prometteuse selon les pondérations actuelles." data-title="Algorithme Greedy" aria-label="En savoir plus sur l'algorithme greedy">i</button>
+        </div>
+        <div class="flex items-center gap-2 bg-white/90 border border-[#e2e8f0] rounded-full px-3 py-1 shadow-sm">
+          <input type="checkbox" class="accent-[#f46f47] h-4 w-4" id="algo-random" checked>
+          <label for="algo-random" class="text-sm font-semibold text-[#172a3a]">Random</label>
+          <button type="button" class="algo-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-[#bfdbfe] focus:ring-offset-1" data-info="Le mode random génère plusieurs plans aléatoires pour explorer des combinaisons inattendues avant d'appliquer vos filtres." data-title="Algorithme Random" aria-label="En savoir plus sur l'algorithme random">i</button>
+        </div>
+        <div class="flex items-center gap-2 bg-white/90 border border-[#e2e8f0] rounded-full px-3 py-1 shadow-sm">
+          <input type="checkbox" class="accent-[#f46f47] h-4 w-4" id="algo-local">
+          <label for="algo-local" class="text-sm font-semibold text-[#172a3a]">Local search</label>
+          <button type="button" class="algo-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-[#bfdbfe] focus:ring-offset-1" data-info="La recherche locale part d'une solution existante et améliore le score en échangeant des groupes ou en retouchant les trajets." data-title="Algorithme Local search" aria-label="En savoir plus sur l'algorithme local search">i</button>
+        </div>
         <button id="btn-start-matching" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Start Matching</button>
         <button id="btn-refresh-matches" class="bg-[#ffc241] text-[#172a3a] rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#ffe5d0] transition">Refresh Proposals</button>
         <button id="btn-delete-all-matches" class="bg-[#e53e3e] text-white rounded-xl px-4 py-2 font-semibold shadow hover:opacity-90 transition">Delete All Matches</button>
@@ -325,6 +351,7 @@
   <div data-include="partials/footer.html"></div>
   <!-- Toast utility -->
   <script src="js/utils/toast.js"></script>
+  <script src="js/utils/dialog.js"></script>
   <script src="js/components/event-zip-autocomplete.js"></script>
   <script src="js/admin-dashboard.js"></script>
   <script src="js/admin-alerts.js"></script>

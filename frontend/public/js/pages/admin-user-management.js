@@ -29,6 +29,24 @@
     showToast(message);
     return { update() {}, close() {} };
   };
+  function getDialog(){
+    return (window.dh && window.dh.dialog) || null;
+  }
+  function showDialogAlert(message, options){
+    const dlg = getDialog();
+    if (dlg && typeof dlg.alert === 'function'){
+      return dlg.alert(message, Object.assign({ title: 'Information', tone: 'info' }, options || {}));
+    }
+    window.alert(message);
+    return Promise.resolve();
+  }
+  function showDialogConfirm(message, options){
+    const dlg = getDialog();
+    if (dlg && typeof dlg.confirm === 'function'){
+      return dlg.confirm(message, Object.assign({ tone: 'warning', confirmLabel: 'Continuer', cancelLabel: 'Annuler' }, options || {}));
+    }
+    return Promise.resolve(window.confirm(message));
+  }
   const $ = (selector, root) => (root || document).querySelector(selector);
   const ESCAPE_LOOKUP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   const ESCAPE_REGEX = /[&<>"']/g;
@@ -223,10 +241,14 @@
 
   async function sendIncompleteReminders() {
     if (!selectedEventId) {
-      alert('Please select an event first.');
+      await showDialogAlert('Please select an event first.', { tone: 'warning', title: 'Action required' });
       return;
     }
-    if (!confirm('Send reminder emails to all incomplete teams for this event?')) return;
+    const confirmed = await showDialogConfirm('Send reminder emails to all incomplete teams for this event?', {
+      title: 'Send reminders',
+      confirmLabel: 'Send emails',
+    });
+    if (!confirmed) return;
     if (!btnSendReminders) return;
 
     const originalText = btnSendReminders.textContent;
@@ -257,10 +279,14 @@
 
   async function releasePlans() {
     if (!selectedEventId) {
-      alert('Please select an event first.');
+      await showDialogAlert('Please select an event first.', { tone: 'warning', title: 'Action required' });
       return;
     }
-    if (!confirm('Release final event plans to all paid participants? This will send email notifications.')) return;
+    const confirmed = await showDialogConfirm('Release final event plans to all paid participants? This will send email notifications.', {
+      title: 'Release event plans',
+      confirmLabel: 'Release plans',
+    });
+    if (!confirmed) return;
     if (!btnReleasePlans) return;
 
     const originalText = btnReleasePlans.textContent;

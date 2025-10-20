@@ -3,6 +3,19 @@
 
 const JSON_MIME = 'application/json';
 
+function getDialog(){
+  return (window.dh && window.dh.dialog) || null;
+}
+
+function showDialogAlert(message, options){
+  const dlg = getDialog();
+  if (dlg && typeof dlg.alert === 'function'){
+    return dlg.alert(message, Object.assign({ tone: 'error', title: 'Action error' }, options || {}));
+  }
+  window.alert(message);
+  return Promise.resolve();
+}
+
 function mergeRequestOptions(opts) {
   const base = Object.assign({ headers: {} }, opts || {});
   base.headers = Object.assign({ Accept: JSON_MIME }, base.headers || {});
@@ -89,7 +102,7 @@ function createActionButton(label, action, { errorPrefix = `${label} failed:` } 
     try {
       await action();
     } catch (err) {
-      alert(`${errorPrefix} ${err?.message || 'unknown error'}`);
+      await showDialogAlert(`${errorPrefix} ${err?.message || 'unknown error'}`);
       btn.disabled = false;
       btn.textContent = original;
     }

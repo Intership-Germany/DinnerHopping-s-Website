@@ -6,6 +6,24 @@
   const fmtDate = (s)=> s ? new Date(s).toLocaleString() : '';
   const toast = (msg, opts)=> (window.dh && window.dh.toast) ? window.dh.toast(msg, opts||{}) : null;
   const toastLoading = (msg)=> (window.dh && window.dh.toastLoading) ? window.dh.toastLoading(msg) : { update(){}, close(){} };
+  function getDialog(){
+    return (window.dh && window.dh.dialog) || null;
+  }
+  function showDialogAlert(message, options){
+    const dlg = getDialog();
+    if (dlg && typeof dlg.alert === 'function'){
+      return dlg.alert(message, Object.assign({ title: 'Notification', tone: 'info' }, options || {}));
+    }
+    window.alert(message);
+    return Promise.resolve();
+  }
+  function showDialogConfirm(message, options){
+    const dlg = getDialog();
+    if (dlg && typeof dlg.confirm === 'function'){
+      return dlg.confirm(message, Object.assign({ tone: 'warning', confirmLabel: 'Continue', cancelLabel: 'Cancel' }, options || {}));
+    }
+    return Promise.resolve(window.confirm(message));
+  }
   const ESCAPE_LOOKUP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   const ESCAPE_REGEX = /[&<>"']/g;
   const escapeHtml = (value)=>{
@@ -239,7 +257,12 @@
       prompt = `${baseMsg}\n\n(Unable to fetch matching issues. Proceed anyway?)`;
     }
     if (button) clearBtnLoading(button);
-    if (!confirm(prompt)) return false;
+    const confirmed = await showDialogConfirm(prompt, {
+      title: `Release proposal v${version}`,
+      confirmLabel: 'Release',
+      tone: 'warning',
+    });
+    if (!confirmed) return false;
     if (button) setBtnLoading(button, 'Releasing...');
     const t = toastLoading('Releasing final plan...');
     const res = await apiFetch(`/matching/${evId}/finalize?version=${version}`, { method: 'POST' });
@@ -511,9 +534,23 @@
       if (!btn) return;
       ev.preventDefault();
       const info = (btn.dataset && btn.dataset.info) ? btn.dataset.info : 'No description available.';
-      alert(info);
+      showDialogAlert(info, { title: 'Weight option details', tone: 'info' });
     });
     bindWeightInfo._bound = true;
+  }
+
+  function bindAlgorithmInfo(){
+    if (bindAlgorithmInfo._bound) return;
+    document.addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('.algo-info');
+      if (!btn) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const info = btn.dataset && btn.dataset.info ? btn.dataset.info : 'No description available.';
+      const title = btn.dataset && btn.dataset.title ? btn.dataset.title : 'Algorithm details';
+      showDialogAlert(info, { title, tone: 'info' });
+    });
+    bindAlgorithmInfo._bound = true;
   }
 
   function bindAdvancedWeightsToggle(){
@@ -1435,7 +1472,12 @@
             (res.phase_issues||[]).map(v=>`[${v.phase}] ${getTeamLabel(v.team_id, detailsVersion)} ${v.issue}`)
           );
           toast(`Warnings (${msgs.length})`, { type: 'warning' });
-          if (confirm(`Warnings detected:\n${msgs.join('\n')}\nProceed anyway?`)){
+          const proceed = await showDialogConfirm(`Warnings detected:\n${msgs.join('\n')}\nProceed anyway?`, {
+            title: 'Warnings detected',
+            confirmLabel: 'Save anyway',
+            tone: 'warning',
+          });
+          if (proceed){
             r = await apiFetch(`/matching/${evId}/set_groups`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: detailsVersion, groups: detailsGroups, force: true }) });
           } else {
             clearBtnLoading(btn); return;
@@ -1447,10 +1489,12 @@
           await loadProposals();
           await loadMatchDetails(detailsVersion);
         } else {
-          const t = await r.text(); alert(`Failed to save: ${t}`);
+          const t = await r.text();
+          await showDialogAlert(`Failed to save: ${t}`, { tone: 'danger', title: 'Save groups failed' });
         }
       } else {
-        const t = await r.text(); alert(`Failed to save: ${t}`);
+        const t = await r.text();
+        await showDialogAlert(`Failed to save: ${t}`, { tone: 'danger', title: 'Save groups failed' });
       }
       clearBtnLoading(btn);
     });
@@ -1520,7 +1564,10 @@
         if (!newStatus) return;
         const r = await apiFetch(`/events/${id}/status/${encodeURIComponent(newStatus)}`, { method: 'POST' });
         if (r.ok) { await loadEvents(); }
-        else { const t = await r.text(); alert(`Failed to set status: ${t}`); }
+        else {
+          const t = await r.text();
+          await showDialogAlert(`Failed to set status: ${t}`, { tone: 'danger', title: 'Update status failed' });
+        }
       } else if (action === 'edit'){
         const r = await apiFetch(`/events/${id}`);
         if (!r.ok) return;
@@ -1530,10 +1577,19 @@
         enterEditMode(ev);
       } else if (action === 'delete'){
         const title = btn.getAttribute('data-title') || id;
-        if (!confirm(`Delete event "${title}"? This will also remove related registrations, matches, plans, etc.`)) return;
+        const confirmed = await showDialogConfirm(`Delete event "${title}"? This will also remove related registrations, matches, plans, etc.`, {
+          title: 'Delete event',
+          confirmLabel: 'Delete',
+          tone: 'danger',
+          destructive: true,
+        });
+        if (!confirmed) return;
         const r = await apiFetch(`/events/${id}`, { method: 'DELETE' });
         if (r.ok) { await loadEvents(); }
-        else { const t = await r.text(); alert(`Failed to delete: ${t}`); }
+        else {
+          const t = await r.text();
+          await showDialogAlert(`Failed to delete: ${t}`, { tone: 'danger', title: 'Delete event failed' });
+        }
       }
     }
     await resumeMatchingProgressIfNeeded();
@@ -1541,6 +1597,7 @@
 
   async function handleCreate(){
     const f = $('#create-event-form');
+    if (!f) return;
     f.addEventListener('submit', async (e)=>{
       e.preventDefault();
       const payload = readForm();
@@ -1562,10 +1619,13 @@
       }
       clearBtnLoading(btn);
     });
-    $('#btn-cancel-edit').addEventListener('click', (e)=>{
-      e.preventDefault();
-      enterCreateMode();
-    });
+    const cancelBtn = $('#btn-cancel-edit');
+    if (cancelBtn){
+      cancelBtn.addEventListener('click', (e)=>{
+        e.preventDefault();
+        enterCreateMode();
+      });
+    }
   }
 
   function readWeights(){
@@ -1890,7 +1950,13 @@
       delAllBtn.addEventListener('click', async (e)=>{
         const btn = e.currentTarget; const evId = $('#matching-event-select').value;
         if (!evId) return;
-        if (!confirm('Delete ALL match proposals for this event?')) return;
+        const confirmed = await showDialogConfirm('Delete ALL match proposals for this event?', {
+          title: 'Delete all proposals',
+          confirmLabel: 'Delete all',
+          tone: 'danger',
+          destructive: true,
+        });
+        if (!confirmed) return;
         setBtnLoading(btn, 'Deleting...');
         const t = toastLoading('Deleting proposals...');
         const r = await apiFetch(`/matching/${evId}/matches`, { method: 'DELETE' });
@@ -1901,7 +1967,9 @@
           await loadProposals();
           t.update('Deleted');
         } else {
-          const tx = await r.text(); alert(`Failed to delete: ${tx}`); t.update('Delete error');
+          const tx = await r.text();
+          await showDialogAlert(`Failed to delete: ${tx}`, { tone: 'danger', title: 'Delete proposals failed' });
+          t.update('Delete error');
         }
         t.close();
         clearBtnLoading(btn);
@@ -2100,7 +2168,13 @@
         card.appendChild(panel);
       } else if (deleteBtn){
         const v = Number(deleteBtn.getAttribute('data-delete'));
-        if (!confirm(`Delete proposal v${v}?`)) return;
+        const confirmed = await showDialogConfirm(`Delete proposal v${v}?`, {
+          title: 'Delete proposal',
+          confirmLabel: 'Delete',
+          tone: 'danger',
+          destructive: true,
+        });
+        if (!confirmed) return;
         const r = await apiFetch(`/matching/${evId}/matches?version=${v}`, { method: 'DELETE' });
         if (r.ok){
           await loadProposals();
@@ -2108,7 +2182,8 @@
             await loadMatchDetails();
           }
         } else {
-          const t = await r.text(); alert(`Failed to delete: ${t}`);
+          const t = await r.text();
+          await showDialogAlert(`Failed to delete: ${t}`, { tone: 'danger', title: 'Delete proposal failed' });
         }
       }
     }
@@ -2347,13 +2422,22 @@
     });
   }
 
+  async function safeRun(step, label){
+    try {
+      await step();
+    } catch (err){
+      console.error(`Admin dashboard init issue in ${label}:`, err);
+    }
+  }
+
   async function init(){
-    await ensureCsrf();
-    await loadEvents();
-    await handleCreate();
-    await startMatching();
-    await bindRefunds();
+    await safeRun(ensureCsrf, 'ensureCsrf');
+    await safeRun(loadEvents, 'loadEvents');
+    await safeRun(handleCreate, 'handleCreate');
+    await safeRun(startMatching, 'startMatching');
+    await safeRun(bindRefunds, 'bindRefunds');
     bindWeightInfo();
+    bindAlgorithmInfo();
     bindAdvancedWeightsToggle();
     bindMaps();
     // Do not auto-load matching proposals or details on page load.
