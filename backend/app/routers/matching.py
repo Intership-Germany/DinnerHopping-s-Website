@@ -17,6 +17,10 @@ from ..services.matching import (
     enqueue_matching_job,
     get_matching_job,
     list_matching_jobs,
+    validate_matching_constraints,
+    check_team_coverage,
+    analyze_dietary_compatibility,
+    analyze_distance_distribution,
 )
 from ..services.routing import route_polyline
 import datetime
@@ -743,3 +747,54 @@ async def set_groups(event_id: str, payload: dict, _=Depends(require_admin)):
     metrics = _compute_metrics(new_groups, {})
     await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'metrics': metrics, 'updated_at': datetime.datetime.utcnow()}})
     return { 'status': 'saved', 'version': version, 'metrics': metrics }
+
+
+@router.post('/{event_id}/validate_constraints')
+async def validate_constraints(event_id: str, payload: dict, _=Depends(require_admin)):
+    """Validate matching constraints for a set of groups.
+    
+    Payload: { groups: [...], version?: int }
+    
+    If version is provided, validates the stored match. Otherwise validates the provided groups.
+    Returns detailed validation results including errors, warnings, and statistics.
+    """
+    await require_event_published(event_id)
+    
+    if 'version' in payload:
+        # Validate a stored match
+        version = int(payload['version'])
+        m = await db_mod.db.matches.find_one({'event_id': event_id, 'version': version})
+        if not m:
+            raise HTTPException(status_code=404, detail='Match version not found')
+        groups = m.get('groups') or []
+    else:
+        # Validate provided groups
+        groups = payload.get('groups') or []
+    
+    # Run validation
+    validation_result = validate_matching_constraints(groups)
+    
+    # Get expected teams for coverage check
+    ev = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
+    if ev:
+        teams = await _build_teams(ev['_id'])
+        expected_team_ids = {str(t['team_id']) for t in teams}
+        coverage_result = check_team_coverage(groups, expected_team_ids)
+        
+        # Build team details map for dietary analysis
+        team_details = {str(t['team_id']): t for t in teams}
+        dietary_result = analyze_dietary_compatibility(groups, team_details)
+        
+        # Analyze distances
+        distance_result = analyze_distance_distribution(groups)
+        
+        return {
+            'validation': validation_result,
+            'coverage': coverage_result,
+            'dietary': dietary_result,
+            'distances': distance_result,
+        }
+    else:
+        return {
+            'validation': validation_result,
+        }

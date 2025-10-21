@@ -39,6 +39,12 @@ from .jobs import (
     get_matching_job,
     list_matching_jobs,
 )
+from .validation import (
+    validate_matching_constraints,
+    check_team_coverage,
+    analyze_dietary_compatibility,
+    analyze_distance_distribution,
+)
 
 __all__ = [
     'ALGORITHMS',
@@ -65,4 +71,8 @@ __all__ = [
     'enqueue_matching_job',
     'get_matching_job',
     'list_matching_jobs',
+    'validate_matching_constraints',
+    'check_team_coverage',
+    'analyze_dietary_compatibility',
+    'analyze_distance_distribution',
 ]
