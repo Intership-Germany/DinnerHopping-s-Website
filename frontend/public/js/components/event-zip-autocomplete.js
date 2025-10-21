@@ -1,6 +1,7 @@
 (function(){
   if (typeof window === 'undefined') return;
   const apiFetch = (window.dh && window.dh.apiFetch) || window.apiFetch || null;
+  const peliasBase = String(window.PELIAS_BASE_URL || 'https://pelias.cephlabs.de/v1').replace(/\/$/, '');
   const form = document.getElementById('create-event-form');
   if (!form) return;
   const cityInput = form.querySelector('input[name="city"]');
@@ -32,6 +33,7 @@
     availableZips: new Set(),
     selectedZips: new Set(),
     manualZips: new Set(),
+    cityCache: new Map(),
   };
 
   zipsInput.addEventListener('input', ()=>{ state.userModifiedZips = true; });
@@ -50,6 +52,37 @@
       if (!Number.isNaN(numA) && !Number.isNaN(numB)){ return numA - numB; }
       return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
     });
+  }
+
+  function cleanCityLabel(raw){
+    if (!raw) return '';
+    const base = String(raw)
+      .replace(/\b\d{3,}\b/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/[,-]\s*$/g, '')
+      .trim();
+    return base || String(raw).trim();
+  }
+
+  function describeRegion(props){
+    if (!props) return '';
+    const seen = new Set();
+    const add = (value)=>{
+      if (!value) return;
+      const cleaned = cleanCityLabel(value);
+      if (!cleaned) return;
+      const key = cleaned.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+    };
+    add(props.region);
+    add(props.state);
+    add(props.county);
+    add(props.macroregion);
+    add(props.localadmin);
+    if (!seen.size && props.country){ add(props.country); }
+    const [first] = Array.from(seen.values());
+    return first || '';
   }
 
   function syncSelectedZips(){
@@ -153,6 +186,26 @@
     return `${base}/${path}`;
   }
 
+  async function fetchPeliasSuggestions(query){
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    const params = new URLSearchParams({
+      text: trimmed,
+      size: '8',
+      layers: 'locality,localadmin,borough,county,region,macroregion',
+    });
+    params.set('lang', 'de');
+    try {
+      const res = await fetch(`${peliasBase}/autocomplete?${params.toString()}`, { headers: { Accept: 'application/json' } });
+      if (!res.ok) return [];
+      const data = await res.json().catch(()=>null);
+      return (data && Array.isArray(data.features)) ? data.features : [];
+    } catch (err){
+      console.warn('Pelias autocomplete failed', err);
+      return [];
+    }
+  }
+
   async function requestZipData(city, codeHints){
     const trimmed = city.trim();
     if (!trimmed) return null;
@@ -217,7 +270,7 @@
     const map = new Map();
     (Array.isArray(records) ? records : []).forEach((rec)=>{
       if (!rec) return;
-      const cityName = String(rec.plz_name_long || rec.plz_name || '').trim();
+      const cityName = cleanCityLabel(rec.plz_name_long || rec.plz_name || '');
       if (!cityName) return;
       const key = normalizeKey(cityName);
       let entry = map.get(key);
@@ -230,50 +283,94 @@
     return map;
   }
 
-  function buildSuggestions(zipMap, query){
-    const list = [];
-    if (!zipMap) return list;
+  function buildSuggestions(peliasFeatures, zipMap, query){
     const normalizedQuery = query ? normalizeKey(query) : '';
-    const collect = (entries, forcedLabel)=>{
-      const union = new Set();
-      let label = forcedLabel || '';
-      entries.forEach((entry)=>{
-        entry.zips.forEach((zip)=> union.add(zip));
-        if (!label) label = entry.city;
-      });
-      if (!label) label = query || '';
-      if (!label) return null;
-      return { label, city: label, zips: Array.from(union), pelias: null, codeHints: [] };
+    const merged = new Map();
+
+    const ensureEntry = (key, cityName, label, regionHint)=>{
+      if (!key) return null;
+      const existing = merged.get(key);
+      if (existing){
+        if (label && !existing.label) existing.label = cleanCityLabel(label);
+        if (cityName && !existing.city) existing.city = cleanCityLabel(cityName);
+        if (regionHint && !existing.region) existing.region = regionHint;
+        return existing;
+      }
+      const entry = {
+        city: cleanCityLabel(cityName || label || query || ''),
+        label: cleanCityLabel(label || cityName || query || ''),
+        zips: new Set(),
+        pelias: null,
+        codeHints: [],
+        region: regionHint || '',
+      };
+      merged.set(key, entry);
+      return entry;
     };
 
-    if (normalizedQuery){
-      const exact = zipMap.get(normalizedQuery);
-      if (exact){
-        const combined = collect([exact], query || exact.city);
-        if (combined) list.push(combined);
-        return list;
-      }
-      const candidates = [];
-      zipMap.forEach((entry, key)=>{ if (key.includes(normalizedQuery)) candidates.push(entry); });
-      if (candidates.length){
-        const combined = collect(candidates, query);
-        if (combined) list.push(combined);
-        return list;
-      }
+    const incorporateZipEntry = (entry)=>{
+      if (!entry) return;
+      const key = normalizeKey(entry.city);
+      const target = ensureEntry(key, entry.city, entry.city, entry.region || '');
+      if (!target) return;
+      entry.zips.forEach((zip)=> target.zips.add(zip));
+    };
+
+    if (zipMap){
+      zipMap.forEach((entry)=>{
+        incorporateZipEntry(entry);
+      });
     }
 
-    const byCity = new Map();
-    zipMap.forEach((entry)=>{
-      if (!byCity.has(entry.city)) byCity.set(entry.city, new Set());
-      const bucket = byCity.get(entry.city);
-      entry.zips.forEach((zip)=> bucket.add(zip));
+    state.cityCache.forEach((entry, key)=>{
+      const target = ensureEntry(key, entry.city, entry.city);
+      if (!target) return;
+      entry.zips.forEach((zip)=> target.zips.add(zip));
     });
-    Array.from(byCity.entries())
-      .sort((a, b)=> a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }))
-      .forEach(([cityName, bucket])=>{
-        list.push({ label: cityName, city: cityName, zips: Array.from(bucket), pelias: null, codeHints: [] });
+
+    if (Array.isArray(peliasFeatures)){
+      peliasFeatures.forEach((feature)=>{
+        const props = feature && feature.properties ? feature.properties : {};
+        const localizedCity = props.localname || props.locality || props.city || props.name || '';
+        const cityName = cleanCityLabel(localizedCity);
+        if (!cityName) return;
+        const key = normalizeKey(cityName);
+        const regionHint = describeRegion(props) || '';
+        const label = regionHint ? `${cityName} (${regionHint})` : cityName;
+        const target = ensureEntry(key, cityName, label, regionHint);
+        if (target) target.pelias = feature;
       });
-    return list;
+    }
+
+    const results = Array.from(merged.entries()).map(([key, entry])=>{
+      if (!entry.city) entry.city = cleanCityLabel(entry.label || query || key);
+      if (!entry.label){
+        entry.label = entry.region ? `${entry.city} (${entry.region})` : entry.city;
+      }
+      if (entry.region && entry.label === entry.city){
+        entry.label = `${entry.city} (${entry.region})`;
+      }
+      entry.zips = Array.from(entry.zips);
+      return entry;
+    });
+
+    results.sort((a, b)=>{
+      const ka = normalizeKey(a.city);
+      const kb = normalizeKey(b.city);
+      const score = (k)=>{
+        if (!normalizedQuery) return 2;
+        if (k === normalizedQuery) return 0;
+        if (k.startsWith(normalizedQuery)) return 1;
+        if (k.includes(normalizedQuery)) return 2;
+        return 3;
+      };
+      const sa = score(ka);
+      const sb = score(kb);
+      if (sa !== sb) return sa - sb;
+      return a.city.localeCompare(b.city, undefined, { sensitivity: 'base' });
+    });
+
+    return results;
   }
 
   function updateZipField(zipList, cityName, overrideUser){
@@ -284,7 +381,14 @@
       return;
     }
     state.availableZips = new Set(list);
-    const cityLabel = cityName ? cityName : 'this city';
+    const cityLabel = cityName ? cleanCityLabel(cityName) : 'this city';
+    if (list.length){
+      const cacheKey = normalizeKey(cityLabel);
+      const cacheEntry = state.cityCache.get(cacheKey) || { city: cityLabel, zips: new Set() };
+      cacheEntry.city = cityLabel;
+      cacheEntry.zips = new Set(list);
+      state.cityCache.set(cacheKey, cacheEntry);
+    }
     if (!state.userModifiedZips || overrideUser){
       const fresh = new Set(list);
       state.manualZips.forEach((zip)=> fresh.add(zip));
@@ -318,10 +422,14 @@
         state.suppressSuggestions = true;
         cityInput.value = item.city || cityInput.value;
   const codes = Array.isArray(item.zips) ? item.zips : [];
-  const adminHints = Array.isArray(item.codeHints) ? item.codeHints : [];
-  state.codeHints = Array.from(new Set(adminHints));
+        const adminHints = Array.isArray(item.codeHints) ? item.codeHints : [];
+        state.codeHints = Array.from(new Set(adminHints));
         clearSuggestions();
-        updateZipField(codes, item.city, true);
+        if (codes.length){
+          updateZipField(codes, item.city, true);
+        } else {
+          showStatus('Searching for zip codes…');
+        }
         state.userModifiedZips = false;
         handleCityChange();
       });
@@ -349,6 +457,16 @@
       return;
     }
     const zipMap = buildZipMap(data.records);
+    zipMap.forEach((entry, key)=>{
+      const cacheKey = normalizeKey(entry.city);
+      const existing = state.cityCache.get(cacheKey);
+      if (!existing){
+        state.cityCache.set(cacheKey, { city: entry.city, zips: new Set(entry.zips) });
+      } else {
+        entry.zips.forEach((zip)=> existing.zips.add(zip));
+        existing.city = cleanCityLabel(existing.city || entry.city);
+      }
+    });
     const normalizedCity = normalizeKey(city);
     const directEntry = zipMap.get(normalizedCity);
     let effectiveEntry = directEntry || null;
@@ -372,7 +490,7 @@
     const displayCity = effectiveEntry ? effectiveEntry.city : city;
     updateZipField(zips, displayCity, usedCombined || !directEntry);
     if (!state.suppressSuggestions && document.activeElement === cityInput){
-      const baseSuggestions = buildSuggestions(zipMap, city);
+      const baseSuggestions = buildSuggestions(null, zipMap, city);
       if (baseSuggestions.length){
         renderSuggestions(baseSuggestions);
       } else {
@@ -467,20 +585,35 @@
         return;
       }
       const currentId = ++state.requestId;
-      const zipData = await requestZipData(query, state.codeHints);
+      const [zipData, peliasFeatures] = await Promise.all([
+        requestZipData(query, state.codeHints),
+        fetchPeliasSuggestions(query),
+      ]);
       if (currentId !== state.requestId) return;
       let zipMap = null;
       if (zipData && !zipData.error){
         zipMap = buildZipMap(zipData.records);
+        if (zipMap){
+          zipMap.forEach((entry, key)=>{
+            const cacheKey = normalizeKey(entry.city);
+            const existing = state.cityCache.get(cacheKey);
+            if (!existing){
+              state.cityCache.set(cacheKey, { city: entry.city, zips: new Set(entry.zips) });
+            } else {
+              entry.zips.forEach((zip)=> existing.zips.add(zip));
+              existing.city = cleanCityLabel(existing.city || entry.city);
+            }
+          });
+        }
         const entry = zipMap.get(normalizeKey(query));
         if (entry && entry.zips.size){
           updateZipField(Array.from(entry.zips), entry.city, false);
         }
       }
-      const suggestions = buildSuggestions(zipMap, query);
+  const suggestions = buildSuggestions(peliasFeatures, zipMap, query);
       if (!suggestions.length){
-        if (zipMap && zipMap.size){
-          renderSuggestions(buildSuggestions(zipMap, ''));
+        if ((zipMap && zipMap.size) || state.cityCache.size){
+          renderSuggestions(buildSuggestions(peliasFeatures, zipMap, ''));
         } else {
           clearSuggestions();
         }

@@ -21,12 +21,17 @@ async def test_matching_team_capabilities_fallbacks(client, admin_token):
             'email': 'a@example.com', 'kitchen_available': True, 'main_course_possible': False,
             'prefs': {'kitchen_available': True, 'main_course_possible': False}
         },
-        {  # B: main true only in registration pref
-            'email': 'b@example.com', 'prefs': {'main_course_possible': True}
+        {  # B: kitchen + main true via registration pref
+            'email': 'b@example.com', 'kitchen_available': True,
+            'prefs': {'main_course_possible': True, 'kitchen_available': True}
         },
         {  # C: no kitchen, no main anywhere
             'email': 'c@example.com', 'prefs': {}
-        }
+        },
+        {  # D: main true without kitchen -> still cannot host
+            'email': 'd@example.com', 'main_course_possible': True,
+            'prefs': {'main_course_possible': True}
+        },
     ]
     reg_ids = []
     for u in users:
@@ -84,10 +89,13 @@ async def test_matching_team_capabilities_fallbacks(client, admin_token):
     a_tid = tid(reg_ids[0])
     assert td[a_tid]['can_host_main'] is False
     # 'can_host_any' not directly exposed, but appetizer/dessert hosting eligibility uses can_host_any -> ensure attribute present in internal map by requesting groups
-    # B: main true via registration prefs
+    # B: kitchen + main true -> eligible for main hosting
     b_tid = tid(reg_ids[1])
     assert td[b_tid]['can_host_main'] is True
     # C: neither main nor kitchen -> can_host_main False; kitchen fallback False (not directly in team_details, but main False enough)
     c_tid = tid(reg_ids[2])
     assert td[c_tid]['can_host_main'] is False
+    # D: main true but kitchen missing -> cannot host
+    d_tid = tid(reg_ids[3])
+    assert td[d_tid]['can_host_main'] is False
 

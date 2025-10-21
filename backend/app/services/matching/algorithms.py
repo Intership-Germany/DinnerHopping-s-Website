@@ -69,6 +69,22 @@ async def algo_greedy(
     distance_cache: Dict[Tuple[str, str], float] = {}
     guest_limit = guest_candidate_limit()
     host_usage: Dict[str, int] = {}
+    unit_lookup = {str(unit['unit_id']): unit for unit in units if unit.get('unit_id') is not None}
+    unit_ids: Set[str] = set(unit_lookup.keys())
+    def _unit_size(unit_id: Optional[str], info: Optional[dict] = None) -> int:
+        if not unit_id:
+            return 0
+        candidate = info if info is not None else unit_lookup.get(str(unit_id))
+        if candidate is None:
+            candidate = unit_lookup.get(str(unit_id))
+        try:
+            return int(candidate.get('size') or 0) if candidate else 0
+        except (TypeError, ValueError):
+            return 0
+    expected_participants_total = sum(_unit_size(uid) for uid in unit_ids)
+    global_assigned: Set[str] = set()
+    unmatched_tracker: Dict[str, dict] = {}
+    phase_summary: Dict[str, dict] = {}
 
     phase_sequence = list(phases()[:3])
     phase_count = len(phase_sequence) or 1
@@ -96,7 +112,7 @@ async def algo_greedy(
             host_usage=host_usage,
             host_limit=1,
         )
-        groups = await _await_with_progress(
+        groups, leftovers = await _await_with_progress(
             phase_coro,
             progress_cb=progress_cb,
             start_ratio=start_ratio,
@@ -104,18 +120,96 @@ async def algo_greedy(
             message=f'{display_name} matching in progress',
         )
         all_groups.extend(groups)
+        phase_assigned: Set[str] = set()
         for group in groups:
             host_id = group.get('host_team_id')
-            if host_id is None:
+            if host_id is not None:
+                host_key = str(host_id)
+                host_usage[host_key] = host_usage.get(host_key, 0) + 1
+                phase_assigned.add(host_key)
+                global_assigned.add(host_key)
+            for guest_id in group.get('guest_team_ids') or []:
+                if guest_id is None:
+                    continue
+                guest_key = str(guest_id)
+                phase_assigned.add(guest_key)
+                global_assigned.add(guest_key)
+
+        def mark_unmatched(team_id_str: str, unit_info: Optional[dict]) -> None:
+            details = unit_info or unit_lookup.get(team_id_str) or {}
+            entry = unmatched_tracker.setdefault(team_id_str, {
+                'team_id': team_id_str,
+                'phases': set(),
+                'can_host_any': True,
+                'can_host_main': True,
+                'size': 0,
+            })
+            entry['phases'].add(str(phase))
+            entry['can_host_any'] = entry['can_host_any'] and bool(details.get('can_host_any', True))
+            entry['can_host_main'] = entry['can_host_main'] and bool(details.get('can_host_main', True))
+            size_value = _unit_size(team_id_str, details)
+            entry['size'] = max(entry.get('size', 0), size_value)
+
+        leftover_ids: Set[str] = set()
+        for leftover in leftovers:
+            team_id = leftover.get('unit_id')
+            if team_id is None:
                 continue
-            host_usage[host_id] = host_usage.get(host_id, 0) + 1
+            team_key = str(team_id)
+            leftover_ids.add(team_key)
+            mark_unmatched(team_key, leftover)
+
+        missing_ids = unit_ids.difference(phase_assigned)
+        for team_key in missing_ids:
+            if team_key not in leftover_ids:
+                mark_unmatched(team_key, unit_lookup.get(team_key))
+
+        phase_summary[str(phase)] = {
+            'group_count': len(groups),
+            'assigned_units': len(phase_assigned),
+            'missing_units': len(missing_ids),
+            'expected_units': len(unit_ids),
+            'assigned_participants': sum(_unit_size(team_id) for team_id in phase_assigned),
+            'missing_participants': sum(_unit_size(team_id) for team_id in missing_ids),
+            'expected_participants': expected_participants_total,
+        }
         _update_last_locations(groups, last_at, units)
         await _emit_progress(progress_cb, end_ratio, f'{display_name} matching complete')
 
     await _emit_progress(progress_cb, 0.95, 'Scoring results...')
     metrics = compute_metrics(all_groups, weights)
+    unmatched_units: List[dict] = []
+    for entry in unmatched_tracker.values():
+        phases_list = sorted(entry.pop('phases', set()))
+        unmatched_units.append({
+            'team_id': entry.get('team_id'),
+            'phases': phases_list,
+            'can_host_any': bool(entry.get('can_host_any')),
+            'can_host_main': bool(entry.get('can_host_main')),
+            'size': int(entry.get('size') or 0),
+        })
+    unmatched_units.sort(key=lambda item: item['team_id'])
+    global_missing = sorted(unit_ids.difference(global_assigned))
+    total_participants = expected_participants_total
+    assigned_participants = sum(_unit_size(uid) for uid in global_assigned)
+    unmatched_participants = max(0, total_participants - assigned_participants)
+    metrics.update({
+        'total_unit_count': len(unit_ids),
+        'assigned_unit_count': len(global_assigned),
+        'unmatched_unit_count': len(global_missing),
+        'unmatched_unit_ids': global_missing,
+        'phase_summary': phase_summary,
+        'total_participant_count': total_participants,
+        'assigned_participant_count': assigned_participants,
+        'unmatched_participant_count': unmatched_participants,
+    })
     await _emit_progress(progress_cb, 1.0, 'Algorithm complete')
-    return {'algorithm': 'greedy', 'groups': all_groups, 'metrics': metrics}
+    return {
+        'algorithm': 'greedy',
+        'groups': all_groups,
+        'metrics': metrics,
+        'unmatched_units': unmatched_units,
+    }
 
 
 async def algo_random(
@@ -155,6 +249,22 @@ async def algo_random(
     distance_cache: Dict[Tuple[str, str], float] = {}
     guest_limit = guest_candidate_limit()
     host_usage: Dict[str, int] = {}
+    unit_lookup = {str(unit['unit_id']): unit for unit in units if unit.get('unit_id') is not None}
+    unit_ids: Set[str] = set(unit_lookup.keys())
+    def _unit_size(unit_id: Optional[str], info: Optional[dict] = None) -> int:
+        if not unit_id:
+            return 0
+        candidate = info if info is not None else unit_lookup.get(str(unit_id))
+        if candidate is None:
+            candidate = unit_lookup.get(str(unit_id))
+        try:
+            return int(candidate.get('size') or 0) if candidate else 0
+        except (TypeError, ValueError):
+            return 0
+    expected_participants_total = sum(_unit_size(uid) for uid in unit_ids)
+    global_assigned: Set[str] = set()
+    unmatched_tracker: Dict[str, dict] = {}
+    phase_summary: Dict[str, dict] = {}
 
     phase_sequence = list(phases()[:3])
     phase_count = len(phase_sequence) or 1
@@ -181,7 +291,7 @@ async def algo_random(
             host_usage=host_usage,
             host_limit=1,
         )
-        groups = await _await_with_progress(
+        groups, leftovers = await _await_with_progress(
             phase_coro,
             progress_cb=progress_cb,
             start_ratio=start_ratio,
@@ -189,18 +299,96 @@ async def algo_random(
             message=f'{display_name} matching in progress',
         )
         all_groups.extend(groups)
+        phase_assigned: Set[str] = set()
         for group in groups:
             host_id = group.get('host_team_id')
-            if host_id is None:
+            if host_id is not None:
+                host_key = str(host_id)
+                host_usage[host_key] = host_usage.get(host_key, 0) + 1
+                phase_assigned.add(host_key)
+                global_assigned.add(host_key)
+            for guest_id in group.get('guest_team_ids') or []:
+                if guest_id is None:
+                    continue
+                guest_key = str(guest_id)
+                phase_assigned.add(guest_key)
+                global_assigned.add(guest_key)
+
+        def mark_unmatched(team_id_str: str, unit_info: Optional[dict]) -> None:
+            details = unit_info or unit_lookup.get(team_id_str) or {}
+            entry = unmatched_tracker.setdefault(team_id_str, {
+                'team_id': team_id_str,
+                'phases': set(),
+                'can_host_any': True,
+                'can_host_main': True,
+                'size': 0,
+            })
+            entry['phases'].add(str(phase))
+            entry['can_host_any'] = entry['can_host_any'] and bool(details.get('can_host_any', True))
+            entry['can_host_main'] = entry['can_host_main'] and bool(details.get('can_host_main', True))
+            size_value = _unit_size(team_id_str, details)
+            entry['size'] = max(entry.get('size', 0), size_value)
+
+        leftover_ids: Set[str] = set()
+        for leftover in leftovers:
+            team_id = leftover.get('unit_id')
+            if team_id is None:
                 continue
-            host_usage[host_id] = host_usage.get(host_id, 0) + 1
+            team_key = str(team_id)
+            leftover_ids.add(team_key)
+            mark_unmatched(team_key, leftover)
+
+        missing_ids = unit_ids.difference(phase_assigned)
+        for team_key in missing_ids:
+            if team_key not in leftover_ids:
+                mark_unmatched(team_key, unit_lookup.get(team_key))
+
+        phase_summary[str(phase)] = {
+            'group_count': len(groups),
+            'assigned_units': len(phase_assigned),
+            'missing_units': len(missing_ids),
+            'expected_units': len(unit_ids),
+            'assigned_participants': sum(_unit_size(team_id) for team_id in phase_assigned),
+            'missing_participants': sum(_unit_size(team_id) for team_id in missing_ids),
+            'expected_participants': expected_participants_total,
+        }
         _update_last_locations(groups, last_at, units)
         await _emit_progress(progress_cb, end_ratio, f'{display_name} matching complete')
 
     await _emit_progress(progress_cb, 0.95, 'Scoring results...')
     metrics = compute_metrics(all_groups, weights)
+    unmatched_units: List[dict] = []
+    for entry in unmatched_tracker.values():
+        phases_list = sorted(entry.pop('phases', set()))
+        unmatched_units.append({
+            'team_id': entry.get('team_id'),
+            'phases': phases_list,
+            'can_host_any': bool(entry.get('can_host_any')),
+            'can_host_main': bool(entry.get('can_host_main')),
+            'size': int(entry.get('size') or 0),
+        })
+    unmatched_units.sort(key=lambda item: item['team_id'])
+    global_missing = sorted(unit_ids.difference(global_assigned))
+    total_participants = expected_participants_total
+    assigned_participants = sum(_unit_size(uid) for uid in global_assigned)
+    unmatched_participants = max(0, total_participants - assigned_participants)
+    metrics.update({
+        'total_unit_count': len(unit_ids),
+        'assigned_unit_count': len(global_assigned),
+        'unmatched_unit_count': len(global_missing),
+        'unmatched_unit_ids': global_missing,
+        'phase_summary': phase_summary,
+        'total_participant_count': total_participants,
+        'assigned_participant_count': assigned_participants,
+        'unmatched_participant_count': unmatched_participants,
+    })
     await _emit_progress(progress_cb, 1.0, 'Algorithm complete')
-    return {'algorithm': 'random', 'groups': all_groups, 'metrics': metrics}
+    return {
+        'algorithm': 'random',
+        'groups': all_groups,
+        'metrics': metrics,
+        'unmatched_units': unmatched_units,
+    }
 
 
 async def algo_local_search(
@@ -216,9 +404,14 @@ async def algo_local_search(
         progress_cb=progress_cb,
     )
     groups = base['groups'][:]
-    metrics = compute_metrics(groups, weights)
+    metrics = base.get('metrics') or compute_metrics(groups, weights)
     await _emit_progress(progress_cb, 1.0, 'Algorithm complete')
-    return {'algorithm': 'local_search', 'groups': groups, 'metrics': metrics}
+    return {
+        'algorithm': 'local_search',
+        'groups': groups,
+        'metrics': metrics,
+        'unmatched_units': base.get('unmatched_units', []),
+    }
 
 
 ALGORITHMS = {

@@ -24,6 +24,7 @@ async def persist_match_proposal(event_id: str, proposal: dict) -> dict:
         'status': 'proposed',
         'version': version,
         'algorithm': proposal.get('algorithm') or 'unknown',
+        'unmatched_units': proposal.get('unmatched_units') or [],
         'created_at': datetime.now(timezone.utc),
     }
     res = await db_mod.db.matches.insert_one(doc)
@@ -53,6 +54,11 @@ async def list_issues(event_id: str, version: Optional[int] = None) -> dict:
     team_cancelled: Set[str] = set()
     team_incomplete: Set[str] = set()
     reg_by_team: Dict[str, List[dict]] = {}
+    cancelled_statuses = {'cancelled_by_user', 'cancelled_admin', 'refunded', 'expired'}
+
+    def _norm_status(value: object) -> str:
+        return str(value or '').lower()
+
     async for registration in db_mod.db.registrations.find({'event_id': ObjectId(event_id)}):
         team_id = team_key(registration)
         reg_by_team.setdefault(team_id, []).append(registration)
@@ -60,7 +66,7 @@ async def list_issues(event_id: str, version: Optional[int] = None) -> dict:
         if (team.get('status') or '').lower() == 'cancelled':
             team_cancelled.add(str(team['_id']))
     for team_id, regs in reg_by_team.items():
-        cancelled = [reg for reg in regs if reg.get('status') in ('cancelled_by_user', 'cancelled_admin', 'refunded')]
+        cancelled = [reg for reg in regs if _norm_status(reg.get('status')) in cancelled_statuses]
         if len(regs) >= 2:
             if len(cancelled) == len(regs):
                 team_cancelled.add(team_id)
@@ -75,9 +81,8 @@ async def list_issues(event_id: str, version: Optional[int] = None) -> dict:
     team_payment_partial: Set[str] = set()
     if include_payment_checks:
         payments_by_reg = await _payments_by_registration(reg_by_team)
-        cancelled_statuses = {'cancelled_by_user', 'cancelled_admin', 'refunded', 'expired'}
         for team_id, regs in reg_by_team.items():
-            active = [reg for reg in regs if reg.get('status') not in cancelled_statuses]
+            active = [reg for reg in regs if _norm_status(reg.get('status')) not in cancelled_statuses]
             if not active:
                 continue
             paid_count = sum(
@@ -179,7 +184,176 @@ async def list_issues(event_id: str, version: Optional[int] = None) -> dict:
                 'issue_counts': issue_counts,
                 'actors': actors,
             })
-    return {'groups': groups, 'issues': issues}
+
+    base_email_map = await team_emails_map(event_id)
+
+    def _record_email(raw: Optional[str], display_map: Dict[str, str]) -> Optional[str]:
+        if not raw:
+            return None
+        value = str(raw).strip()
+        if not value:
+            return None
+        key = value.lower()
+        display_map.setdefault(key, value)
+        return key
+
+    email_display_map: Dict[str, str] = {}
+    for team_id, regs in reg_by_team.items():
+        emails = list(base_email_map.get(team_id, []))
+        existing_normalized = {str(email).strip().lower() for email in emails if isinstance(email, str)}
+        for reg in regs:
+            recorded = _record_email(reg.get('user_email_snapshot'), email_display_map)
+            if recorded and recorded not in existing_normalized:
+                emails.append(email_display_map[recorded])
+                existing_normalized.add(recorded)
+        base_email_map[team_id] = emails
+    augmented_email_map = augment_emails_map_with_splits(base_email_map, groups)
+
+    assigned_unit_ids: Set[str] = set()
+    for group in groups:
+        host_id = group.get('host_team_id')
+        if host_id is not None:
+            assigned_unit_ids.add(str(host_id))
+        for guest_id in group.get('guest_team_ids') or []:
+            if guest_id is not None:
+                assigned_unit_ids.add(str(guest_id))
+
+    assigned_emails: Set[str] = set()
+    for unit_id in assigned_unit_ids:
+        for email in augmented_email_map.get(unit_id, []):
+            recorded = _record_email(email, email_display_map)
+            if recorded:
+                assigned_emails.add(recorded)
+
+    team_expected_emails: Dict[str, Set[str]] = {}
+    for team_id, regs in reg_by_team.items():
+        expected: Set[str] = set()
+        for email in base_email_map.get(team_id, []):
+            recorded = _record_email(email, email_display_map)
+            if recorded:
+                expected.add(recorded)
+        for reg in regs:
+            recorded = _record_email(reg.get('user_email_snapshot'), email_display_map)
+            if recorded:
+                expected.add(recorded)
+        team_expected_emails[team_id] = expected
+
+    email_to_team: Dict[str, Set[str]] = {}
+    for team_id, emails in team_expected_emails.items():
+        for email in emails:
+            email_to_team.setdefault(email, set()).add(team_id)
+
+    active_team_ids: Set[str] = set()
+    for team_id, regs in reg_by_team.items():
+        if any(_norm_status(reg.get('status')) not in cancelled_statuses for reg in regs):
+            active_team_ids.add(team_id)
+
+    missing_registrations: List[dict] = []
+    for team_id in sorted(active_team_ids):
+        expected = team_expected_emails.get(team_id, set())
+        direct_assigned = team_id in assigned_unit_ids
+        if expected:
+            missing = sorted(email for email in expected if email not in assigned_emails)
+            if missing:
+                missing_registrations.append({
+                    'team_id': team_id,
+                    'missing_emails': [email_display_map.get(email, email) for email in missing],
+                })
+        else:
+            if not direct_assigned:
+                missing_registrations.append({'team_id': team_id, 'missing_emails': []})
+
+    if missing_registrations:
+        actors_payload: List[dict] = []
+        for item in missing_registrations:
+            actor = {'team_id': item['team_id']}
+            if item.get('missing_emails'):
+                actor['missing_emails'] = sorted(set(item['missing_emails']))
+            actors_payload.append(actor)
+        issues.append({
+            'group': {'phase': 'overview', 'host_team_id': None, 'guest_team_ids': []},
+            'issues': ['registration_missing'],
+            'issue_counts': {'registration_missing': len(missing_registrations)},
+            'actors': {'registration_missing': actors_payload},
+        })
+
+    unmatched_units_data = match_doc.get('unmatched_units') or []
+    team_phase_gaps: Dict[str, Dict[str, Any]] = {}
+    for entry in unmatched_units_data:
+        unit_id = entry.get('team_id')
+        if unit_id is None:
+            continue
+        unit_id_str = str(unit_id)
+        phases = sorted({str(p) for p in entry.get('phases') or [] if p})
+        if not phases:
+            continue
+        unit_emails_norm: Set[str] = set()
+        for email in augmented_email_map.get(unit_id_str, []):
+            recorded = _record_email(email, email_display_map)
+            if recorded:
+                unit_emails_norm.add(recorded)
+        if not unit_emails_norm and unit_id_str.startswith('split:'):
+            extracted = unit_id_str.split(':', 1)[1]
+            recorded = _record_email(extracted, email_display_map)
+            if recorded:
+                unit_emails_norm.add(recorded)
+        if not unit_emails_norm and unit_id_str.startswith('pair:'):
+            for part in unit_id_str.split(':', 1)[1].split('+'):
+                recorded = _record_email(part, email_display_map)
+                if recorded:
+                    unit_emails_norm.add(recorded)
+        candidate_team_ids: Set[str] = set()
+        for email in unit_emails_norm:
+            candidate_team_ids.update(email_to_team.get(email, set()))
+        if not candidate_team_ids and unit_id_str in reg_by_team:
+            candidate_team_ids.add(unit_id_str)
+        relevant_team_ids = [tid for tid in candidate_team_ids if tid in active_team_ids]
+        if not relevant_team_ids and unit_id_str in active_team_ids:
+            relevant_team_ids = [unit_id_str]
+        if not relevant_team_ids:
+            continue
+        display_emails = [email_display_map.get(email, email) for email in unit_emails_norm]
+        for team_id in relevant_team_ids:
+            if team_id in team_cancelled:
+                continue
+            info = team_phase_gaps.setdefault(team_id, {
+                'team_id': team_id,
+                'missing_phases': set(),
+                'missing_emails': set(),
+                'missing_units': set(),
+            })
+            info['missing_phases'].update(phases)
+            if display_emails:
+                info['missing_emails'].update(display_emails)
+            info['missing_units'].add(unit_id_str)
+
+    phase_gap_actors: List[dict] = []
+    for team_id in sorted(team_phase_gaps):
+        info = team_phase_gaps[team_id]
+        missing_phases = sorted(info.get('missing_phases') or [])
+        if not missing_phases:
+            continue
+        actor = {'team_id': team_id, 'missing_phases': missing_phases}
+        missing_emails = sorted(info.get('missing_emails') or [])
+        if missing_emails:
+            actor['missing_emails'] = missing_emails
+        missing_units = sorted(info.get('missing_units') or [])
+        if missing_units:
+            actor['missing_unit_ids'] = missing_units
+        phase_gap_actors.append(actor)
+
+    if phase_gap_actors:
+        issues.append({
+            'group': {'phase': 'overview', 'host_team_id': None, 'guest_team_ids': []},
+            'issues': ['phase_participation_gap'],
+            'issue_counts': {'phase_participation_gap': len(phase_gap_actors)},
+            'actors': {'phase_participation_gap': phase_gap_actors},
+        })
+    return {
+        'groups': groups,
+        'issues': issues,
+        'unmatched_units': match_doc.get('unmatched_units') or [],
+    }
 
 
 async def refunds_overview(event_id: str) -> dict:

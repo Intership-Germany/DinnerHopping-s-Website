@@ -9,7 +9,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 from bson.objectid import ObjectId
 
 from ... import db as db_mod
-from ...enums import CoursePreference, DietaryPreference, normalized_value
+from ...enums import CoursePreference, DietaryPreference, Gender, normalized_value
 from ...utils import anonymize_public_address as _public_addr  # type: ignore
 
 from ..geocoding import geocode_address
@@ -260,6 +260,8 @@ async def build_teams(event_oid: ObjectId) -> List[dict]:
         team_doc = team_entry.get('team_doc') or {'members': fallback_members(team_entry)}
         team_entry['allergies'] = await _collect_team_allergies(team_entry, team_doc, user_cache)
         team_entry['host_allergies'] = await _determine_host_allergies(team_entry, team_doc, user_cache)
+        team_entry['member_profiles'] = _collect_member_profiles(team_entry, team_doc, user_cache)
+        team_entry['gender_mix'] = sorted({profile['gender'] for profile in team_entry['member_profiles'] if profile.get('gender')})
         team_entry['_user_cache'] = user_cache
     logger.debug('matching.build_teams teams=%d duration=%.3fs', len(teams), time.perf_counter() - start)
     return teams
@@ -287,14 +289,13 @@ async def _augment_capabilities(team_entry: dict, cache: UserCache) -> None:
             can_main = bool(members[1].get('main_course_possible'))
     if not can_main:
         can_main = await _fallback_main_course_capability(team_entry, members, cache)
-    team_entry['can_host_main'] = bool(can_main)
-
     has_kitchen = team_doc.get('has_kitchen')
     if has_kitchen is None:
         has_kitchen = await _fallback_has_kitchen(team_entry, members, cache)
-    if has_kitchen is None:
-        has_kitchen = bool(can_main)
-    team_entry['can_host_any'] = bool(has_kitchen)
+    kitchen_ready = bool(has_kitchen)
+    main_ready = bool(can_main) and kitchen_ready
+    team_entry['can_host_any'] = kitchen_ready
+    team_entry['can_host_main'] = main_ready
 
 
 async def _fallback_main_course_capability(team_entry: dict, members: List[dict], cache: UserCache) -> bool:
@@ -473,3 +474,41 @@ def _collect_team_emails(team_entry: dict) -> List[str]:
         seen.add(key)
         ordered.append(email)
     return ordered
+
+
+def _collect_member_profiles(team_entry: dict, team_doc: dict, cache: UserCache) -> List[dict]:
+    profiles: List[dict] = []
+    members = team_doc.get('members') or []
+    if not members:
+        members = [{'email': reg.get('user_email_snapshot')} for reg in team_entry.get('member_regs') or [] if reg.get('user_email_snapshot')]
+
+    def _gender_from(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            normalized = Gender.normalize(value)
+        except Exception:
+            return None
+        return normalized.value if isinstance(normalized, Gender) else normalized
+
+    for member in members:
+        email = member.get('email')
+        user = None
+        if email:
+            user = cache.get(_normalize_email(email)) if cache else None
+            if not user:
+                user = member
+        profile = {
+            'email': email,
+            'gender': _gender_from((member or {}).get('gender') or (user or {}).get('gender')),
+            'diet': normalized_value(DietaryPreference, (member or {}).get('diet') or (user or {}).get('diet') or team_entry.get('diet')),
+            'allergies': _normalize_allergies((member or {}).get('allergies') or (user or {}).get('allergies') or []),
+        }
+        if email and profile['diet'] is None:
+            user_doc = cache.get(_normalize_email(email)) if cache else None
+            if user_doc:
+                profile['diet'] = normalized_value(DietaryPreference, user_doc.get('default_dietary_preferences') or user_doc.get('diet') or team_entry.get('diet'))
+        if profile['diet'] is None:
+            profile['diet'] = team_entry.get('diet')
+        profiles.append(profile)
+    return profiles

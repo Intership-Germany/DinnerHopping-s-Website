@@ -258,6 +258,7 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
             'team_diet': t.get('team_diet'),
             'course_preference': t.get('course_preference'),
             'can_host_main': t.get('can_host_main'),
+            'can_host_any': t.get('can_host_any'),
             'lat': t.get('lat'),
             'lon': t.get('lon'),
             'allergies': list(t.get('allergies') or []),
@@ -329,6 +330,7 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
         'algorithm': m.get('algorithm') or 'unknown',
         'groups': groups_out,
         'team_details': team_map,
+        'unmatched_units': m.get('unmatched_units') or [],
     }
     return out
 

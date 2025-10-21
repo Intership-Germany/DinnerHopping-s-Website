@@ -173,6 +173,7 @@ async def _run_matching_job(job_id: str, event_id: str, algorithms: List[str], w
                     'algorithm': algo_name,
                     'metrics': res.get('metrics'),
                     'preview_groups': (res.get('groups') or [])[:6],
+                    'unmatched_units': res.get('unmatched_units') or [],
                 })
             else:
                 saved = await persist_match_proposal(event_id, res)
@@ -180,6 +181,7 @@ async def _run_matching_job(job_id: str, event_id: str, algorithms: List[str], w
                     'algorithm': algo_name,
                     'version': saved.get('version'),
                     'metrics': saved.get('metrics'),
+                    'unmatched_units': res.get('unmatched_units') or [],
                 })
         update_fields: Dict[str, Any] = {
             'status': 'completed',

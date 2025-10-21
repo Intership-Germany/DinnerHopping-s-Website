@@ -185,7 +185,7 @@ async def phase_groups(
     distance_cache: Optional[Dict[Tuple[str, str], float]] = None,
     host_usage: Optional[Dict[str, int]] = None,
     host_limit: Optional[int] = 1,
-) -> List[dict]:
+) -> Tuple[List[dict], List[dict]]:
     start = time.perf_counter()
     defaults = weight_defaults()
     last_at_host = last_at_host or {}
@@ -256,10 +256,24 @@ async def phase_groups(
             fallback_candidates = [unit for unit in remaining if base_can_host(unit)]
             if fallback_candidates:
                 fallback_mode = True
+                if host_limit is not None and host_limit >= 0:
+                    logger.warning(
+                        'matching.phase_groups[%s] host pool exhausted under host_limit=%s (remaining=%d) – reusing hosts',
+                        phase,
+                        host_limit,
+                        len(remaining),
+                    )
                 fallback_candidates.sort(key=lambda unit: host_usage.get(unit['unit_id'], 0))
                 eligible_hosts = fallback_candidates
             else:
-                eligible_hosts = list(remaining)
+                if host_limit is not None and host_limit >= 0:
+                    logger.warning(
+                        'matching.phase_groups[%s] no eligible hosts available even after relaxing host_limit=%s (remaining=%d)',
+                        phase,
+                        host_limit,
+                        len(remaining),
+                    )
+                break
         if candidate_limit > 0:
             candidates = eligible_hosts[:min(candidate_limit, len(eligible_hosts))]
         else:
@@ -287,7 +301,7 @@ async def phase_groups(
                     order_seconds = _phase_order_penalty(after_party_point, host_point, last_at_host, host, guest_one, guest_two, weights, defaults, phase)
                     key = travel_resolver.make_key(host, guest_one, guest_two)
                     combo_warnings = list(warnings)
-                    if fallback_mode or (host_limit is not None and host_usage.get(host['unit_id'], 0) >= host_limit):
+                    if fallback_mode:
                         combo_warnings.append('host_reuse')
                     combo_entries.append({
                         'host': host,
@@ -341,8 +355,8 @@ async def phase_groups(
         used_pairs.update(_pairings(host, guest_one, guest_two))
         removed_ids = {host['unit_id'], guest_one['unit_id'], guest_two['unit_id']}
         remaining = [unit for unit in remaining if unit['unit_id'] not in removed_ids]
-    logger.debug('matching.phase_groups[%s] groups=%d duration=%.3fs', phase, len(groups), time.perf_counter() - start)
-    return groups
+    logger.debug('matching.phase_groups[%s] groups=%d unmatched=%d duration=%.3fs', phase, len(groups), len(remaining), time.perf_counter() - start)
+    return groups, list(remaining)
 
 
 def _limit_guests_by_distance(host: dict, candidates: List[dict], limit: int, cache: Dict[Tuple[str, str], float]) -> List[dict]:

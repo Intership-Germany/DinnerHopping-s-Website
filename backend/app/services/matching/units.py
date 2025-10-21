@@ -31,6 +31,8 @@ async def build_units_from_teams(teams: List[dict]) -> Tuple[List[dict], Dict[st
             'host_address_full': host_address_full,
             'host_address_public': host_address_public,
             'user_cache_ref': user_cache,
+            'member_profiles': list(team.get('member_profiles') or []),
+            'gender_mix': list(team.get('gender_mix') or []),
         }
         units.append(unit)
         unit_emails[team_id] = emails
@@ -128,6 +130,8 @@ def merge_two_solos(ua: dict, ub: dict, emails: Tuple[str, str]) -> dict:
     else:
         lat = ua.get('lat') or ub.get('lat')
         lon = ua.get('lon') or ub.get('lon')
+    gender_mix = sorted(set(list(ua.get('gender_mix') or []) + list(ub.get('gender_mix') or [])))
+    member_profiles = list(ua.get('member_profiles') or []) + list(ub.get('member_profiles') or [])
     return {
         'unit_id': f'pair:{a}+{b}',
         'size': 2,
@@ -136,10 +140,12 @@ def merge_two_solos(ua: dict, ub: dict, emails: Tuple[str, str]) -> dict:
         'team_diet': _diet_merge(ua.get('team_diet'), ub.get('team_diet')),
         'can_host_main': bool(ua.get('can_host_main') and ub.get('can_host_main')),
         'can_host_any': bool(ua.get('can_host_any') and ub.get('can_host_any')),
-        'course_preference': None,
+        'course_preference': ua.get('course_preference') or ub.get('course_preference'),
         'host_emails': [a, b],
         'allergies': sorted(set(list(ua.get('allergies') or []) + list(ub.get('allergies') or []))),
         'host_allergies': sorted(set(list(ua.get('host_allergies') or []) + list(ub.get('host_allergies') or []))),
+        'gender_mix': gender_mix,
+        'member_profiles': member_profiles,
     }
 
 

@@ -187,7 +187,7 @@
         <div class="md:col-span-3">
           <div class="flex justify-center md:justify-center md:items-center mt-2 md:mt-7">
             <button id="advanced-weight-toggle" type="button" class="flex items-center gap-2 text-sm font-semibold px-3 py-2 rounded-xl border border-[#cbd5f5] bg-white shadow-sm hover:bg-[#f1f5ff] transition" aria-expanded="false" aria-controls="advanced-weight-panel">
-              <span>Options avancées</span>
+              <span>Advanced options</span>
               <span id="advanced-weight-toggle-icon" class="text-xs">▼</span>
             </button>
           </div>
@@ -264,17 +264,17 @@
         <div class="flex items-center gap-2 bg-white/90 border border-[#e2e8f0] rounded-full px-3 py-1 shadow-sm">
           <input type="checkbox" class="accent-[#f46f47] h-4 w-4" id="algo-greedy" checked>
           <label for="algo-greedy" class="text-sm font-semibold text-[#172a3a]">Greedy</label>
-          <button type="button" class="algo-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-[#bfdbfe] focus:ring-offset-1" data-info="Le greedy construit une proposition phase par phase en choisissant toujours l'option la plus prometteuse selon les pondérations actuelles." data-title="Algorithme Greedy" aria-label="En savoir plus sur l'algorithme greedy">i</button>
+          <button type="button" class="algo-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-[#bfdbfe] focus:ring-offset-1" data-info="The greedy algorithm builds proposals phase by phase, always selecting the most promising option based on the current weights." data-title="Greedy Algorithm" aria-label="Learn more about the greedy algorithm">i</button>
         </div>
         <div class="flex items-center gap-2 bg-white/90 border border-[#e2e8f0] rounded-full px-3 py-1 shadow-sm">
           <input type="checkbox" class="accent-[#f46f47] h-4 w-4" id="algo-random" checked>
           <label for="algo-random" class="text-sm font-semibold text-[#172a3a]">Random</label>
-          <button type="button" class="algo-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-[#bfdbfe] focus:ring-offset-1" data-info="Le mode random génère plusieurs plans aléatoires pour explorer des combinaisons inattendues avant d'appliquer vos filtres." data-title="Algorithme Random" aria-label="En savoir plus sur l'algorithme random">i</button>
+          <button type="button" class="algo-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-[#bfdbfe] focus:ring-offset-1" data-info="The random mode samples multiple random plans to explore unexpected combinations before applying your filters." data-title="Random Algorithm" aria-label="Learn more about the random algorithm">i</button>
         </div>
         <div class="flex items-center gap-2 bg-white/90 border border-[#e2e8f0] rounded-full px-3 py-1 shadow-sm">
           <input type="checkbox" class="accent-[#f46f47] h-4 w-4" id="algo-local">
           <label for="algo-local" class="text-sm font-semibold text-[#172a3a]">Local search</label>
-          <button type="button" class="algo-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-[#bfdbfe] focus:ring-offset-1" data-info="La recherche locale part d'une solution existante et améliore le score en échangeant des groupes ou en retouchant les trajets." data-title="Algorithme Local search" aria-label="En savoir plus sur l'algorithme local search">i</button>
+          <button type="button" class="algo-info inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2563eb] text-white text-xs font-semibold hover:bg-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-[#bfdbfe] focus:ring-offset-1" data-info="Local search starts from an existing solution and improves the score by swapping groups or tweaking routes." data-title="Local Search Algorithm" aria-label="Learn more about the local search algorithm">i</button>
         </div>
         <button id="btn-start-matching" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Start Matching</button>
         <button id="btn-refresh-matches" class="bg-[#ffc241] text-[#172a3a] rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#ffe5d0] transition">Refresh Proposals</button>

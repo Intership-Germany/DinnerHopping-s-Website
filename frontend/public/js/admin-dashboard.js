@@ -37,6 +37,7 @@
   // --- Matching details state ---
   let detailsVersion = null; // number
   let detailsGroups = [];    // [{phase, host_team_id, guest_team_ids, score?, travel_seconds?, host_address_public?}]
+  let detailsMetrics = {};   // { total_participant_count, phase_summary: { phase: { assigned_participants, ... } } }
   let teamDetails = {};      // { team_id: {size, team_diet, course_preference, can_host_main, lat, lon} }
   let unsaved = false;
   // --- Map state ---
@@ -581,6 +582,8 @@
     capacity_mismatch: { label: 'Capacity mismatch', description: 'The assigned host cannot serve the current number of guests.', tone: 'warning' },
     duplicate_pair: { label: 'Duplicate encounter', description: 'Teams meet more than once across phases.', tone: 'warning' },
     diet_conflict: { label: 'Diet conflict', description: 'Host/guest dietary preferences are incompatible.', tone: 'warning' },
+    registration_missing: { label: 'Missing registration', description: 'Active registrations are not included in the proposal.', tone: 'error' },
+    phase_participation_gap: { label: 'Missing phase participation', description: 'Teams are absent from one or more meal phases.', tone: 'error' },
   };
 
   const ISSUE_TONE_STYLES = {
@@ -696,6 +699,15 @@
             if (entry.warning){
               label += ` (${String(entry.warning).replace(/_/g, ' ')})`;
             }
+            if (Array.isArray(entry.missing_phases) && entry.missing_phases.length){
+              label += ` – Missing phases: ${entry.missing_phases.join(', ')}`;
+            }
+            if (Array.isArray(entry.missing_emails) && entry.missing_emails.length){
+              label += ` – Missing participants: ${entry.missing_emails.join(', ')}`;
+            }
+            if (Array.isArray(entry.missing_unit_ids) && entry.missing_unit_ids.length){
+              label += ` – Units: ${entry.missing_unit_ids.join(', ')}`;
+            }
             details.push(label);
             return;
           }
@@ -738,6 +750,11 @@
     msg.textContent = unsaved ? 'You have unsaved changes. Metrics auto-updated from preview (not saved yet).' : '';
     const by = groupsByPhase();
     const phases = ['appetizer','main','dessert'];
+    const metrics = detailsMetrics || {};
+    const phaseSummary = metrics.phase_summary || {};
+    const totalAssigned = Number(metrics.assigned_participant_count || 0);
+    const totalExpected = Number(metrics.total_participant_count || 0);
+    const totalMissing = Math.max(0, totalExpected - totalAssigned);
     box.innerHTML = '';
     const normalizeList = (value)=>{
       const arr = Array.isArray(value) ? value : [];
@@ -764,6 +781,67 @@
       if (hostVals.length) return hostVals;
       return normalizeList(det.allergies);
     };
+    if (totalExpected){
+      const headline = document.createElement('div');
+      headline.className = 'mb-3 text-sm text-[#1f2937]';
+      headline.textContent = `Assigned participants: ${totalAssigned}/${totalExpected}${totalMissing ? ` (missing ${totalMissing})` : ''}`;
+      box.appendChild(headline);
+    }
+    const summaryKeys = phases.filter(phase=> Object.prototype.hasOwnProperty.call(phaseSummary, phase));
+    if (summaryKeys.length){
+      const summaryGrid = document.createElement('div');
+      summaryGrid.className = 'mb-4 grid gap-3 md:grid-cols-3';
+      summaryKeys.forEach((phase)=>{
+        const info = phaseSummary[phase] || {};
+        const assignedVal = Number(info.assigned_participants);
+        const expectedVal = Number(info.expected_participants);
+        const assigned = Number.isFinite(assignedVal) ? assignedVal : null;
+        const expected = Number.isFinite(expectedVal) ? expectedVal : null;
+        const missingVal = Number(info.missing_participants);
+        const missing = Number.isFinite(missingVal)
+          ? missingVal
+          : (expected != null && assigned != null ? Math.max(expected - assigned, 0) : null);
+        const groupsCountVal = Number(info.group_count);
+        const groupsCount = Number.isFinite(groupsCountVal) ? groupsCountVal : null;
+        const unitsAssignedVal = Number(info.assigned_units);
+        const unitsAssigned = Number.isFinite(unitsAssignedVal) ? unitsAssignedVal : null;
+        const expectedUnitsVal = Number(info.expected_units);
+        const expectedUnits = Number.isFinite(expectedUnitsVal) ? expectedUnitsVal : null;
+        const card = document.createElement('div');
+        const hasGap = (missing != null && missing > 0) || (expected != null && assigned != null && assigned < expected);
+        card.className = hasGap
+          ? 'rounded-xl border border-[#fecaca] bg-[#fef2f2] p-3 text-sm text-[#7f1d1d]'
+          : 'rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-3 text-sm text-[#1f2937]';
+        const title = document.createElement('div');
+        title.className = 'uppercase text-[11px] font-semibold text-[#475569] tracking-wide';
+        title.textContent = phase;
+        card.appendChild(title);
+        const participantsLine = document.createElement('div');
+        participantsLine.className = 'mt-1 text-lg font-semibold';
+        const assignedLabel = assigned != null ? assigned : '?';
+        const expectedLabel = expected != null ? expected : '?';
+        participantsLine.textContent = `${assignedLabel}/${expectedLabel} participants`;
+        card.appendChild(participantsLine);
+        const unitLine = document.createElement('div');
+        unitLine.className = 'text-xs text-[#4a5568]';
+        const unitsAssignedLabel = unitsAssigned != null ? unitsAssigned : '?';
+        const expectedUnitsLabel = expectedUnits != null ? expectedUnits : '?';
+        const groupLabel = groupsCount != null ? groupsCount : '?';
+        unitLine.textContent = `Units: ${unitsAssignedLabel}/${expectedUnitsLabel} · Groups: ${groupLabel}`;
+        card.appendChild(unitLine);
+        if (hasGap){
+          const gapLine = document.createElement('div');
+          gapLine.className = 'mt-1 text-xs font-medium';
+          const missingParticipants = missing != null ? Math.max(missing, 0) : null;
+          gapLine.textContent = missingParticipants != null
+            ? `${missingParticipants} missing participant${missingParticipants>1?'s':''}`
+            : 'Participant coverage incomplete';
+          card.appendChild(gapLine);
+        }
+        summaryGrid.appendChild(card);
+      });
+      box.appendChild(summaryGrid);
+    }
     // Legend (payment coloring)
     const legend = document.createElement('div');
     legend.className = 'flex flex-wrap gap-4 items-center text-[11px] bg-[#f8fafc] p-2 rounded-lg border border-[#e2e8f0]';
@@ -1294,7 +1372,7 @@
       if (!res.ok) return;
       const data = await res.json().catch(()=>null); if (!data) return;
       const groups = data.issues || [];
-      let missing = 0, partial = 0, cancelled = 0, incomplete = 0, duplicates = 0, allergies = 0;
+      let missing = 0, partial = 0, cancelled = 0, incomplete = 0, duplicates = 0, allergies = 0, registrationMissing = 0, phaseGaps = 0;
       groups.forEach(g=>{
         const counts = g.issue_counts || {};
         missing += Number(counts.payment_missing || 0);
@@ -1303,6 +1381,8 @@
         incomplete += Number(counts.team_incomplete || 0);
         duplicates += Number(counts.duplicate_pair || 0);
         allergies += Number(counts.uncovered_allergy || 0);
+        registrationMissing += Number(counts.registration_missing || 0);
+        phaseGaps += Number(counts.phase_participation_gap || 0);
       });
       const el = $('#details-issues');
       const parts = [];
@@ -1312,6 +1392,8 @@
       if (incomplete) parts.push(`${incomplete} incomplete team`);
       if (duplicates) parts.push(`${duplicates} duplicate encounter`);
       if (allergies) parts.push(`${allergies} uncovered allergy`);
+      if (registrationMissing) parts.push(`${registrationMissing} missing registration${registrationMissing>1?'s':''}`);
+      if (phaseGaps) parts.push(`${phaseGaps} phase participation gap${phaseGaps>1?'s':''}`);
       el.textContent = parts.length ? parts.join(' · ') : 'No outstanding issues.';
     } catch(e){}
   }
@@ -1334,6 +1416,9 @@
       const data = await res.json().catch(()=>null);
       if (!data || !Array.isArray(data.groups)) return;
       detailsGroups = data.groups;
+      if (data.metrics && typeof data.metrics === 'object'){
+        detailsMetrics = data.metrics;
+      }
       renderMatchDetailsBoard();
     } catch (e) {}
   }
@@ -1507,11 +1592,12 @@
     // show spinner message
     $('#match-details').innerHTML = '<div class="flex items-center gap-2 text-sm"><span class="spinner"></span> Loading details...</div>';
     const res = await apiFetch(url);
-    if (!res.ok){ $('#match-details').innerHTML = ''; $('#match-details-msg').textContent = 'No details available.'; t.update('No details.'); t.close(); return; }
-    const data = await res.json().catch(()=>null);
-    if (!data){ $('#match-details').innerHTML = ''; t.update('Load error.'); t.close(); return; }
+  if (!res.ok){ detailsMetrics = {}; $('#match-details').innerHTML = ''; $('#match-details-msg').textContent = 'No details available.'; t.update('No details.'); t.close(); return; }
+  const data = await res.json().catch(()=>null);
+  if (!data){ detailsMetrics = {}; $('#match-details').innerHTML = ''; t.update('Load error.'); t.close(); return; }
     detailsVersion = data.version;
     detailsGroups = data.groups || [];
+  detailsMetrics = data.metrics || {};
     teamDetails = data.team_details || {};
     unsaved = false;
     updateTeamNameCache(detailsVersion, teamDetails);
@@ -2028,8 +2114,12 @@
       if (isFinalized) badges.push('<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#bbf7d0] text-[#065f46]">Released</span>');
       if (wasEdited && !isFinalized) badges.push('<span class="px-2 py-0.5 rounded-full text-[11px] bg-[#fee2e2] text-[#b91c1c]">Edited</span>');
 
-      const travel = (metrics.total_travel_seconds||0).toFixed(0);
-      const score = (metrics.aggregate_group_score||0).toFixed(1);
+    const travel = (metrics.total_travel_seconds || 0).toFixed(0);
+    const score = (metrics.aggregate_group_score || 0).toFixed(1);
+    const totalParticipants = Number(metrics.total_participant_count || 0);
+    const assignedParticipants = Number(metrics.assigned_participant_count || 0);
+    const missingParticipants = Math.max(0, totalParticipants - assignedParticipants);
+    const participantsLabel = totalParticipants ? `${assignedParticipants}/${totalParticipants}${missingParticipants ? ` (missing ${missingParticipants})` : ''}` : '—';
       const releaseDisabled = isFinalized || (unsaved && detailsVersion === version);
       let releaseClasses = isFinalized ? 'bg-[#9ca3af] cursor-not-allowed' : 'bg-[#1b5e20] hover:bg-[#166534]';
       let releaseLabel = isFinalized ? 'Released' : 'Release';
@@ -2040,7 +2130,7 @@
       card.innerHTML = `
         <div class="flex items-center justify-between gap-2 flex-wrap">
           <div class="font-semibold flex items-center gap-2">v${version}${algorithm?` · ${algorithm}`:''}${badges.length ? ` <span class=\"flex gap-1\">${badges.join('')}</span>` : ''}</div>
-          <div class="text-sm text-[#4a5568]">Travel: ${travel}s · Score: ${score}</div>
+          <div class="text-sm text-[#4a5568]">Travel: ${travel}s · Score: ${score} · Participants: ${participantsLabel}</div>
         </div>
         ${metaParts.length ? `<div class="mt-1 text-xs text-[#475569]">${metaParts.join(' · ')}</div>` : ''}
         <div class="mt-2 flex flex-wrap gap-2">
