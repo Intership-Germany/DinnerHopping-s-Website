@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import random
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, TypeVar
 
@@ -37,9 +38,16 @@ async def algo_greedy(
     seed: Optional[int] = None,
     progress_cb: Optional[AlgorithmProgressCallback] = None,
 ) -> dict:
+    logger = logging.getLogger(__name__)
+    logger.info('Starting greedy algorithm for event %s with weights %s', event_oid, weights)
+    
     await _emit_progress(progress_cb, 0.02, 'Loading teams...')
     teams = await build_teams(event_oid)
+    logger.info('Loaded %d teams from event %s', len(teams), event_oid)
+    
     units, unit_emails = await build_units_from_teams(teams)
+    logger.info('Built %d units from teams', len(units))
+    
     await _emit_progress(progress_cb, 0.06, 'Preparing units...')
     event = await db_mod.db.events.find_one({'_id': event_oid})
     event_id_str = str(event.get('_id')) if event else None
@@ -48,12 +56,16 @@ async def algo_greedy(
         forced_pairs = constraints.get('forced_pairs') or []
         split_ids = constraints.get('split_team_ids') or []
         if forced_pairs:
+            logger.info('Applying %d forced pairs', len(forced_pairs))
             units, unit_emails = apply_forced_pairs(units, unit_emails, forced_pairs)
         if split_ids:
+            logger.info('Applying %d required splits', len(split_ids))
             units, unit_emails = apply_required_splits(units, unit_emails, split_ids)
         await _emit_progress(progress_cb, 0.09, 'Applying constraints...')
     if allow_team_splits():
+        logger.info('Applying minimal splits for divisibility by 3')
         units, unit_emails = await apply_minimal_splits(units, unit_emails)
+        logger.info('After splitting: %d units total', len(units))
         await _emit_progress(progress_cb, 0.11, 'Splitting oversized teams...')
 
     random_instance = random.Random(seed if seed is not None else algorithm_seed('greedy', 42))
@@ -69,12 +81,17 @@ async def algo_greedy(
     distance_cache: Dict[Tuple[str, str], float] = {}
     guest_limit = guest_candidate_limit()
     host_usage: Dict[str, int] = {}
+    
+    logger.info('Greedy algorithm configuration: fast_mode=%s, parallelism=%d, guest_limit=%d',
+                travel_fast_mode(), routing_parallelism(), guest_limit)
 
     phase_sequence = list(phases()[:3])
     phase_count = len(phase_sequence) or 1
     phase_ratio_start = 0.12
     phase_ratio_end = 0.92
     phase_ratio_span = max(0.0, phase_ratio_end - phase_ratio_start)
+    
+    logger.info('Starting phase-by-phase matching for %d phases: %s', len(phase_sequence), phase_sequence)
 
     for index, phase in enumerate(phase_sequence):
         if index > 0:
@@ -114,6 +131,8 @@ async def algo_greedy(
 
     await _emit_progress(progress_cb, 0.95, 'Scoring results...')
     metrics = compute_metrics(all_groups, weights)
+    logger.info('Greedy algorithm completed: %d groups formed, total_travel=%.2f seconds, aggregate_score=%.2f',
+                len(all_groups), metrics.get('total_travel_seconds', 0), metrics.get('aggregate_group_score', 0))
     await _emit_progress(progress_cb, 1.0, 'Algorithm complete')
     return {'algorithm': 'greedy', 'groups': all_groups, 'metrics': metrics}
 
