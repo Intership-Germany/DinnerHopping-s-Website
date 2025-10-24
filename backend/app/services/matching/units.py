@@ -3,7 +3,15 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 
 from ... import db as db_mod
+from ...utils import haversine_m as _haversine_m
 from .data import user_address_string
+
+
+def _normalize_email(email: Optional[str]) -> Optional[str]:
+    if email is None:
+        return None
+    cleaned = str(email).strip().lower()
+    return cleaned or None
 
 
 async def build_units_from_teams(teams: List[dict]) -> Tuple[List[dict], Dict[str, List[str]]]:
@@ -121,9 +129,11 @@ def _diet_merge(a: Optional[str], b: Optional[str]) -> str:
 
 
 def merge_two_solos(ua: dict, ub: dict, emails: Tuple[str, str]) -> dict:
-    a, b = sorted([emails[0].lower(), emails[1].lower()])
-    lat = None
-    lon = None
+    email_a = _normalize_email(emails[0])
+    email_b = _normalize_email(emails[1])
+    participants = [value for value in [email_a, email_b] if value]
+    lat: Optional[float]
+    lon: Optional[float]
     if all(isinstance(ua.get(key), (int, float)) for key in ('lat', 'lon')) and all(isinstance(ub.get(key), (int, float)) for key in ('lat', 'lon')):
         lat = (float(ua['lat']) + float(ub['lat'])) / 2.0
         lon = (float(ua['lon']) + float(ub['lon'])) / 2.0
@@ -132,21 +142,245 @@ def merge_two_solos(ua: dict, ub: dict, emails: Tuple[str, str]) -> dict:
         lon = ua.get('lon') or ub.get('lon')
     gender_mix = sorted(set(list(ua.get('gender_mix') or []) + list(ub.get('gender_mix') or [])))
     member_profiles = list(ua.get('member_profiles') or []) + list(ub.get('member_profiles') or [])
+
+    can_host_any = bool(ua.get('can_host_any') or ub.get('can_host_any'))
+    can_host_main = bool(ua.get('can_host_main') or ub.get('can_host_main')) if can_host_any else False
+
+    host_priority: List[str] = []
+    for unit in (ua, ub):
+        if not unit.get('can_host_any'):
+            continue
+        for candidate in unit.get('host_emails') or []:
+            normalized = _normalize_email(candidate)
+            if normalized and normalized not in host_priority:
+                host_priority.append(normalized)
+    for participant in participants:
+        if participant not in host_priority:
+            host_priority.append(participant)
+    if not host_priority:
+        host_priority = participants
+
+    unit_id = f"pair:{'+'.join(sorted(participants))}" if len(participants) == 2 else f"pair:{participants[0]}"
+
     return {
-        'unit_id': f'pair:{a}+{b}',
+        'unit_id': unit_id,
         'size': 2,
         'lat': lat,
         'lon': lon,
         'team_diet': _diet_merge(ua.get('team_diet'), ub.get('team_diet')),
-        'can_host_main': bool(ua.get('can_host_main') and ub.get('can_host_main')),
-        'can_host_any': bool(ua.get('can_host_any') and ub.get('can_host_any')),
+        'can_host_main': can_host_main,
+        'can_host_any': can_host_any,
         'course_preference': ua.get('course_preference') or ub.get('course_preference'),
-        'host_emails': [a, b],
+        'host_emails': host_priority,
         'allergies': sorted(set(list(ua.get('allergies') or []) + list(ub.get('allergies') or []))),
         'host_allergies': sorted(set(list(ua.get('host_allergies') or []) + list(ub.get('host_allergies') or []))),
         'gender_mix': gender_mix,
         'member_profiles': member_profiles,
+        'paired_from': sorted({str(ua.get('unit_id')), str(ub.get('unit_id'))}),
     }
+
+
+def _is_pair_candidate(unit: dict, unit_emails: Dict[str, List[str]]) -> bool:
+    uid = unit.get('unit_id')
+    if not isinstance(uid, str):
+        return False
+    if uid.startswith('split:') or uid.startswith('pair:'):
+        return False
+    if not uid.startswith('solo:'):
+        return False
+    try:
+        if int(unit.get('size') or 0) != 1:
+            return False
+    except Exception:
+        return False
+    emails = unit_emails.get(uid, [])
+    return len(emails) == 1
+
+
+def _primary_gender(unit: dict) -> Optional[str]:
+    for profile in unit.get('member_profiles') or []:
+        gender = profile.get('gender')
+        if gender:
+            normalized = str(gender).strip().lower()
+            if normalized:
+                return normalized
+    for entry in unit.get('gender_mix') or []:
+        gender = str(entry).strip().lower()
+        if gender:
+            return gender
+    return None
+
+
+def _course_key(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    return normalized or None
+
+
+def _diet_rank(value: Optional[str]) -> int:
+    mapping = {'omnivore': 0, 'vegetarian': 1, 'vegan': 2}
+    return mapping.get(str(value or '').strip().lower(), 0)
+
+
+def _collect_allergies(unit: dict) -> set[str]:
+    collected: set[str] = set()
+    for source in ('allergies', 'host_allergies'):
+        for item in unit.get(source) or []:
+            if item is None:
+                continue
+            val = str(item).strip().lower()
+            if val:
+                collected.add(val)
+    for profile in unit.get('member_profiles') or []:
+        for item in profile.get('allergies') or []:
+            if item is None:
+                continue
+            val = str(item).strip().lower()
+            if val:
+                collected.add(val)
+    return collected
+
+
+def _distance_between_units(ua: dict, ub: dict) -> Optional[float]:
+    try:
+        lat_a = ua.get('lat')
+        lon_a = ua.get('lon')
+        lat_b = ub.get('lat')
+        lon_b = ub.get('lon')
+        if None in (lat_a, lon_a, lat_b, lon_b):
+            return None
+        return float(_haversine_m(float(lat_a), float(lon_a), float(lat_b), float(lon_b)))
+    except Exception:
+        return None
+
+
+def _score_pairing(ua: dict, ub: dict) -> float:
+    if not (ua.get('can_host_any') or ub.get('can_host_any')):
+        return float('-inf')
+
+    score = 10.0
+
+    if ua.get('can_host_any') and ub.get('can_host_any'):
+        score += 1.0
+    if ua.get('can_host_main') or ub.get('can_host_main'):
+        score += 3.0
+
+    gender_a = _primary_gender(ua)
+    gender_b = _primary_gender(ub)
+    if gender_a and gender_b:
+        if gender_a != gender_b:
+            score += 2.0
+        else:
+            score += 0.5
+    else:
+        score += 0.2
+
+    course_a = _course_key(ua.get('course_preference'))
+    course_b = _course_key(ub.get('course_preference'))
+    if course_a and course_b:
+        if course_a == course_b:
+            score += 0.8
+        else:
+            score += 0.2
+    else:
+        score += 0.1
+
+    diet_penalty = abs(_diet_rank(ua.get('team_diet')) - _diet_rank(ub.get('team_diet'))) * 0.5
+    score -= diet_penalty
+
+    allergies_union = _collect_allergies(ua) | _collect_allergies(ub)
+    score -= 0.15 * len(allergies_union)
+
+    distance = _distance_between_units(ua, ub)
+    if distance is not None:
+        score -= min(distance / 1000.0, 40.0) * 0.1
+
+    return float(score)
+
+
+def auto_pair_solos(
+    units: List[dict],
+    unit_emails: Dict[str, List[str]],
+    *,
+    min_score: Optional[float] = None,
+) -> Tuple[List[dict], Dict[str, List[str]], List[dict]]:
+    candidates = [unit for unit in units if _is_pair_candidate(unit, unit_emails)]
+    if len(candidates) < 2:
+        return units, dict(unit_emails), []
+
+    candidates.sort(key=lambda item: str(item.get('unit_id')))
+    pair_options: List[Tuple[float, dict, dict]] = []
+    for idx in range(len(candidates)):
+        ua = candidates[idx]
+        email_a = unit_emails.get(str(ua.get('unit_id')), [])
+        if len(email_a) != 1:
+            continue
+        for jdx in range(idx + 1, len(candidates)):
+            ub = candidates[jdx]
+            email_b = unit_emails.get(str(ub.get('unit_id')), [])
+            if len(email_b) != 1:
+                continue
+            score = _score_pairing(ua, ub)
+            if score == float('-inf'):
+                continue
+            pair_options.append((score, ua, ub))
+
+    if not pair_options:
+        return units, dict(unit_emails), []
+
+    pair_options.sort(key=lambda item: (item[0], str(item[1].get('unit_id')), str(item[2].get('unit_id'))), reverse=True)
+
+    used: set[str] = set()
+    additions: List[dict] = []
+    details: List[dict] = []
+    threshold = min_score if min_score is not None else float('-inf')
+
+    for score, ua, ub in pair_options:
+        uid_a = str(ua.get('unit_id'))
+        uid_b = str(ub.get('unit_id'))
+        if uid_a in used or uid_b in used:
+            continue
+        if score < threshold:
+            continue
+        emails = (
+            unit_emails.get(uid_a, [None])[0],
+            unit_emails.get(uid_b, [None])[0],
+        )
+        merged = merge_two_solos(ua, ub, emails)  # type: ignore[arg-type]
+        additions.append(merged)
+        details.append({
+            'unit_id': merged['unit_id'],
+            'source_units': sorted([uid_a, uid_b]),
+            'score': round(float(score), 3),
+            'can_host_any': bool(merged.get('can_host_any')),
+            'can_host_main': bool(merged.get('can_host_main')),
+        })
+        used.add(uid_a)
+        used.add(uid_b)
+
+    if not additions:
+        return units, dict(unit_emails), []
+
+    updated_units: List[dict] = []
+    for unit in units:
+        uid = str(unit.get('unit_id'))
+        if uid in used:
+            continue
+        updated_units.append(unit)
+    updated_units.extend(additions)
+
+    updated_map: Dict[str, List[str]] = {}
+    for unit in updated_units:
+        uid = str(unit['unit_id'])
+        if uid.startswith('pair:'):
+            part = uid.split(':', 1)[1]
+            emails = [value for value in part.split('+') if value]
+            updated_map[uid] = emails
+        else:
+            updated_map[uid] = list(unit_emails.get(uid, []))
+
+    return updated_units, updated_map, details
 
 
 def apply_forced_pairs(units: List[dict], unit_emails: Dict[str, List[str]], forced_pairs: List[dict]) -> Tuple[List[dict], Dict[str, List[str]]]:

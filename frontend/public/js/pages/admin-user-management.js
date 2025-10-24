@@ -321,6 +321,7 @@
       sortKey: 'last_name',
       sortDir: 'asc',
       search: '',
+      filter: 'all', // all, paid, pending, confirmed, cancelled
     };
     let initialized = false;
     const selectors = {
@@ -336,6 +337,13 @@
       count: '#participants-count',
       summary: '#participants-summary',
       headers: '#participants-section th.sortable',
+    };
+    const filterButtons = {
+      all: '#filter-participants-all',
+      paid: '#filter-participants-paid',
+      pending: '#filter-participants-pending',
+      confirmed: '#filter-participants-confirmed',
+      cancelled: '#filter-participants-cancelled',
     };
     const PAYMENT_LABELS = {
       paid: 'Paid',
@@ -388,7 +396,7 @@
       if (select) {
         select.addEventListener('change', (event) => {
           state.eventId = event.target.value || null;
-          fetchAndRender(true);
+          // Ne pas charger automatiquement - attendre que l'utilisateur clique sur Refresh
         });
       }
       const searchInput = $(selectors.search);
@@ -414,6 +422,12 @@
           render();
         });
       }
+      // Bind filter buttons
+      Object.entries(filterButtons).forEach(([key, selector]) => {
+        const btn = $(selector);
+        if (!btn) return;
+        btn.addEventListener('click', () => applyFilterParticipants(key));
+      });
       const section = $(selectors.section);
       if (section) {
         const head = section.querySelector('thead');
@@ -436,6 +450,21 @@
       initialized = true;
     }
 
+    function applyFilterParticipants(filter) {
+      state.filter = filter;
+      // Update button styles
+      Object.entries(filterButtons).forEach(([key, selector]) => {
+        const btn = $(selector);
+        if (!btn) return;
+        if (key === filter) {
+          btn.classList.add('font-bold');
+        } else {
+          btn.classList.remove('font-bold');
+        }
+      });
+      render();
+    }
+
     function setEvents(events) {
       init();
       const select = $(selectors.select);
@@ -455,18 +484,23 @@
         return;
       }
       select.disabled = false;
-      select.innerHTML = events.map((event) => {
+      select.innerHTML = '<option value="">-- Select Event --</option>' + events.map((event) => {
         const labelText = `${event.title || 'Event'}${event.date ? ` (${event.date})` : ''}`;
         return `<option value="${escapeHtml(event.id)}">${escapeHtml(labelText)}</option>`;
       }).join('');
-      if (!state.eventId || !events.some((event) => event.id === state.eventId)) {
-        state.eventId = events[0].id;
-      }
-      select.value = state.eventId;
+      
+      // Ne pas définir automatiquement l'événement - laisser l'utilisateur choisir
+      state.eventId = null;
+      select.value = '';
+      
       if (searchInput) {
-        searchInput.disabled = !state.eventId;
+        searchInput.disabled = true; // Désactiver jusqu'à ce qu'un événement soit sélectionné et chargé
       }
-      fetchAndRender(true);
+      
+      // Ne pas charger automatiquement - l'utilisateur doit cliquer sur Refresh
+      state.rows = [];
+      state.summary = { total: 0, by_payment_status: {}, by_registration_status: {} };
+      render();
     }
 
     function setLoading(active) {
@@ -479,9 +513,31 @@
       const rows = state.rows.slice();
       const needle = state.search ? state.search.toLowerCase() : '';
       let filtered = rows;
-      if (needle) {
-        filtered = rows.filter((row) => row.search_blob.includes(needle));
+      
+      // Apply status filter
+      if (state.filter !== 'all') {
+        filtered = filtered.filter((row) => {
+          if (state.filter === 'paid') {
+            return row.payment_status === 'paid' || row.payment_status === 'covered_by_team';
+          } else if (state.filter === 'pending') {
+            return row.payment_status === 'pending' || 
+                   row.payment_status === 'pending_payment' || 
+                   row.payment_status === 'unpaid';
+          } else if (state.filter === 'confirmed') {
+            return row.registration_status === 'confirmed';
+          } else if (state.filter === 'cancelled') {
+            return row.registration_status === 'cancelled_by_user' || 
+                   row.registration_status === 'cancelled_admin';
+          }
+          return true;
+        });
       }
+      
+      // Apply search filter
+      if (needle) {
+        filtered = filtered.filter((row) => row.search_blob.includes(needle));
+      }
+      
       filtered.sort((a, b) => {
         const va = sortValue(a, state.sortKey);
         const vb = sortValue(b, state.sortKey);
@@ -572,6 +628,39 @@
       el.textContent = `Payments: ${parts.join(' · ')}`;
     }
 
+    function updateParticipantStats() {
+      const statsContainer = document.getElementById('participants-stats-container');
+      const statTotal = document.getElementById('stat-total-participants');
+      const statPaid = document.getElementById('stat-paid-participants');
+      const statPending = document.getElementById('stat-pending-participants');
+      const statConfirmed = document.getElementById('stat-confirmed-participants');
+      
+      if (!statsContainer) return;
+
+      const total = state.summary.total || state.rows.length;
+      const paymentStats = state.summary.by_payment_status || {};
+      
+      // Calculate stats
+      const paidCount = (paymentStats['paid'] || 0) + (paymentStats['covered_by_team'] || 0);
+      const pendingCount = (paymentStats['pending'] || 0) + (paymentStats['pending_payment'] || 0) + (paymentStats['unpaid'] || 0);
+      
+      const regStats = state.summary.by_registration_status || {};
+      const confirmedCount = regStats['confirmed'] || 0;
+
+      // Update stats
+      if (statTotal) statTotal.textContent = total;
+      if (statPaid) statPaid.textContent = paidCount;
+      if (statPending) statPending.textContent = pendingCount;
+      if (statConfirmed) statConfirmed.textContent = confirmedCount;
+
+      // Show/hide stats container
+      if (total > 0) {
+        statsContainer.classList.remove('hidden');
+      } else {
+        statsContainer.classList.add('hidden');
+      }
+    }
+
     function renderRow(row) {
       const lastName = escapeHtml(row.last_name || '');
       const firstName = escapeHtml(row.first_name || '');
@@ -623,6 +712,7 @@
       }
       updateCount(filtered.length, countEl);
       updateSummary(summaryEl);
+      updateParticipantStats();
       updateSortHeaders();
     }
 
@@ -631,11 +721,19 @@
         state.rows = [];
         state.summary = { total: 0, by_payment_status: {}, by_registration_status: {} };
         render();
+        showToast('Please select an event first.', 'info');
         return;
       }
       if (state.loading && !force) return;
       state.loading = true;
       setLoading(true);
+      
+      // Activer la recherche une fois qu'on charge les données
+      const searchInput = $(selectors.search);
+      if (searchInput) {
+        searchInput.disabled = false;
+      }
+      
       try {
         const res = await apiFetch(`/admin/events/${encodeURIComponent(state.eventId)}/participants`);
         if (!res.ok) {
@@ -658,6 +756,7 @@
         state.summary = data.summary || { total: state.rows.length, by_payment_status: {}, by_registration_status: {} };
         if (!state.summary.total) state.summary.total = state.rows.length;
         render();
+        showToast(`Loaded ${state.rows.length} participant(s)`, 'success');
       } catch (error) {
         console.error('participants.fetch', error);
         showToast('Unable to load participants.', 'error');

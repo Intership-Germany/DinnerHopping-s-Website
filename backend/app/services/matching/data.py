@@ -282,13 +282,19 @@ async def _augment_capabilities(team_entry: dict, cache: UserCache) -> None:
     team_doc = team_entry.get('team_doc') or {}
     members = team_doc.get('members') or []
     can_main = False
+    
+    # First check team_doc members
     if members:
         if team_entry.get('cooking_location') == 'creator':
             can_main = bool(members[0].get('main_course_possible'))
         elif len(members) > 1:
             can_main = bool(members[1].get('main_course_possible'))
-    if not can_main:
-        can_main = await _fallback_main_course_capability(team_entry, members, cache)
+    
+    # Always check fallback sources (registrations and users) as they may be more up-to-date
+    # This ensures we don't miss cases where team_doc is outdated
+    fallback_can_main = await _fallback_main_course_capability(team_entry, members, cache)
+    can_main = can_main or fallback_can_main
+    
     has_kitchen = team_doc.get('has_kitchen')
     if has_kitchen is None:
         has_kitchen = await _fallback_has_kitchen(team_entry, members, cache)
@@ -507,7 +513,13 @@ def _collect_member_profiles(team_entry: dict, team_doc: dict, cache: UserCache)
         if email and profile['diet'] is None:
             user_doc = cache.get(_normalize_email(email)) if cache else None
             if user_doc:
-                profile['diet'] = normalized_value(DietaryPreference, user_doc.get('default_dietary_preferences') or user_doc.get('diet') or team_entry.get('diet'))
+                default_diet = (
+                    user_doc.get('default_dietary_preference')
+                    or user_doc.get('default_dietary_preferences')
+                    or user_doc.get('diet')
+                    or team_entry.get('diet')
+                )
+                profile['diet'] = normalized_value(DietaryPreference, default_diet)
         if profile['diet'] is None:
             profile['diet'] = team_entry.get('diet')
         profiles.append(profile)

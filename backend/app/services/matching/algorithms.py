@@ -24,6 +24,7 @@ from .units import (
     apply_forced_pairs,
     apply_minimal_splits,
     apply_required_splits,
+    auto_pair_solos,
     build_units_from_teams,
 )
 
@@ -43,6 +44,7 @@ async def algo_greedy(
     await _emit_progress(progress_cb, 0.06, 'Preparing units...')
     event = await db_mod.db.events.find_one({'_id': event_oid})
     event_id_str = str(event.get('_id')) if event else None
+    auto_pair_details: List[dict] = []
     if event_id_str:
         constraints = await _load_constraints(event_id_str)
         forced_pairs = constraints.get('forced_pairs') or []
@@ -52,6 +54,11 @@ async def algo_greedy(
         if split_ids:
             units, unit_emails = apply_required_splits(units, unit_emails, split_ids)
         await _emit_progress(progress_cb, 0.09, 'Applying constraints...')
+    units, unit_emails, auto_pair_details = auto_pair_solos(units, unit_emails)
+    if auto_pair_details:
+        await _emit_progress(progress_cb, 0.1, f"Paired {len(auto_pair_details)} solo participants")
+    else:
+        await _emit_progress(progress_cb, 0.1, 'No solo pairing required')
     if allow_team_splits():
         units, unit_emails = await apply_minimal_splits(units, unit_emails)
         await _emit_progress(progress_cb, 0.11, 'Splitting oversized teams...')
@@ -193,6 +200,7 @@ async def algo_greedy(
     total_participants = expected_participants_total
     assigned_participants = sum(_unit_size(uid) for uid in global_assigned)
     unmatched_participants = max(0, total_participants - assigned_participants)
+    phase_summary = _reconcile_phase_summary(phase_summary, unmatched_units, total_participants)
     metrics.update({
         'total_unit_count': len(unit_ids),
         'assigned_unit_count': len(global_assigned),
@@ -202,7 +210,10 @@ async def algo_greedy(
         'total_participant_count': total_participants,
         'assigned_participant_count': assigned_participants,
         'unmatched_participant_count': unmatched_participants,
+        'auto_pair_count': len(auto_pair_details),
     })
+    if auto_pair_details:
+        metrics['auto_pair_details'] = auto_pair_details
     await _emit_progress(progress_cb, 1.0, 'Algorithm complete')
     return {
         'algorithm': 'greedy',
@@ -224,6 +235,7 @@ async def algo_random(
     await _emit_progress(progress_cb, 0.06, 'Preparing units...')
     event = await db_mod.db.events.find_one({'_id': event_oid})
     event_id_str = str(event.get('_id')) if event else None
+    auto_pair_details: List[dict] = []
     if event_id_str:
         constraints = await _load_constraints(event_id_str)
         forced_pairs = constraints.get('forced_pairs') or []
@@ -233,6 +245,11 @@ async def algo_random(
         if split_ids:
             units, unit_emails = apply_required_splits(units, unit_emails, split_ids)
         await _emit_progress(progress_cb, 0.09, 'Applying constraints...')
+    units, unit_emails, auto_pair_details = auto_pair_solos(units, unit_emails)
+    if auto_pair_details:
+        await _emit_progress(progress_cb, 0.1, f"Paired {len(auto_pair_details)} solo participants")
+    else:
+        await _emit_progress(progress_cb, 0.1, 'No solo pairing required')
     if allow_team_splits():
         units, unit_emails = await apply_minimal_splits(units, unit_emails)
         await _emit_progress(progress_cb, 0.11, 'Splitting oversized teams...')
@@ -372,6 +389,7 @@ async def algo_random(
     total_participants = expected_participants_total
     assigned_participants = sum(_unit_size(uid) for uid in global_assigned)
     unmatched_participants = max(0, total_participants - assigned_participants)
+    phase_summary = _reconcile_phase_summary(phase_summary, unmatched_units, total_participants)
     metrics.update({
         'total_unit_count': len(unit_ids),
         'assigned_unit_count': len(global_assigned),
@@ -381,7 +399,10 @@ async def algo_random(
         'total_participant_count': total_participants,
         'assigned_participant_count': assigned_participants,
         'unmatched_participant_count': unmatched_participants,
+        'auto_pair_count': len(auto_pair_details),
     })
+    if auto_pair_details:
+        metrics['auto_pair_details'] = auto_pair_details
     await _emit_progress(progress_cb, 1.0, 'Algorithm complete')
     return {
         'algorithm': 'random',
@@ -519,6 +540,49 @@ async def _await_with_progress(
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
+
+def _reconcile_phase_summary(
+    phase_summary: Dict[str, dict],
+    unmatched_units: List[dict],
+    total_participants: int,
+) -> Dict[str, dict]:
+    """Align per-phase counts with unmatched units for consistent admin display."""
+    missing_units_count: Dict[str, int] = {}
+    missing_participants_count: Dict[str, int] = {}
+    for entry in unmatched_units:
+        phases = entry.get('phases') or []
+        try:
+            size = int(entry.get('size') or 0)
+        except (TypeError, ValueError):
+            size = 0
+        size = max(size, 0)
+        for phase in phases:
+            key = str(phase)
+            missing_units_count[key] = missing_units_count.get(key, 0) + 1
+            missing_participants_count[key] = missing_participants_count.get(key, 0) + size
+
+    phase_keys = set(phase_summary.keys()) | set(missing_units_count.keys())
+    for key in phase_keys:
+        summary = phase_summary.setdefault(key, {
+            'group_count': 0,
+            'assigned_units': 0,
+            'missing_units': 0,
+            'expected_units': 0,
+            'assigned_participants': 0,
+            'missing_participants': 0,
+            'expected_participants': total_participants,
+        })
+        missing_units = missing_units_count.get(key, 0)
+        missing_participants = missing_participants_count.get(key, 0)
+        summary['missing_units'] = missing_units
+        summary['missing_participants'] = missing_participants
+        expected_units = int(summary.get('expected_units') or 0)
+        summary['assigned_units'] = max(0, expected_units - missing_units)
+        expected_participants = int(summary.get('expected_participants') or total_participants)
+        summary['expected_participants'] = expected_participants
+        summary['assigned_participants'] = max(0, expected_participants - missing_participants)
+    return phase_summary
 
 
 async def _emit_progress(

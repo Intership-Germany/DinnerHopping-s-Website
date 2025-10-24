@@ -169,8 +169,13 @@
       const last = (m.last_name || '').trim();
       const combined = [first, last].filter(Boolean).join(' ');
       if (combined) return combined;
+      // If no name available, extract local part of email for more compact display
       const email = (m.email || '').trim();
-      return email;
+      if (email) {
+        const localPart = email.split('@')[0];
+        return localPart || email;
+      }
+      return '';
     }).filter(Boolean);
     if (names.length) return names.join(', ');
     if (team.name && typeof team.name === 'string' && team.name.trim()) return team.name.trim();
@@ -291,8 +296,12 @@
     const last = (member.last_name || '').trim();
     const combined = [first, last].filter(Boolean).join(' ');
     if (combined) return combined;
+    // If no name available, extract local part of email for more compact display
     const email = (member.email || '').trim();
-    if (email) return email;
+    if (email) {
+      const localPart = email.split('@')[0];
+      return localPart || email;
+    }
     return '';
   }
 
@@ -746,14 +755,26 @@
   function renderMatchDetailsBoard(){
     const box = $('#match-details');
     const msg = $('#match-details-msg');
-    if (!detailsVersion){ box.innerHTML = ''; msg.textContent = 'No proposal loaded yet.'; return; }
+    if (!detailsVersion){ 
+      box.innerHTML = ''; 
+      msg.textContent = 'No proposal loaded yet.'; 
+      // Hide/remove floating panels when no match loaded
+      ['appetizer', 'main', 'dessert'].forEach(phase => {
+        const panel = $(`#unplaced-${phase}-panel`);
+        if (panel) panel.remove();
+      });
+      return; 
+    }
     msg.textContent = unsaved ? 'You have unsaved changes. Metrics auto-updated from preview (not saved yet).' : '';
     const by = groupsByPhase();
     const phases = ['appetizer','main','dessert'];
-    const metrics = detailsMetrics || {};
-    const phaseSummary = metrics.phase_summary || {};
-    const totalAssigned = Number(metrics.assigned_participant_count || 0);
-    const totalExpected = Number(metrics.total_participant_count || 0);
+    
+    // Use local metrics for accurate real-time counts after drag & drop
+    const localMetrics = calculateLocalMetrics();
+    const phaseSummary = localMetrics.phase_summary || {};
+    
+    const totalAssigned = localMetrics.assigned_participant_count || 0;
+    const totalExpected = localMetrics.total_participant_count || 0;
     const totalMissing = Math.max(0, totalExpected - totalAssigned);
     box.innerHTML = '';
     const normalizeList = (value)=>{
@@ -852,6 +873,8 @@
     box.appendChild(legend);
     phases.forEach(phase=>{
       const section = document.createElement('div');
+      section.className = 'phase-section';
+      section.id = `phase-section-${phase}`;
       section.innerHTML = `<div class="font-semibold mb-2 capitalize">${phase}</div>`;
       const wrap = document.createElement('div'); wrap.className = 'grid grid-cols-1 md:grid-cols-3 gap-3';
       (by[phase]||[]).forEach((g, localIdx)=>{
@@ -959,6 +982,495 @@
     bindTeamNameButtons();
     // async fetch payment issues summary
     fetchIssuesForDetails();
+    // update floating panels with unplaced teams
+    updateUnplacedTeamsPanels();
+  }
+
+  function calculateLocalMetrics() {
+    // Calculate metrics locally based on current detailsGroups state
+    const metrics = {
+      total_participant_count: 0,
+      phase_summary: {
+        appetizer: { 
+          assigned_participants: 0, 
+          expected_participants: 0, 
+          missing_participants: 0,
+          assigned_units: 0,
+          expected_units: 0,
+          group_count: 0
+        },
+        main: { 
+          assigned_participants: 0, 
+          expected_participants: 0, 
+          missing_participants: 0,
+          assigned_units: 0,
+          expected_units: 0,
+          group_count: 0
+        },
+        dessert: { 
+          assigned_participants: 0, 
+          expected_participants: 0, 
+          missing_participants: 0,
+          assigned_units: 0,
+          expected_units: 0,
+          group_count: 0
+        }
+      }
+    };
+    
+    // Count total participants and units from REAL teams only (not synthetic pair:/split:)
+    // Synthetic teams are just temporary groupings of solo participants
+    const allTeamIds = Object.keys(teamDetails).filter(tid => {
+      // Only count real teams (not pair: or split: synthetic teams)
+      return !tid.startsWith('pair:') && !tid.startsWith('split:');
+    });
+    
+    let totalParticipants = 0;
+    let totalUnits = 0;
+    allTeamIds.forEach(tid => {
+      const det = teamDetails[tid] || {};
+      totalParticipants += (det.size || 1);
+      totalUnits += 1; // Each team is 1 unit
+    });
+    metrics.total_participant_count = totalParticipants;
+    
+    // Each phase should have totalParticipants and totalUnits as expected
+    ['appetizer', 'main', 'dessert'].forEach(phase => {
+      metrics.phase_summary[phase].expected_participants = totalParticipants;
+      metrics.phase_summary[phase].expected_units = totalUnits;
+    });
+    
+    // Track which teams are placed (globally, not per phase)
+    // A team placed in any phase counts as "assigned"
+    const allPlacedTeams = new Set();
+    
+    // Count assigned participants and groups per phase from detailsGroups
+    detailsGroups.forEach(g => {
+      const phase = g.phase;
+      if (!metrics.phase_summary[phase]) return;
+      
+      // Count this group
+      metrics.phase_summary[phase].group_count += 1;
+      
+      // Count host participants (can be solo or synthetic)
+      if (g.host_team_id) {
+        const tid = String(g.host_team_id);
+        const det = teamDetails[tid] || {};
+        const size = det.size || 1;
+        metrics.phase_summary[phase].assigned_participants += size;
+        allPlacedTeams.add(tid);
+      }
+      
+      // Count guests participants (can be solo or synthetic)
+      (g.guest_team_ids || []).forEach(tid => {
+        const gtid = String(tid);
+        const det = teamDetails[gtid] || {};
+        const size = det.size || 1;
+        metrics.phase_summary[phase].assigned_participants += size;
+        allPlacedTeams.add(gtid);
+      });
+    });
+    
+    // Now calculate assigned_units per phase
+    // A unit is assigned to a phase if it appears in that phase (as host or guest)
+    // IMPORTANT: For synthetic teams (pair:/split:), we need to count the underlying solo teams
+    
+    // Helper function to extract solo team IDs from synthetic IDs
+    function extractSoloIdsFromSynthetic(syntheticId) {
+      const soloIds = [];
+      if (syntheticId.startsWith('pair:')) {
+        // pair:email1@domain.com+email2@domain.com
+        const emailsPart = syntheticId.substring(5); // Remove 'pair:'
+        const emails = emailsPart.split('+').filter(e => e);
+        
+        // Try to find matching team IDs by email
+        Object.keys(teamDetails).forEach(tid => {
+          if (tid.startsWith('pair:') || tid.startsWith('split:')) return;
+          
+          const det = teamDetails[tid] || {};
+          const members = det.members || [];
+          
+          // Check if any member email matches
+          members.forEach(member => {
+            const memberEmail = (member.email || '').toLowerCase();
+            if (emails.some(e => e.toLowerCase().includes(memberEmail) || memberEmail.includes(e.toLowerCase()))) {
+              soloIds.push(tid);
+            }
+          });
+        });
+      } else if (syntheticId.startsWith('split:')) {
+        // split:email@domain.com
+        const email = syntheticId.substring(6); // Remove 'split:'
+        
+        // Try to find matching team ID by email
+        Object.keys(teamDetails).forEach(tid => {
+          if (tid.startsWith('pair:') || tid.startsWith('split:')) return;
+          
+          const det = teamDetails[tid] || {};
+          const members = det.members || [];
+          
+          members.forEach(member => {
+            const memberEmail = (member.email || '').toLowerCase();
+            if (email.toLowerCase().includes(memberEmail) || memberEmail.includes(email.toLowerCase())) {
+              soloIds.push(tid);
+            }
+          });
+        });
+      }
+      return soloIds;
+    }
+    
+    ['appetizer', 'main', 'dessert'].forEach(phase => {
+      const soloTeamsInPhase = new Set();
+      
+      detailsGroups.forEach(g => {
+        if (g.phase !== phase) return;
+        
+        // Process host
+        if (g.host_team_id) {
+          const tid = String(g.host_team_id);
+          if (tid.startsWith('pair:') || tid.startsWith('split:')) {
+            // Extract and count underlying solo teams
+            extractSoloIdsFromSynthetic(tid).forEach(soloId => soloTeamsInPhase.add(soloId));
+          } else {
+            // Regular team
+            soloTeamsInPhase.add(tid);
+          }
+        }
+        
+        // Process guests
+        (g.guest_team_ids || []).forEach(tid => {
+          const gtid = String(tid);
+          if (gtid.startsWith('pair:') || gtid.startsWith('split:')) {
+            // Extract and count underlying solo teams
+            extractSoloIdsFromSynthetic(gtid).forEach(soloId => soloTeamsInPhase.add(soloId));
+          } else {
+            // Regular team
+            soloTeamsInPhase.add(gtid);
+          }
+        });
+      });
+      
+      metrics.phase_summary[phase].assigned_units = soloTeamsInPhase.size;
+    });
+    
+    // Calculate missing participants per phase
+    ['appetizer', 'main', 'dessert'].forEach(phase => {
+      const summary = metrics.phase_summary[phase];
+      summary.missing_participants = Math.max(0, summary.expected_participants - summary.assigned_participants);
+    });
+    
+    // Calculate total assigned participants by counting unique solo teams across ALL phases
+    const allPlacedSoloTeams = new Set();
+    
+    detailsGroups.forEach(g => {
+      // Process host
+      if (g.host_team_id) {
+        const tid = String(g.host_team_id);
+        if (tid.startsWith('pair:') || tid.startsWith('split:')) {
+          extractSoloIdsFromSynthetic(tid).forEach(soloId => allPlacedSoloTeams.add(soloId));
+        } else {
+          allPlacedSoloTeams.add(tid);
+        }
+      }
+      
+      // Process guests
+      (g.guest_team_ids || []).forEach(tid => {
+        const gtid = String(tid);
+        if (gtid.startsWith('pair:') || gtid.startsWith('split:')) {
+          extractSoloIdsFromSynthetic(gtid).forEach(soloId => allPlacedSoloTeams.add(soloId));
+        } else {
+          allPlacedSoloTeams.add(gtid);
+        }
+      });
+    });
+    
+    // Count participants from these unique solo teams
+    let totalAssignedParticipants = 0;
+    allPlacedSoloTeams.forEach(tid => {
+      const det = teamDetails[tid] || {};
+      totalAssignedParticipants += (det.size || 1);
+    });
+    
+    metrics.assigned_participant_count = totalAssignedParticipants;
+    
+    return metrics;
+  }
+
+  function updateUnplacedTeamsPanels(){
+    // Recalculate metrics locally based on current detailsGroups
+    const localMetrics = calculateLocalMetrics();
+    const phaseSummary = localMetrics.phase_summary || {};
+    
+    // Collect team IDs that are placed BY PHASE (per phase tracking)
+    const placedByPhase = {
+      appetizer: new Set(),
+      main: new Set(),
+      dessert: new Set()
+    };
+    
+    // Also track which solo teams are part of synthetic pairs/splits
+    const solosInSyntheticTeams = new Set();
+    
+    detailsGroups.forEach(g => {
+      const phase = g.phase;
+      if (!placedByPhase[phase]) return;
+      
+      if (g.host_team_id) {
+        const htid = String(g.host_team_id);
+        placedByPhase[phase].add(htid);
+        
+        // If it's a synthetic ID, extract the solo team IDs
+        if (htid.startsWith('pair:') || htid.startsWith('split:')) {
+          extractSoloIdsFromSynthetic(htid).forEach(sid => solosInSyntheticTeams.add(sid));
+        }
+      }
+      
+      (g.guest_team_ids || []).forEach(tid => {
+        const gtid = String(tid);
+        placedByPhase[phase].add(gtid);
+        
+        // If it's a synthetic ID, extract the solo team IDs
+        if (gtid.startsWith('pair:') || gtid.startsWith('split:')) {
+          extractSoloIdsFromSynthetic(gtid).forEach(sid => solosInSyntheticTeams.add(sid));
+        }
+      });
+    });
+
+    // Helper function to extract solo team IDs from synthetic IDs
+    function extractSoloIdsFromSynthetic(syntheticId) {
+      const soloIds = [];
+      if (syntheticId.startsWith('pair:')) {
+        // pair:email1@domain.com+email2@domain.com
+        const emailsPart = syntheticId.substring(5); // Remove 'pair:'
+        const emails = emailsPart.split('+').filter(e => e);
+        
+        // Try to find matching team IDs by email
+        Object.keys(teamDetails).forEach(tid => {
+          if (tid.startsWith('pair:') || tid.startsWith('split:')) return;
+          
+          const det = teamDetails[tid] || {};
+          const members = det.members || [];
+          
+          // Check if any member email matches
+          members.forEach(member => {
+            const memberEmail = (member.email || '').toLowerCase();
+            if (emails.some(e => e.toLowerCase().includes(memberEmail) || memberEmail.includes(e.toLowerCase()))) {
+              soloIds.push(tid);
+            }
+          });
+        });
+      } else if (syntheticId.startsWith('split:')) {
+        // split:email@domain.com
+        const email = syntheticId.substring(6); // Remove 'split:'
+        
+        // Try to find matching team ID by email
+        Object.keys(teamDetails).forEach(tid => {
+          if (tid.startsWith('pair:') || tid.startsWith('split:')) return;
+          
+          const det = teamDetails[tid] || {};
+          const members = det.members || [];
+          
+          members.forEach(member => {
+            const memberEmail = (member.email || '').toLowerCase();
+            if (email.toLowerCase().includes(memberEmail) || memberEmail.includes(email.toLowerCase())) {
+              soloIds.push(tid);
+            }
+          });
+        });
+      }
+      return soloIds;
+    }
+
+    // Consider all units (real teams and synthetic pair:/split: units)
+    const allTeamIds = Object.keys(teamDetails);
+    
+    // For each phase, find teams that are NOT placed in THAT specific phase
+    const unplacedByPhase = {
+      appetizer: [],
+      main: [],
+      dessert: []
+    };
+
+    ['appetizer', 'main', 'dessert'].forEach(phase => {
+      allTeamIds.forEach(tid => {
+        const det = teamDetails[tid] || {};
+        
+        // A team is "unplaced" in this phase if:
+        // 1. It's NOT in this phase's placed list
+        // 2. It's NOT part of a synthetic pair/split that is placed
+        const isPlacedInThisPhase = placedByPhase[phase].has(tid);
+        const isPartOfSyntheticTeam = solosInSyntheticTeams.has(tid);
+        
+        // Always surface missing participants, regardless of original course preference.
+        if (!isPlacedInThisPhase && !isPartOfSyntheticTeam) {
+          unplacedByPhase[phase].push(tid);
+        }
+      });
+    });
+
+    // Update/create each panel outside of sections (in body)
+    ['appetizer', 'main', 'dessert'].forEach(phase => {
+      // Try to find existing panel or create new one
+      let panel = $(`#unplaced-${phase}-panel`);
+      
+      if (!panel) {
+        panel = document.createElement('div');
+        panel.id = `unplaced-${phase}-panel`;
+        panel.className = 'floating-panel';
+        panel.dataset.phase = phase;
+        
+        const icons = { appetizer: '🥗', main: '🍖', dessert: '🍰' };
+        panel.innerHTML = `
+          <div class="floating-panel-header">
+            <span>${icons[phase]} ${phase.charAt(0).toUpperCase() + phase.slice(1)} - Unplaced</span>
+            <span id="unplaced-${phase}-count" class="bg-white/20 px-2 py-0.5 rounded-full text-xs">0</span>
+          </div>
+          <div id="unplaced-${phase}-content" class="floating-panel-content">
+            <div class="text-xs text-gray-500 text-center py-4">No unplaced teams</div>
+          </div>
+        `;
+        
+        document.body.appendChild(panel);
+      }
+      
+      const content = panel.querySelector(`#unplaced-${phase}-content`);
+      const count = panel.querySelector(`#unplaced-${phase}-count`);
+      
+      if (!content || !count) return;
+      
+      // Check if there are missing participants according to metrics
+      const phaseInfo = phaseSummary[phase] || {};
+      const missingParticipants = Number(phaseInfo.missing_participants || 0);
+      const expectedUnits = Number(phaseInfo.expected_units || 0);
+      const assignedUnits = Number(phaseInfo.assigned_units || 0);
+      const missingUnits = Math.max(0, expectedUnits - assignedUnits);
+      
+      let teams = unplacedByPhase[phase];
+      
+      // Only show panel if there are actually missing participants/units
+      if (missingParticipants === 0 && missingUnits === 0) {
+        content.innerHTML = '<div class="text-xs text-gray-500 text-center py-4">No missing participants</div>';
+        count.textContent = '0';
+        panel.classList.add('hidden');
+      } else if (teams.length === 0) {
+        // There are missing participants but no unplaced teams available
+        content.innerHTML = `<div class="text-xs text-gray-500 text-center py-4">${missingParticipants} participant(s) missing<br/>No unplaced teams available</div>`;
+        count.textContent = String(missingParticipants);
+        panel.classList.add('hidden'); // Hide if no teams to show
+      } else {
+        // Calculate how many teams we need to show based on missing participants
+        // We need to fill exactly the missing participants count
+        let participantsToFill = missingParticipants;
+        const teamsToShow = [];
+        
+        for (let i = 0; i < teams.length && participantsToFill > 0; i++) {
+          const tid = teams[i];
+          const det = teamDetails[tid] || {};
+          const teamSize = det.size || 1;
+          
+          teamsToShow.push(tid);
+          participantsToFill -= teamSize;
+        }
+        
+        // If no teams needed or available, hide panel
+        if (teamsToShow.length === 0) {
+          count.textContent = `${missingParticipants} missing`;
+          content.innerHTML = `<div class="text-xs text-gray-500 text-center py-4">${missingParticipants} participant(s) missing<br/>Aucun candidat disponible actuellement</div>`;
+          panel.classList.remove('hidden');
+        } else {
+          // Show only the teams needed to fill missing participants
+          count.textContent = `${missingParticipants} missing`;
+          content.innerHTML = '';
+
+          teamsToShow.forEach(tid => {
+            // Use the existing renderTeamCard function for consistent styling
+            const teamCard = renderTeamCard(tid);
+
+            // Add unplaced-specific data attributes for drag and drop
+            teamCard.dataset.phase = phase;
+            teamCard.dataset.groupIdx = '-1';
+            teamCard.dataset.role = 'unplaced';
+
+            content.appendChild(teamCard);
+          });
+
+          const remainingParticipants = Math.max(participantsToFill, 0);
+          if (remainingParticipants > 0) {
+            const note = document.createElement('div');
+            note.className = 'mt-2 text-[11px] text-[#b91c1c] text-center';
+            note.textContent = `${remainingParticipants} participant(s) supplémentaires restent à placer`;
+            content.appendChild(note);
+          }
+
+          panel.classList.remove('hidden');
+        }
+      }
+    });
+    
+    // Update panel positions based on scroll
+    updateFloatingPanelPositions();
+  }
+
+  function updateFloatingPanelPositions() {
+    const phases = ['appetizer', 'main', 'dessert'];
+    const headerHeight = 120; // Approximate header + nav height
+    const topOffset = 20; // Top margin when sticky
+    
+    phases.forEach(phase => {
+      const panel = $(`#unplaced-${phase}-panel`);
+      const section = $(`#phase-section-${phase}`);
+      
+      if (!panel || !section || panel.classList.contains('hidden')) {
+        if (panel) panel.classList.remove('visible');
+        return;
+      }
+      
+      const sectionRect = section.getBoundingClientRect();
+      const panelHeight = panel.offsetHeight;
+      const viewportHeight = window.innerHeight;
+      
+      // Check if section is in viewport
+      const sectionTop = sectionRect.top;
+      const sectionBottom = sectionRect.bottom;
+      const isInView = sectionBottom > headerHeight && sectionTop < viewportHeight;
+      
+      if (isInView) {
+        panel.classList.add('visible');
+        
+        // Calculate panel position
+        let panelTop;
+        
+        if (sectionTop > headerHeight) {
+          // Section is below fold, panel should be at section top
+          panelTop = sectionTop;
+        } else if (sectionBottom < headerHeight + panelHeight + topOffset) {
+          // Section is scrolling out of view, panel should stick to section bottom
+          panelTop = sectionBottom - panelHeight;
+        } else {
+          // Section is in view, panel should be sticky at top
+          panelTop = headerHeight + topOffset;
+        }
+        
+        panel.style.top = `${Math.max(headerHeight, panelTop)}px`;
+      } else {
+        panel.classList.remove('visible');
+      }
+    });
+  }
+
+  // Setup scroll listener for floating panels
+  let scrollTimeout;
+  function setupFloatingPanelScrollListener() {
+    window.addEventListener('scroll', () => {
+      if (scrollTimeout) clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(updateFloatingPanelPositions, 10);
+    }, { passive: true });
+    
+    window.addEventListener('resize', () => {
+      if (scrollTimeout) clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(updateFloatingPanelPositions, 10);
+    }, { passive: true });
   }
 
   const participantsModule = (function(){
@@ -1427,7 +1939,7 @@
     const root = $('#match-details');
     const dragData = { teamId: null, fromPhase: null, fromGroupIdx: null, role: null };
     if (!root.dataset.dndBound){
-      // dragstart on cards
+      // dragstart on cards (in match details)
       root.addEventListener('dragstart', (e)=>{
         const card = e.target.closest('.team-card'); if (!card || !root.contains(card)) return;
         dragData.teamId = card.dataset.teamId;
@@ -1436,14 +1948,44 @@
         try { e.dataTransfer.setData('text/plain', dragData.teamId || ''); } catch(_) {}
         e.dataTransfer.effectAllowed = 'move';
       }, true);
+      
+      // dragstart on cards in floating panels (global listener)
+      document.body.addEventListener('dragstart', (e)=>{
+        const card = e.target.closest('.team-card');
+        const isInFloatingPanel = card && card.closest('.floating-panel-content');
+        if (!isInFloatingPanel) return;
+        
+        dragData.teamId = card.dataset.teamId;
+        dragData.fromPhase = card.dataset.phase; 
+        dragData.fromGroupIdx = Number(card.dataset.groupIdx);
+        dragData.role = card.dataset.role;
+        try { e.dataTransfer.setData('text/plain', dragData.teamId || ''); } catch(_) {}
+        e.dataTransfer.effectAllowed = 'move';
+      }, true);
+      
       // dragend anywhere within root
       root.addEventListener('dragend', ()=>{
+        dragData.teamId = null; dragData.fromPhase = null; dragData.fromGroupIdx = null; dragData.role = null;
+      }, true);
+      
+      // dragend on floating panels
+      document.body.addEventListener('dragend', (e)=>{
+        const card = e.target.closest('.team-card');
+        const isInFloatingPanel = card && card.closest('.floating-panel-content');
+        if (!isInFloatingPanel) return;
         dragData.teamId = null; dragData.fromPhase = null; dragData.fromGroupIdx = null; dragData.role = null;
       }, true);
       // delegated dragover on zones
       root.addEventListener('dragover', (ev)=>{
         const zone = ev.target && (ev.target.closest && ev.target.closest('.host-zone, .guest-zone'));
         if (!zone || !root.contains(zone)) return;
+        ev.preventDefault(); ev.stopPropagation();
+        try{ ev.dataTransfer.dropEffect = 'move'; } catch(_){}
+      }, true);
+      // delegated dragover on floating panels (to allow dropping teams back)
+      root.addEventListener('dragover', (ev)=>{
+        const panel = ev.target && (ev.target.closest && ev.target.closest('.floating-panel-content'));
+        if (!panel || !root.contains(panel)) return;
         ev.preventDefault(); ev.stopPropagation();
         try{ ev.dataTransfer.dropEffect = 'move'; } catch(_){}
       }, true);
@@ -1455,10 +1997,24 @@
         const toPhase = zone.dataset.phase; const toIdx = Number(zone.dataset.groupIdx); const toRole = zone.dataset.role;
         if (!dragData.teamId) return;
         let changed = false;
+        
+        // Check if dragging from unplaced panel
+        const fromUnplaced = dragData.role === 'unplaced' || dragData.fromGroupIdx === -1;
+        
         if (toRole === 'host'){
           const sameGroup = (dragData.fromGroupIdx === toIdx) && (dragData.fromPhase === toPhase);
-          if (dragData.role === 'guest'){
-            const toG = detailsGroups[toIdx];
+          const toG = detailsGroups[toIdx];
+          
+          if (fromUnplaced) {
+            // Dragging from unplaced panel to host zone
+            const prevHost = toG.host_team_id ? String(toG.host_team_id) : null;
+            toG.host_team_id = dragData.teamId;
+            if (prevHost){ 
+              toG.guest_team_ids = toG.guest_team_ids || [];
+              if (!toG.guest_team_ids.some(t=> String(t)===prevHost)) toG.guest_team_ids.push(prevHost); 
+            }
+            changed = true;
+          } else if (dragData.role === 'guest'){
             if (sameGroup){
               const prevHost = toG.host_team_id ? String(toG.host_team_id) : null;
               toG.guest_team_ids = (toG.guest_team_ids||[]).filter(t=> String(t) !== dragData.teamId);
@@ -1479,18 +2035,28 @@
             return;
           }
         } else if (toRole === 'guest'){
-          const fromG = detailsGroups[dragData.fromGroupIdx];
           const toG = detailsGroups[toIdx];
-          if (dragData.role === 'guest'){
-            fromG.guest_team_ids = (fromG.guest_team_ids||[]).filter(t=> String(t) !== dragData.teamId);
-          } else if (dragData.role === 'host'){
-            toast("Moving a host into 'Guests' isn't supported.", { type: 'warning' });
-            return;
-          }
-          if (String(toG.host_team_id) !== dragData.teamId){
-            toG.guest_team_ids = toG.guest_team_ids || [];
-            if (!toG.guest_team_ids.some(t=> String(t)===dragData.teamId)) toG.guest_team_ids.push(dragData.teamId);
-            changed = true;
+          
+          if (fromUnplaced) {
+            // Dragging from unplaced panel to guest zone
+            if (String(toG.host_team_id) !== dragData.teamId){
+              toG.guest_team_ids = toG.guest_team_ids || [];
+              if (!toG.guest_team_ids.some(t=> String(t)===dragData.teamId)) toG.guest_team_ids.push(dragData.teamId);
+              changed = true;
+            }
+          } else {
+            const fromG = detailsGroups[dragData.fromGroupIdx];
+            if (dragData.role === 'guest'){
+              fromG.guest_team_ids = (fromG.guest_team_ids||[]).filter(t=> String(t) !== dragData.teamId);
+            } else if (dragData.role === 'host'){
+              toast("Moving a host into 'Guests' isn't supported.", { type: 'warning' });
+              return;
+            }
+            if (String(toG.host_team_id) !== dragData.teamId){
+              toG.guest_team_ids = toG.guest_team_ids || [];
+              if (!toG.guest_team_ids.some(t=> String(t)===dragData.teamId)) toG.guest_team_ids.push(dragData.teamId);
+              changed = true;
+            }
           }
         }
         if (!changed) return;
@@ -1505,6 +2071,51 @@
           toast('Unsaved changes (preview updated).', { type: 'info' });
         };
         if (typeof requestAnimationFrame === 'function') requestAnimationFrame(()=>{ doUpdate(); }); else setTimeout(()=>{ doUpdate(); }, 0);
+      }, true);
+      // delegated drop on floating panels (to remove teams from matching)
+      root.addEventListener('drop', async (ev)=>{
+        const panelContent = ev.target && (ev.target.closest && ev.target.closest('.floating-panel-content'));
+        if (!panelContent || !root.contains(panelContent)) return;
+        ev.preventDefault(); ev.stopPropagation();
+        
+        if (!dragData.teamId) return;
+        
+        // Only allow removing teams that are currently placed (not already unplaced)
+        if (dragData.role === 'unplaced') {
+          toast('Team is already unplaced.', { type: 'info' });
+          return;
+        }
+        
+        // Remove team from its current group
+        if (dragData.fromGroupIdx >= 0 && dragData.fromGroupIdx < detailsGroups.length) {
+          const fromG = detailsGroups[dragData.fromGroupIdx];
+          let removed = false;
+          
+          if (dragData.role === 'host') {
+            if (String(fromG.host_team_id) === dragData.teamId) {
+              fromG.host_team_id = null;
+              removed = true;
+            }
+          } else if (dragData.role === 'guest') {
+            const beforeLen = (fromG.guest_team_ids || []).length;
+            fromG.guest_team_ids = (fromG.guest_team_ids || []).filter(t => String(t) !== dragData.teamId);
+            removed = fromG.guest_team_ids.length < beforeLen;
+          }
+          
+          if (removed) {
+            unsaved = true;
+            // Clear drag context before any DOM changes
+            dragData.teamId = null; dragData.fromPhase = null; dragData.fromGroupIdx = null; dragData.role = null;
+            // Defer UI update
+            const doUpdate = async ()=>{
+              renderMatchDetailsBoard();
+              try { await validateCurrentGroups(); } catch(_) {}
+              try { await previewCurrentGroups(); } catch(_) {}
+              toast('Team removed from matching (unsaved).', { type: 'info' });
+            };
+            if (typeof requestAnimationFrame === 'function') requestAnimationFrame(()=>{ doUpdate(); }); else setTimeout(()=>{ doUpdate(); }, 0);
+          }
+        }
       }, true);
       root.dataset.dndBound = '1';
     }
@@ -2050,6 +2661,11 @@
           $('#matching-msg').textContent = 'All matches deleted.';
           detailsVersion = null; detailsGroups = []; teamDetails = {}; unsaved = false;
           $('#match-details').innerHTML = '';
+          // Remove floating panels when matches are deleted
+          ['appetizer', 'main', 'dessert'].forEach(phase => {
+            const panel = $(`#unplaced-${phase}-panel`);
+            if (panel) panel.remove();
+          });
           await loadProposals();
           t.update('Deleted');
         } else {
@@ -2167,6 +2783,21 @@
         await confirmAndRelease(evId, v, releaseBtn);
       } else if (issuesBtn){
         const v = Number(issuesBtn.getAttribute('data-issues'));
+        
+        // Warn if viewing issues for current version with unsaved changes
+        if (unsaved && v === detailsVersion) {
+          const proceed = await showDialogConfirm(
+            'You have unsaved changes. The issues shown will be based on the last saved state, not your current modifications.\n\nSave your changes first for accurate issue detection.',
+            {
+              title: 'Unsaved changes',
+              confirmLabel: 'View issues anyway',
+              cancelLabel: 'Cancel',
+              tone: 'warning'
+            }
+          );
+          if (!proceed) return;
+        }
+        
         const card = issuesBtn.closest('.proposal-card');
         const existing = card.querySelector('.issues-panel');
         if (existing) { existing.remove(); return; }
@@ -2530,6 +3161,7 @@
     bindAlgorithmInfo();
     bindAdvancedWeightsToggle();
     bindMaps();
+    setupFloatingPanelScrollListener();
     // Do not auto-load matching proposals or details on page load.
     // Users must click "Start Matching" or "Refresh Proposals" to fetch them.
     const placeholder = document.getElementById('match-details-msg');

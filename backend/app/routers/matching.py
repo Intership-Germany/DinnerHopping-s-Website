@@ -253,6 +253,13 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
                 payments_by_reg[str(rid)] = p
     for t in teams:
         tid = str(t['team_id'])
+        # Extract emails for solo teams (needed for metrics calculation)
+        emails = []
+        for r in t.get('member_regs') or []:
+            em = r.get('user_email_snapshot')
+            if em:
+                emails.append(em.lower())
+        
         team_map[tid] = {
             'size': t.get('size'),
             'team_diet': t.get('team_diet'),
@@ -263,6 +270,7 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
             'lon': t.get('lon'),
             'allergies': list(t.get('allergies') or []),
             'host_allergies': list(t.get('host_allergies') or []),
+            'emails': emails,  # Add emails for synthetic team extraction
         }
         active_ids = team_active_regs.get(tid) or []
         paid_count = 0
@@ -283,26 +291,6 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
             'paid_count': paid_count,
             'active_reg_count': len(active_ids),
         }
-    # Attach members (names) using team->emails mapping
-    emails_map = await _team_emails_map(event_id)
-    # Gather all emails to bulk fetch names
-    all_emails = set()
-    for ems in emails_map.values():
-        for em in ems:
-            all_emails.add(em)
-    users_by_email: Dict[str, dict] = {}
-    if all_emails:
-        async for u in db_mod.db.users.find({'email': {'$in': list(all_emails)}}):
-            users_by_email[u.get('email')] = u
-    for tid, ems in emails_map.items():
-        members = []
-        for em in ems:
-            u = users_by_email.get(em) or {}
-            fn = (u.get('first_name') or u.get('firstname') or '').strip()
-            ln = (u.get('last_name') or u.get('lastname') or '').strip()
-            disp = (f"{fn} {ln}" if (fn or ln) else em).strip()
-            members.append({'email': em, 'first_name': fn or None, 'last_name': ln or None, 'display_name': disp})
-        team_map.setdefault(tid, {})['members'] = members
     # Enrich groups with host public address if missing (best-effort)
     groups_in = m.get('groups') or []
     # Build helper to determine preferred host email based on team_doc/cooking_location
@@ -323,6 +311,181 @@ async def match_details(event_id: str, version: Optional[int] = None, _=Depends(
             except Exception:
                 pass
         groups_out.append(gg)
+    # Prepare unmatched metadata for synthetic units that might not appear in groups
+    unmatched_units: List[dict] = m.get('unmatched_units') or []
+    unmatched_by_id: Dict[str, dict] = {str(entry.get('team_id')): entry for entry in unmatched_units if entry.get('team_id')}
+
+    # Add details for synthetic units (pair:, split:) by finding their original solo teams
+    solo_teams_by_email: Dict[str, dict] = {}
+    for t in teams:
+        tid = str(t['team_id'])
+        if tid.startswith('solo:'):
+            # Get email from first member or registration
+            emails = []
+            for r in t.get('member_regs') or []:
+                em = r.get('user_email_snapshot')
+                if em:
+                    emails.append(em.lower())
+            if emails:
+                solo_teams_by_email[emails[0]] = t
+    
+    # Now for each pair/split ID in groups, build team_map entry
+    all_synthetic_ids = set()
+    for g in groups_out:
+        for tid in [g.get('host_team_id')] + (g.get('guest_team_ids') or []):
+            if tid and isinstance(tid, str) and (tid.startswith('pair:') or tid.startswith('split:')):
+                all_synthetic_ids.add(tid)
+
+    for entry in unmatched_units:
+        tid = entry.get('team_id')
+        if isinstance(tid, str) and (tid.startswith('pair:') or tid.startswith('split:')):
+            all_synthetic_ids.add(tid)
+    
+    for uid in all_synthetic_ids:
+        if uid not in team_map:
+            # Extract emails from the ID
+            if uid.startswith('pair:'):
+                part = uid.split(':', 1)[1]
+                pair_emails = [e.lower() for e in part.split('+') if e] if '+' in part else ([part.lower()] if part else [])
+            elif uid.startswith('split:'):
+                email = uid.split(':', 1)[1]
+                pair_emails = [email.lower()] if email else []
+            else:
+                pair_emails = []
+            
+            # Merge info from solo teams
+            diet_list = []
+            prefs = []
+            can_host_main = False
+            can_host_any = False
+            allergies_set = set()
+            host_allergies_set = set()
+            lat_vals = []
+            lon_vals = []
+            active_reg_ids = []
+            
+            for em in pair_emails:
+                solo_t = solo_teams_by_email.get(em)
+                if solo_t:
+                    if solo_t.get('team_diet'):
+                        diet_list.append(solo_t.get('team_diet'))
+                    if solo_t.get('course_preference'):
+                        prefs.append(solo_t.get('course_preference'))
+                    if solo_t.get('can_host_main'):
+                        can_host_main = True
+                    if solo_t.get('can_host_any'):
+                        can_host_any = True
+                    for a in (solo_t.get('allergies') or []):
+                        allergies_set.add(a)
+                    for a in (solo_t.get('host_allergies') or []):
+                        host_allergies_set.add(a)
+                    if solo_t.get('lat') is not None:
+                        lat_vals.append(solo_t.get('lat'))
+                    if solo_t.get('lon') is not None:
+                        lon_vals.append(solo_t.get('lon'))
+                    # Collect active registration IDs
+                    solo_tid = str(solo_t.get('team_id', ''))
+                    active_reg_ids.extend(team_active_regs.get(solo_tid, []))
+            
+            # Merge diet (prioritize restrictive)
+            team_diet = 'omnivore'
+            if 'vegan' in diet_list:
+                team_diet = 'vegan'
+            elif 'vegetarian' in diet_list:
+                team_diet = 'vegetarian'
+            elif diet_list:
+                team_diet = diet_list[0]
+            
+            # Calculate payment status
+            paid_count = 0
+            for rid in active_reg_ids:
+                pr = payments_by_reg.get(str(rid))
+                if pr and pr.get('status') in ('paid', 'succeeded'):
+                    paid_count += 1
+            
+            if not active_reg_ids:
+                payment_status = 'n/a'
+            elif paid_count == 0:
+                payment_status = 'unpaid'
+            elif paid_count < len(active_reg_ids):
+                payment_status = 'partial'
+            else:
+                payment_status = 'paid'
+            
+            base_size = len(pair_emails)
+            unmatched_meta = unmatched_by_id.get(uid) or {}
+            if isinstance(unmatched_meta.get('size'), int) and unmatched_meta.get('size') > 0:
+                base_size = int(unmatched_meta.get('size'))
+
+            team_map[uid] = {
+                'size': base_size if base_size > 0 else max(len(pair_emails), 1),
+                'team_diet': team_diet,
+                'course_preference': prefs[0] if prefs else None,
+                'can_host_main': can_host_main,
+                'can_host_any': can_host_any,
+                'lat': lat_vals[0] if lat_vals else None,
+                'lon': lon_vals[0] if lon_vals else None,
+                'allergies': sorted(list(allergies_set)),
+                'host_allergies': sorted(list(host_allergies_set)),
+                'emails': pair_emails,  # Add emails for synthetic team extraction
+                'payment': {
+                    'status': payment_status,
+                    'paid_count': paid_count,
+                    'active_reg_count': len(active_reg_ids),
+                },
+            }
+    
+    # Attach members (names) using team->emails mapping
+    base_emails_map = await _team_emails_map(event_id)
+    # Augment with split: and pair: IDs from groups
+    from ..services.matching.operations import _augment_emails_map_with_splits
+    emails_map = _augment_emails_map_with_splits(base_emails_map, groups_out)
+    # Ensure unmatched synthetic units also have email entries so UI can render them
+    for uid in all_synthetic_ids:
+        if uid not in emails_map:
+            if uid.startswith('split:'):
+                email = uid.split(':', 1)[1]
+                emails_map[uid] = [email] if email else []
+            elif uid.startswith('pair:'):
+                segment = uid.split(':', 1)[1] if ':' in uid else ''
+                emails = [e for e in segment.split('+') if e]
+                emails_map[uid] = emails
+    # Gather all emails to bulk fetch names (normalize to lowercase)
+    all_emails = set()
+    for ems in emails_map.values():
+        for em in ems:
+            if em:
+                all_emails.add(em.lower())
+    users_by_email: Dict[str, dict] = {}
+    if all_emails:
+        async for u in db_mod.db.users.find({'email': {'$in': list(all_emails)}}):
+            email_lower = (u.get('email') or '').lower()
+            if email_lower:
+                users_by_email[email_lower] = u
+    for tid, ems in emails_map.items():
+        members = []
+        # Deduplicate emails while preserving order
+        seen_emails = set()
+        unique_emails = []
+        for em in ems:
+            if em:
+                em_lower = em.lower()
+                if em_lower not in seen_emails:
+                    seen_emails.add(em_lower)
+                    unique_emails.append(em)
+        
+        for em in unique_emails:
+            em_lower = em.lower()
+            u = users_by_email.get(em_lower) or {}
+            fn = (u.get('first_name') or u.get('firstname') or '').strip()
+            ln = (u.get('last_name') or u.get('lastname') or '').strip()
+            # Use local part of email as fallback instead of full email for cleaner display
+            if fn or ln:
+                disp = f"{fn} {ln}".strip()
+            else:
+                disp = em.split('@')[0] if '@' in em else em
+            members.append({'email': em, 'first_name': fn or None, 'last_name': ln or None, 'display_name': disp})
+        team_map.setdefault(tid, {})['members'] = members
     # Compose output
     out = {
         'version': m.get('version'),
@@ -347,7 +510,7 @@ async def recompute_metrics(event_id: str, version: int, _=Depends(require_admin
         raise HTTPException(status_code=404, detail='Event not found')
     # Build team mapping with coordinates and attributes
     teams = await _build_teams(ev['_id'])
-    tmap: Dict[str, dict] = { str(t['team_id']): t for t in teams }
+    tmap = _build_team_map_with_emails(teams)
     groups = m.get('groups') or []
     new_groups: List[dict] = []
     # helper for host address
@@ -381,7 +544,7 @@ async def recompute_metrics(event_id: str, version: int, _=Depends(require_admin
             'guest_allergies_union': allergy_details.get('guest_allergies_union', []),
             'uncovered_allergies': allergy_details.get('uncovered_allergies', []),
         })
-    metrics = _compute_metrics(new_groups, {})
+    metrics = _compute_metrics(new_groups, {}, team_details=tmap)
     await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'metrics': metrics, 'updated_at': datetime.datetime.now(datetime.timezone.utc)}})
     return {'version': m.get('version'), 'metrics': metrics}
 
@@ -400,7 +563,7 @@ async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin))
     if not ev:
         raise HTTPException(status_code=404, detail='Event not found')
     teams = await _build_teams(ev['_id'])
-    tmap: Dict[str, dict] = { str(t['team_id']): t for t in teams }
+    tmap = _build_team_map_with_emails(teams)
     # helper for host address
     from ..services.matching import _user_address_string as _host_addr
     new_groups: List[dict] = []
@@ -433,7 +596,7 @@ async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin))
             'guest_allergies_union': allergy_details.get('guest_allergies_union', []),
             'uncovered_allergies': allergy_details.get('uncovered_allergies', []),
         })
-    metrics = _compute_metrics(new_groups, {})
+    metrics = _compute_metrics(new_groups, {}, team_details=tmap)
     return { 'groups': new_groups, 'metrics': metrics }
 
 
@@ -469,6 +632,43 @@ def _get_host_email(host: dict) -> Optional[str]:
     except Exception:
         host_email = None
     return host_email
+
+
+def _build_team_map_with_emails(teams: List[dict]) -> Dict[str, dict]:
+    """Create a team_id -> team entry map including normalized email lists for metrics."""
+    team_map: Dict[str, dict] = {}
+    for team in teams:
+        team_id = team.get('team_id')
+        if team_id is None:
+            continue
+        entry = dict(team)
+        emails: List[str] = []
+        seen: Set[str] = set()
+
+        members = (entry.get('team_doc') or {}).get('members') or []
+        for member in members:
+            email = (member or {}).get('email')
+            if not email:
+                continue
+            lowered = str(email).strip().lower()
+            if not lowered or lowered in seen:
+                continue
+            seen.add(lowered)
+            emails.append(lowered)
+
+        for registration in entry.get('member_regs') or []:
+            email = (registration or {}).get('user_email_snapshot')
+            if not email:
+                continue
+            lowered = str(email).strip().lower()
+            if not lowered or lowered in seen:
+                continue
+            seen.add(lowered)
+            emails.append(lowered)
+
+        entry['emails'] = emails
+        team_map[str(team_id)] = entry
+    return team_map
 
 
 @router.post('/{event_id}/constraints/pair')
@@ -707,7 +907,7 @@ async def set_groups(event_id: str, payload: dict, _=Depends(require_admin)):
     if not ev:
         raise HTTPException(status_code=404, detail='Event not found')
     teams = await _build_teams(ev['_id'])
-    tmap: Dict[str, dict] = { str(t['team_id']): t for t in teams }
+    tmap = _build_team_map_with_emails(teams)
     # helper for host public address
     from ..services.matching import _user_address_string as _host_addr
     new_groups: List[dict] = []
@@ -742,6 +942,6 @@ async def set_groups(event_id: str, payload: dict, _=Depends(require_admin)):
             'guest_allergies_union': allergy_details.get('guest_allergies_union', []),
             'uncovered_allergies': allergy_details.get('uncovered_allergies', []),
         })
-    metrics = _compute_metrics(new_groups, {})
+    metrics = _compute_metrics(new_groups, {}, team_details=tmap)
     await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'metrics': metrics, 'updated_at': datetime.datetime.utcnow()}})
     return { 'status': 'saved', 'version': version, 'metrics': metrics }

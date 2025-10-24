@@ -132,25 +132,63 @@
     </section>
     <!-- Participants Section -->
     <section id="participants-section" class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-xl font-bold text-[#f46f47]">Participants</h2>
-        <div class="text-sm text-[#4a5568]" id="participants-count"></div>
+      <h2 class="text-xl font-bold text-[#f46f47] mb-4">Participants Overview</h2>
+      <div class="flex flex-wrap gap-3 items-end mb-4">
+        <div class="flex-1 min-w-[200px]">
+          <label class="block text-sm font-semibold mb-1">Select Event</label>
+          <select id="participants-event-select" class="border border-[#f0f4f7] rounded-xl p-3 w-full focus:ring-2 focus:ring-[#f46f47] outline-none">
+            <option value="">-- All Events --</option>
+          </select>
+        </div>
+        <input id="participants-search" type="search" placeholder="Search name, email, or team" class="border border-[#f0f4f7] rounded-xl p-3 flex-1 min-w-[200px] focus:ring-2 focus:ring-[#f46f47] outline-none" autocomplete="off">
+        <button id="participants-refresh" class="bg-[#008080] text-white rounded-xl px-6 py-3 font-semibold shadow hover:bg-[#00b3b3] transition">
+          Refresh
+        </button>
+        <button id="participants-toggle" class="bg-[#4a5568] text-white rounded-xl px-6 py-3 font-semibold shadow hover:opacity-90 transition hidden">
+          Hide
+        </button>
       </div>
-      <div class="flex flex-wrap gap-3 items-center mb-4">
-        <select id="participants-event-select" class="border border-[#f0f4f7] rounded-xl p-3 min-w-[200px] focus:ring-2 focus:ring-[#f46f47] outline-none">
-          <option value="">Select an event</option>
-        </select>
-        <input id="participants-search" type="search" placeholder="Search name, email, or team" class="border border-[#f0f4f7] rounded-xl p-3 flex-1 min-w-[180px] focus:ring-2 focus:ring-[#f46f47] outline-none" autocomplete="off">
-        <div class="flex items-center gap-2">
-          <button id="participants-refresh" class="bg-[#008080] text-white rounded-xl px-4 py-2 font-semibold shadow hover:bg-[#00b3b3] transition">Refresh</button>
-          <button id="participants-toggle" class="bg-[#4a5568] text-white rounded-xl px-4 py-2 font-semibold shadow hover:opacity-90 transition">Hide</button>
+
+      <!-- Stats Cards -->
+      <div id="participants-stats-container" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 hidden">
+        <div class="bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <div class="text-2xl font-bold text-blue-700" id="stat-total-participants">0</div>
+          <div class="text-sm text-blue-600">Total Participants</div>
+        </div>
+        <div class="bg-green-50 border border-green-200 rounded-xl p-4">
+          <div class="text-2xl font-bold text-green-700" id="stat-paid-participants">0</div>
+          <div class="text-sm text-green-600">Paid</div>
+        </div>
+        <div class="bg-orange-50 border border-orange-200 rounded-xl p-4">
+          <div class="text-2xl font-bold text-orange-700" id="stat-pending-participants">0</div>
+          <div class="text-sm text-orange-600">Pending Payment</div>
+        </div>
+        <div class="bg-purple-50 border border-purple-200 rounded-xl p-4">
+          <div class="text-2xl font-bold text-purple-700" id="stat-confirmed-participants">0</div>
+          <div class="text-sm text-purple-600">Confirmed</div>
         </div>
       </div>
-      <div id="participants-loading" class="hidden text-sm text-[#4a5568] flex items-center gap-2">
-        <span class="spinner"></span>
-  <span>Loading participants...</span>
+
+      <div id="participants-loading" class="text-sm text-gray-600 flex items-center gap-2 hidden">
+        <div class="spinner"></div>
+        <span>Loading participants...</span>
       </div>
-      <div id="participants-summary" class="text-sm text-[#4a5568] mb-3"></div>
+      <div id="participants-summary" class="text-sm text-gray-600"></div>
+    </section>
+
+    <!-- Participants List -->
+    <section class="bg-white/90 rounded-2xl shadow-xl p-6 border border-[#f0f4f7]">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold text-[#f46f47]">Participants List</h2>
+        <div class="flex gap-2">
+          <button id="filter-participants-all" class="px-3 py-1 text-sm rounded-lg bg-gray-200 hover:bg-gray-300 transition font-bold">All</button>
+          <button id="filter-participants-paid" class="px-3 py-1 text-sm rounded-lg bg-green-100 text-green-700 hover:bg-green-200 transition">Paid</button>
+          <button id="filter-participants-pending" class="px-3 py-1 text-sm rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 transition">Pending</button>
+          <button id="filter-participants-confirmed" class="px-3 py-1 text-sm rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition">Confirmed</button>
+          <button id="filter-participants-cancelled" class="px-3 py-1 text-sm rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition">Cancelled</button>
+        </div>
+      </div>
+      <div class="text-sm text-[#4a5568] mb-3" id="participants-count"></div>
       <div id="participants-table-wrapper" class="overflow-x-auto">
         <table class="min-w-full text-sm">
           <thead>
