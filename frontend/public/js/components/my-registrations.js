@@ -307,7 +307,10 @@
       const spanPaymentId = node.querySelector('.reg-payment-id');
       const aGo = node.querySelector('.reg-go');
       const eventId = ev.id || ev._id || ev.eventId;
-      if (aGo) aGo.href = `/event?id=${encodeURIComponent(eventId)}`;
+      if (aGo) {
+        const targetId = eventId != null ? encodeURIComponent(eventId) : '';
+        aGo.href = targetId ? `event.html?id=${targetId}` : 'event.html';
+      }
       if (titleEl)
         titleEl.textContent = ev.title || ev.name || (regInfo && regInfo.event_title) || 'Event';
       // add a small view-invitation action when invited

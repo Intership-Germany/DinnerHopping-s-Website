@@ -2641,7 +2641,14 @@
         clearBtnLoading(btn);
       }
     });
-    $('#btn-refresh-matches').addEventListener('click', async ()=>{ const t = toastLoading('Refreshing proposals...'); await loadProposals(); await loadMatchDetails(detailsVersion); t.update('Proposals refreshed'); t.close(); });
+    // Refresh proposals only — do not automatically reload match details to avoid
+    // fetching heavy detail payloads when the admin just wants to refresh proposals.
+    $('#btn-refresh-matches').addEventListener('click', async ()=>{
+      const t = toastLoading('Refreshing proposals...');
+      await loadProposals();
+      t.update('Proposals refreshed');
+      t.close();
+    });
     const delAllBtn = $('#btn-delete-all-matches');
     if (delAllBtn){
       delAllBtn.addEventListener('click', async (e)=>{

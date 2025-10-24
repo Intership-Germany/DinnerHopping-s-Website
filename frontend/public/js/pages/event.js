@@ -847,10 +847,23 @@ function updateMealSection(sectionElement, section, userFirstName, mealType) {
 
   const coGuests = sectionElement.querySelector('[data-co-guests]');
   if (coGuests) {
-    coGuests.textContent =
-      Array.isArray(section.guests) && section.guests.length > 0
-        ? section.guests.join(' & ')
-        : 'No co-guests';
+    // Deduplicate guest list while preserving order. Sometimes the plan
+    // contains repeated names (e.g., due to multiple meal sections pointing
+    // to the same guests). Show each guest only once for clarity.
+    const rawGuests = Array.isArray(section.guests) ? section.guests : [];
+    const seen = new Set();
+    const uniqueGuests = [];
+    rawGuests.forEach((g) => {
+      if (!g && g !== 0) return;
+      const key = String(g).trim();
+      if (!key) return;
+      const lower = key.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        uniqueGuests.push(key);
+      }
+    });
+    coGuests.textContent = uniqueGuests.length ? uniqueGuests.join(' & ') : 'No co-guests';
   }
 
   const locationLabel = sectionElement.querySelector('[data-location-label]');
