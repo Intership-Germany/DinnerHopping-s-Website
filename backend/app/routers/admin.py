@@ -712,6 +712,145 @@ async def admin_send_incomplete_team_reminders(event_id: str, _=Depends(require_
     }
 
 
+@router.post('/teams/create-from-synthetic')
+async def admin_create_team_from_synthetic(event_id: str, synthetic_id: str, _=Depends(require_admin)):
+    """Create a persistent `teams` document from a synthetic unit id (pair:... or split:...).
+
+    - Only affects registrations without an existing `team_id` (i.e. solos).
+    - Returns created team id and how many registrations were attached.
+    """
+    try:
+        eid = ObjectId(event_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid event_id')
+
+    if not synthetic_id or not (synthetic_id.startswith('pair:') or synthetic_id.startswith('split:')):
+        raise HTTPException(status_code=400, detail='synthetic_id must start with "pair:" or "split:"')
+
+    # derive emails from synthetic id
+    emails = []
+    if synthetic_id.startswith('pair:'):
+        payload = synthetic_id[len('pair:'):]
+        emails = [p for p in payload.split('+') if p]
+    else:
+        payload = synthetic_id[len('split:'):]
+        emails = [payload] if payload else []
+
+    if not emails:
+        raise HTTPException(status_code=400, detail='No participant emails could be derived from synthetic_id')
+
+    # Find registrations matching these emails for the event and without a team_id
+    regs = []
+    lower_emails = [e.lower() for e in emails]
+    async for r in db_mod.db.registrations.find({'event_id': eid}):
+        em = (r.get('user_email_snapshot') or r.get('user_email') or '').lower()
+        if em and any(le in em or em in le for le in lower_emails):
+            # candidate
+            regs.append(r)
+
+    if not regs:
+        raise HTTPException(status_code=404, detail='No matching solo registrations found for synthetic id')
+
+    # Build team members from registrations (only those without existing team_id)
+    members = []
+    reg_ids_to_update = []
+    for r in regs:
+        if r.get('team_id'):
+            # skip registrations already in a real team
+            continue
+        members.append({'type': 'user', 'user_id': r.get('user_id'), 'email': r.get('user_email_snapshot') or r.get('user_email')})
+        reg_ids_to_update.append(r.get('_id'))
+
+    if not members:
+        raise HTTPException(status_code=400, detail='All matching registrations already belong to a team')
+
+    now = datetime.datetime.utcnow()
+    team_doc = {
+        'event_id': eid,
+        'created_by_user_id': None,
+        'status': 'pending',
+        'members': members,
+        'cooking_location': None,
+        'course_preference': None,
+        'team_diet': None,
+        'created_at': now,
+        'origin': {'type': 'synthetic', 'synthetic_id': synthetic_id}
+    }
+    inserted = await db_mod.db.teams.insert_one(team_doc)
+    team_id = inserted.inserted_id if inserted else None
+    updated = 0
+    if team_id and reg_ids_to_update:
+        try:
+            mr = await db_mod.db.registrations.update_many({'_id': {'$in': reg_ids_to_update}}, {'$set': {'team_id': team_id}})
+            updated = getattr(mr, 'modified_count', 0) or getattr(mr, 'matched_count', 0) or 0
+        except Exception:
+            updated = 0
+
+    return {'status': 'created', 'team_id': str(team_id) if team_id else None, 'members_attached': updated}
+
+
+@router.post('/teams/{synthetic_id}/split')
+async def admin_split_synthetic_team(synthetic_id: str, event_id: str, _=Depends(require_admin)):
+    """Split a synthetic pair into separate single-member persistent teams.
+
+    - For a `pair:...` synthetic id will create one team per underlying participant (single-member teams)
+    - Updates only registrations without an existing team_id.
+    """
+    try:
+        eid = ObjectId(event_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid event_id')
+
+    if not synthetic_id or not synthetic_id.startswith('pair:'):
+        raise HTTPException(status_code=400, detail='Only pair: synthetic ids are supported for split')
+
+    payload = synthetic_id[len('pair:'):]
+    emails = [p for p in payload.split('+') if p]
+    if not emails:
+        raise HTTPException(status_code=400, detail='No participant emails derived from synthetic id')
+
+    created_team_ids = []
+    attached_count = 0
+
+    lower_emails = [e.lower() for e in emails]
+    async for r in db_mod.db.registrations.find({'event_id': eid}):
+        em = (r.get('user_email_snapshot') or r.get('user_email') or '').lower()
+        if not em: continue
+        match = any(le in em or em in le for le in lower_emails)
+        if not match: continue
+        if r.get('team_id'):
+            # skip existing
+            continue
+        # create single-member team
+        member = {'type': 'user', 'user_id': r.get('user_id'), 'email': r.get('user_email_snapshot') or r.get('user_email')}
+        now = datetime.datetime.utcnow()
+        team_doc = {
+            'event_id': eid,
+            'created_by_user_id': None,
+            'status': 'pending',
+            'members': [member],
+            'cooking_location': None,
+            'course_preference': None,
+            'team_diet': None,
+            'created_at': now,
+            'origin': {'type': 'synthetic_split', 'synthetic_id': synthetic_id}
+        }
+        inserted = await db_mod.db.teams.insert_one(team_doc)
+        tid = inserted.inserted_id if inserted else None
+        if tid:
+            created_team_ids.append(str(tid))
+            try:
+                await db_mod.db.registrations.update_one({'_id': r.get('_id')}, {'$set': {'team_id': tid}})
+                attached_count += 1
+            except Exception:
+                pass
+
+    if not created_team_ids:
+        raise HTTPException(status_code=404, detail='No eligible solo registrations found to split')
+
+    return {'status': 'split_completed', 'created_team_ids': created_team_ids, 'registrations_attached': attached_count}
+
+
 @router.post('/events/{event_id}/release-plans')
 async def admin_release_event_plans(event_id: str, _=Depends(require_admin)):
     """Send final event plans to all paid participants.

@@ -47,6 +47,562 @@
   let teamLayers = [];
   let teamMapCurrentId = null;
   const teamNamesCache = {};
+  const syntheticDrafts = {
+    splits: {}, // originalTeamId -> { originalId, splitIds: [], members: [{ splitId, member, status }] }
+    splitMembers: {}, // splitId -> { originalId, memberIndex }
+    createStage: [], // ordered array of participant IDs (split IDs or solo team IDs) staged for pairing
+    createdPairs: [], // { pairId, componentIds: [], label }
+    singles: {}, // solo teamId -> { status: 'available'|'staged'|'paired'|'placed' }
+  };
+  const syntheticTempTeamIds = new Set();
+  let syntheticStylesInjected = false;
+
+  function ensureSyntheticStyles(){
+    if (syntheticStylesInjected) return;
+    const style = document.createElement('style');
+    style.textContent = `
+      .synthetic-drop-zone {
+        border: 2px dashed #94a3b8;
+        border-radius: 12px;
+        padding: 16px 14px;
+        background: #f8fafc;
+        text-align: center;
+        font-size: 12px;
+        color: #475569;
+        transition: border-color 0.2s ease, background 0.2s ease;
+      }
+      .synthetic-drop-zone.drag-active {
+        border-color: #2563eb;
+        background: #e0f2fe;
+        color: #1d4ed8;
+      }
+      .synthetic-available-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .synthetic-available-item {
+        border: 1px dashed #cbd5f5;
+        border-radius: 10px;
+        padding: 6px;
+        background: #fff;
+      }
+      .synthetic-pending-actions button {
+        border: none;
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .synthetic-pending-actions button[data-synthetic-action="process-create"] {
+        background: #10b981;
+        color: #ffffff;
+      }
+      .synthetic-pending-actions button[data-synthetic-action="process-split"] {
+        background: #f59e0b;
+        color: #ffffff;
+      }
+      .synthetic-pending-actions button[data-synthetic-action="remove"] {
+        background: #e2e8f0;
+        color: #475569;
+      }
+      .synthetic-pending-actions button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .synthetic-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 9999px;
+        background: #f97316;
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .synthetic-remove-btn {
+        border: none;
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 11px;
+        font-weight: 600;
+        background: #e2e8f0;
+        color: #334155;
+        cursor: pointer;
+      }
+      .synthetic-remove-btn:hover {
+        background: #cbd5f5;
+      }
+      .synthetic-split-entry,
+      .synthetic-pair-entry {
+        transition: box-shadow 0.2s ease;
+      }
+      .synthetic-split-entry:hover,
+      .synthetic-pair-entry:hover {
+        box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
+      }
+      .synthetic-legend {
+        font-size: 11px;
+        color: #475569;
+        background: #f8fafc;
+        padding: 10px 14px;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .synthetic-panel-section-title {
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #1f2937;
+      }
+      .synthetic-drop-hint {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #64748b;
+      }
+      .synthetic-create-stage {
+        margin-top: 10px;
+        padding: 8px;
+        border: 1px dashed #cbd5f5;
+        border-radius: 10px;
+        min-height: 52px;
+        background: #ffffff;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: flex-start;
+      }
+      .synthetic-stage-empty {
+        font-size: 11px;
+        color: #94a3b8;
+      }
+      .synthetic-stage-item {
+        position: relative;
+      }
+      .synthetic-stage-remove {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9999px;
+        background: #ef4444;
+        color: #ffffff;
+        border: none;
+        font-size: 11px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .synthetic-stage-remove:hover {
+        opacity: 0.85;
+      }
+      .synthetic-item-status {
+        margin-top: 4px;
+        font-size: 10px;
+        color: #64748b;
+      }
+      .synthetic-item-disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+    `;
+    document.head.appendChild(style);
+    syntheticStylesInjected = true;
+  }
+
+  function isSyntheticId(teamId){
+    if (!teamId) return false;
+    return String(teamId).startsWith('pair:') || String(teamId).startsWith('split:');
+  }
+
+  function sanitizeForSyntheticId(value){
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+/, '')
+      .replace(/-+$/, '') || 'member';
+  }
+
+  function recordSyntheticTempId(teamId){
+    syntheticTempTeamIds.add(String(teamId));
+  }
+
+  function cleanupTemporarySyntheticTeams(){
+    syntheticTempTeamIds.forEach((tid)=>{
+      delete teamDetails[tid];
+    });
+    syntheticTempTeamIds.clear();
+  }
+
+  function isTeamIdPlaced(teamId){
+    const target = String(teamId);
+    return detailsGroups.some((group)=>{
+      if (String(group.host_team_id) === target) return true;
+      return (group.guest_team_ids || []).some((gid)=> String(gid) === target);
+    });
+  }
+
+  function removeTeamFromGroups(teamId){
+    const target = String(teamId);
+    let changed = false;
+    detailsGroups.forEach((group)=>{
+      if (String(group.host_team_id) === target){
+        group.host_team_id = null;
+        changed = true;
+      }
+      const before = (group.guest_team_ids || []).length;
+      group.guest_team_ids = (group.guest_team_ids || []).filter((gid)=> String(gid) !== target);
+      if ((group.guest_team_ids || []).length !== before){
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  function generateSplitId(originalId, member, index){
+    const baseEmail = member && member.email ? member.email : `${originalId}-${index+1}`;
+    const normalizedOriginal = sanitizeForSyntheticId(originalId);
+    const base = sanitizeForSyntheticId(baseEmail);
+    let candidate = `split:${normalizedOriginal}:${base}`;
+    let attempt = 1;
+    while (teamDetails[candidate] || syntheticDrafts.splitMembers[candidate]){
+      candidate = `split:${normalizedOriginal}:${base}-${attempt++}`;
+    }
+    return candidate;
+  }
+
+  function buildSplitTeamDetails(splitId, member, source, originalId){
+    const clonedMember = member ? { ...member } : { full_name: 'Participant' };
+    const payment = source && source.payment ? { ...source.payment } : { status: 'not_applicable' };
+    return {
+      id: splitId,
+      size: 1,
+      team_diet: source ? source.team_diet : null,
+      course_preference: source ? source.course_preference : null,
+      can_host_main: source ? !!source.can_host_main : false,
+      payment,
+      members: [clonedMember],
+      synthetic_parent: originalId,
+      synthetic_kind: 'split',
+    };
+  }
+
+  function ensureSyntheticSplitDraft(teamId){
+    const originalId = String(teamId);
+    if (syntheticDrafts.splits[originalId]){
+      return syntheticDrafts.splits[originalId];
+    }
+    const source = teamDetails[originalId];
+    if (!source || !Array.isArray(source.members) || source.members.length === 0){
+      return null;
+    }
+    const members = [];
+    source.members.forEach((member, index)=>{
+      const splitId = generateSplitId(originalId, member, index);
+      const splitDetails = buildSplitTeamDetails(splitId, member, source, originalId);
+      teamDetails[splitId] = splitDetails;
+      recordSyntheticTempId(splitId);
+      syntheticDrafts.splitMembers[splitId] = { originalId, memberIndex: index };
+      members.push({ splitId, member: member ? { ...member } : null, status: 'available' });
+    });
+    const entry = {
+      originalId,
+      splitIds: members.map((m)=> m.splitId),
+      members,
+      label: computeTeamLabel(source, originalId),
+    };
+    syntheticDrafts.splits[originalId] = entry;
+    return entry;
+  }
+
+  function setSplitMemberStatus(splitId, status){
+    const info = syntheticDrafts.splitMembers[splitId];
+    if (!info) return;
+    const entry = syntheticDrafts.splits[info.originalId];
+    if (!entry) return;
+    const target = entry.members.find((m)=> m.splitId === splitId);
+    if (target){
+      target.status = status;
+    }
+  }
+
+  function getSplitMemberStatus(splitId){
+    const info = syntheticDrafts.splitMembers[splitId];
+    if (!info) return 'available';
+    const entry = syntheticDrafts.splits[info.originalId];
+    if (!entry) return 'available';
+    const target = entry.members.find((m)=> m.splitId === splitId);
+    return target ? target.status || 'available' : 'available';
+  }
+
+  function refreshSplitMemberStates(){
+    const stagedSet = new Set(syntheticDrafts.createStage.map(String));
+    const pairedSet = new Set();
+    syntheticDrafts.createdPairs.forEach((pair)=>{
+      (pair.componentIds || []).forEach((sid)=> pairedSet.add(String(sid)));
+    });
+    const placedSet = new Set();
+    detailsGroups.forEach((group)=>{
+      if (group.host_team_id != null){
+        placedSet.add(String(group.host_team_id));
+      }
+      (group.guest_team_ids || []).forEach((gid)=> placedSet.add(String(gid)));
+    });
+    Object.values(syntheticDrafts.splits).forEach((entry)=>{
+      entry.members.forEach((memberRec)=>{
+        const sid = String(memberRec.splitId);
+        if (pairedSet.has(sid)){
+          memberRec.status = 'paired';
+        } else if (stagedSet.has(sid)){
+          memberRec.status = 'staged';
+        } else if (placedSet.has(sid)){
+          memberRec.status = 'placed';
+        } else {
+          memberRec.status = 'available';
+        }
+      });
+    });
+  }
+
+  function finalizeComponentUsage(componentIds){
+    componentIds.forEach((componentId)=>{
+      const id = String(componentId);
+      if (isManagedSplitId(id)){
+        const info = syntheticDrafts.splitMembers[id];
+        if (info){
+          const entry = syntheticDrafts.splits[info.originalId];
+          if (entry){
+            entry.members = entry.members.filter((member)=> String(member.splitId) !== id);
+            entry.splitIds = entry.splitIds.filter((sid)=> String(sid) !== id);
+            if (!entry.members.length){
+              delete syntheticDrafts.splits[info.originalId];
+            }
+          }
+          delete syntheticDrafts.splitMembers[id];
+        }
+        if (syntheticTempTeamIds.has(id)){
+          syntheticTempTeamIds.delete(id);
+        }
+        delete teamDetails[id];
+      } else if (syntheticDrafts.singles[id]){
+        delete syntheticDrafts.singles[id];
+      }
+    });
+  }
+
+  function rollbackSyntheticPair(pairId, componentIds, message){
+    const target = String(pairId);
+    syntheticDrafts.createdPairs = syntheticDrafts.createdPairs.filter((pair)=> String(pair.pairId) !== target);
+    if (syntheticTempTeamIds.has(target)){
+      syntheticTempTeamIds.delete(target);
+    }
+    delete teamDetails[target];
+    componentIds.slice().reverse().forEach((componentId)=>{
+      const id = String(componentId);
+      if (isManagedSplitId(id)){
+        setSplitMemberStatus(id, 'available');
+      } else {
+        const entry = syntheticDrafts.singles[id] || { status: 'available' };
+        entry.status = 'available';
+        syntheticDrafts.singles[id] = entry;
+      }
+      if (!syntheticDrafts.createStage.includes(id)){
+        syntheticDrafts.createStage.unshift(id);
+      }
+    });
+    refreshSplitMemberStates();
+    renderMatchDetailsBoard();
+    updateSyntheticManagementPanel();
+    if (message){
+      toast(message, { type: 'error' });
+    }
+  }
+
+  async function autoPersistSyntheticPair(pairId, componentIds){
+    const evSelect = $('#matching-event-select');
+    const evId = evSelect ? evSelect.value : null;
+    if (!evId){
+      rollbackSyntheticPair(pairId, componentIds, 'Sélectionnez un événement avant de créer une nouvelle équipe.');
+      return;
+    }
+    const loader = toastLoading('Création automatique de l’équipe...');
+    try {
+      const res = await apiFetch(`/admin/teams/create-from-synthetic?event_id=${encodeURIComponent(evId)}&synthetic_id=${encodeURIComponent(pairId)}`, { method: 'POST' });
+      loader.close();
+      if (!res.ok){
+        const txt = await res.text().catch(()=> 'Création impossible.');
+        console.error('[CREATE TEAM ERROR]', { status: res.status, error: txt, pairId, componentIds });
+        // Afficher le code d'erreur HTTP dans le message
+        rollbackSyntheticPair(pairId, componentIds, `Création échouée (HTTP ${res.status}): ${txt}`);
+        return;
+      }
+      removeCreatedPairFromDrafts(pairId);
+      finalizeComponentUsage(componentIds);
+      if (syntheticTempTeamIds.has(pairId)){
+        syntheticTempTeamIds.delete(pairId);
+      }
+      delete teamDetails[pairId];
+      
+      // NE PAS recharger les détails pour préserver les changements non sauvegardés
+      // La nouvelle équipe sera visible lors du prochain rechargement manuel ou après sauvegarde
+      toast('Nouvelle équipe créée. Sauvegardez vos changements pour l\'inclure dans le matching.', { type: 'success' });
+      
+      // Mettre à jour l'UI sans recharger depuis le serveur
+      refreshSplitMemberStates();
+      renderMatchDetailsBoard();
+      updateSyntheticManagementPanel();
+    } catch (error){
+      loader.close();
+      rollbackSyntheticPair(pairId, componentIds, 'Création automatique impossible (réseau).');
+    }
+  }
+
+  function removeCreatedPairFromDrafts(pairId){
+    const target = String(pairId);
+    syntheticDrafts.createdPairs = syntheticDrafts.createdPairs.filter((pair)=> String(pair.pairId) !== target);
+  }
+
+  function generatePairIdFromComponents(componentIds){
+    const emailParts = componentIds.map((sid, idx)=>{
+      const det = teamDetails[sid];
+      const member = det && Array.isArray(det.members) && det.members[0] ? det.members[0] : null;
+      const email = member && member.email ? member.email : `member-${idx+1}`;
+      return email; // Utiliser l'email original, pas la version sanitizée
+    }).filter(Boolean);
+    const base = emailParts.length ? emailParts.join('+') : componentIds.join('-');
+    let candidate = `pair:${base}`;
+    let attempt = 1;
+    // Pour éviter les collisions avec des noms similaires, ajouter un compteur si nécessaire
+    while (teamDetails[candidate] || syntheticDrafts.createdPairs.some((pair)=> String(pair.pairId) === candidate)){
+      candidate = `pair:${base}-${attempt++}`;
+    }
+    return candidate;
+  }
+
+  function createPairFromStage(){
+    if (syntheticDrafts.createStage.length < 2) return null;
+    const usedComponents = syntheticDrafts.createStage.splice(0, 2).map(String);
+    usedComponents.forEach((componentId)=>{
+      if (isManagedSplitId(componentId)){
+        setSplitMemberStatus(componentId, 'paired');
+      } else {
+        const rec = syntheticDrafts.singles[componentId] || { status: 'available' };
+        rec.status = 'paired';
+        syntheticDrafts.singles[componentId] = rec;
+      }
+    });
+    const pairId = generatePairIdFromComponents(usedComponents);
+    const members = usedComponents.flatMap((componentId)=>{
+      const det = teamDetails[componentId];
+      if (!det || !Array.isArray(det.members)) return [];
+      return det.members.map((member)=> ({ ...member }));
+    });
+    const pairDetails = {
+      id: pairId,
+      size: members.length || usedComponents.length,
+      team_diet: null,
+      course_preference: null,
+      can_host_main: members.some((m)=> m && m.can_host_main),
+      payment: { status: 'not_applicable' },
+      members,
+      synthetic_kind: 'pair',
+      synthetic_from_split_ids: usedComponents.slice(),
+    };
+    teamDetails[pairId] = pairDetails;
+    recordSyntheticTempId(pairId);
+    syntheticDrafts.createdPairs.push({
+      pairId,
+      componentIds: usedComponents.slice(),
+      label: computeTeamLabel(pairDetails, pairId),
+    });
+    refreshSplitMemberStates();
+    renderMatchDetailsBoard();
+    updateSyntheticManagementPanel();
+    autoPersistSyntheticPair(pairId, usedComponents.slice());
+    return pairId;
+  }
+
+  function isManagedSplitId(splitId){
+    return Object.prototype.hasOwnProperty.call(syntheticDrafts.splitMembers, splitId);
+  }
+
+  function isManagedPairId(pairId){
+    return syntheticDrafts.createdPairs.some((pair)=> String(pair.pairId) === String(pairId));
+  }
+
+  function renderSyntheticCreateStage(container){
+    if (!container) return;
+    container.innerHTML = '';
+    if (!syntheticDrafts.createStage.length){
+      const empty = document.createElement('div');
+      empty.className = 'synthetic-stage-empty';
+      empty.textContent = 'Glissez un participant séparé ici pour commencer une nouvelle équipe.';
+      container.appendChild(empty);
+      return;
+    }
+    syntheticDrafts.createStage.forEach((splitId)=>{
+  const card = renderTeamCard(splitId);
+      card.dataset.phase = 'unplaced';
+      card.dataset.groupIdx = '-1';
+      card.dataset.role = 'unplaced';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'synthetic-stage-item';
+      wrapper.appendChild(card);
+      container.appendChild(wrapper);
+    });
+  }
+
+  function listAvailableSyntheticParticipants(){
+    const items = [];
+    Object.values(syntheticDrafts.splits).forEach((entry)=>{
+      if (!entry || !Array.isArray(entry.members)) return;
+      entry.members.forEach((memberRec)=>{
+        const status = memberRec && memberRec.status ? memberRec.status : 'available';
+        if (status === 'available'){
+          items.push(String(memberRec.splitId));
+        }
+      });
+    });
+    Object.entries(syntheticDrafts.singles).forEach(([teamId, info])=>{
+      // Ne pas lister les équipes originales qui ont été séparées
+      if (info && info.originalTeamSplit === true) return;
+      
+      const status = info && info.status ? info.status : 'available';
+      if (status === 'available'){
+        items.push(String(teamId));
+      }
+    });
+    return items;
+  }
+
+  function renderSyntheticAvailableParticipants(container){
+    if (!container) return;
+    container.innerHTML = '';
+    const availableIds = listAvailableSyntheticParticipants();
+    if (!availableIds.length){
+      const empty = document.createElement('div');
+      empty.className = 'synthetic-stage-empty';
+      empty.textContent = 'Aucun participant disponible pour le moment.';
+      container.appendChild(empty);
+      return;
+    }
+    availableIds.sort().forEach((tid)=>{
+      const card = renderTeamCard(tid);
+      card.dataset.phase = 'unplaced';
+      card.dataset.groupIdx = '-1';
+      card.dataset.role = 'unplaced';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'synthetic-available-item';
+      wrapper.appendChild(card);
+      container.appendChild(wrapper);
+    });
+  }
 
   async function ensureCsrf(){
     try{
@@ -86,19 +642,68 @@
     return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
   }
 
+  function toTimeInputValue(v){
+    if (!v && v !== 0) return '';
+    if (typeof v === 'string'){
+      const txt = v.trim();
+      if (!txt) return '';
+      const simple = txt.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:([+-]\d{2}:?\d{2})|Z)?$/i);
+      if (simple){
+        const hh = simple[1].padStart(2, '0');
+        const mm = simple[2].padStart(2, '0');
+        return `${hh}:${mm}`;
+      }
+      const isoTime = txt.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?(?:([+-]\d{2}:?\d{2})|Z)?$/i);
+      if (isoTime){
+        const hhmm = isoTime[2] || '';
+        if (hhmm){
+          const [hh, mm] = hhmm.split(':');
+          return `${hh.padStart(2,'0')}:${mm.padStart(2,'0')}`;
+        }
+      }
+      const normalized = txt.startsWith('T') ? `1970-01-01${txt}` : (txt.includes('T') ? txt : `1970-01-01T${txt}`);
+      const parsed = Date.parse(normalized);
+      if (!Number.isNaN(parsed)){
+        const d = new Date(parsed);
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        return `${hh}:${mm}`;
+      }
+      return '';
+    }
+    if (v instanceof Date){
+      const hh = String(v.getHours()).padStart(2, '0');
+      const mm = String(v.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+    if (typeof v === 'number' && Number.isFinite(v)){
+      const totalMinutes = Math.floor(v / 60);
+      const hh = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
+      const mm = String(totalMinutes % 60).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+    return '';
+  }
+
   function setForm(ev){
     const f = $('#create-event-form');
     const titleInput = f.querySelector('input[name="title"]');
     if (titleInput) titleInput.value = ev.title || '';
     f.city.value = ev.city || '';
     f.date.value = toDateInputValue(ev.date);
-    f.start_at.value = toDateTimeLocalInputValue(ev.start_at);
+  f.start_at.value = toTimeInputValue(ev.start_at);
     f.registration_deadline.value = toDateTimeLocalInputValue(ev.registration_deadline);
+    // per-event meal times (HH:MM) — optional
+    if (f.appetizer_time) f.appetizer_time.value = ev.appetizer_time || '';
+    if (f.main_time) f.main_time.value = ev.main_time || '';
+    if (f.dessert_time) f.dessert_time.value = ev.dessert_time || '';
     if (f.payment_deadline) f.payment_deadline.value = toDateTimeLocalInputValue(ev.payment_deadline);
     f.capacity.value = ev.capacity != null ? String(ev.capacity) : '';
     f.fee_cents.value = ev.fee_cents != null ? String(ev.fee_cents) : '';
     f.valid_zip_codes.value = Array.isArray(ev.valid_zip_codes) ? ev.valid_zip_codes.join(', ') : '';
-    f.after_party_address.value = (ev.after_party_location && ev.after_party_location.address_public) ? ev.after_party_location.address_public : '';
+    const afterPartyLocation = ev.after_party_location || ev.location || null;
+    const afterPartyAddress = afterPartyLocation && (afterPartyLocation.address_public || afterPartyLocation.address || '');
+    f.after_party_address.value = afterPartyAddress || '';
     f.extra_info.value = ev.extra_info || '';
     f.refund_on_cancellation.checked = !!ev.refund_on_cancellation;
     f.chat_enabled.checked = !!ev.chat_enabled;
@@ -374,6 +979,22 @@
 
   function readForm(){
     const f = $('#create-event-form');
+    Object.entries(syntheticDrafts.singles).forEach(([teamId, record])=>{
+      const sid = String(teamId);
+      if (!record || typeof record !== 'object'){
+        syntheticDrafts.singles[teamId] = { status: 'available' };
+        return;
+      }
+      if (pairedSet.has(sid)){
+        record.status = 'paired';
+      } else if (stagedSet.has(sid)){
+        record.status = 'staged';
+      } else if (placedSet.has(sid)){
+        record.status = 'placed';
+      } else {
+        record.status = 'available';
+      }
+    });
     const fd = new FormData(f);
     const payload = {
       title: fd.get('title'),
@@ -389,8 +1010,17 @@
       chat_enabled: fd.get('chat_enabled') ? true : false,
       valid_zip_codes: (fd.get('valid_zip_codes')||'').split(',').map(s=>s.trim()).filter(Boolean),
     };
-    const addr = fd.get('after_party_address');
-    if (addr) payload.after_party_location = { address: addr };
+    // optional meal phase times (stored as strings like "HH:MM")
+    const appetizer = (fd.get('appetizer_time') || '').trim();
+    if (appetizer) payload.appetizer_time = appetizer;
+    const main = (fd.get('main_time') || '').trim();
+    if (main) payload.main_time = main;
+    const dessert = (fd.get('dessert_time') || '').trim();
+    if (dessert) payload.dessert_time = dessert;
+    const afterPartyAddress = (fd.get('after_party_address') || '').trim();
+    if (afterPartyAddress) {
+      payload.after_party_location = { address: afterPartyAddress };
+    }
     return payload;
   }
 
@@ -428,6 +1058,15 @@
 
     const nameRow = document.createElement('div');
     nameRow.className = 'flex items-center gap-1 font-semibold text-sm flex-wrap';
+
+    const isSynthetic = isSyntheticId(tid);
+    if (isSynthetic){
+      const badge = document.createElement('span');
+      badge.className = 'synthetic-indicator';
+      badge.textContent = '✳';
+      badge.title = 'Équipe synthétique (éditable)';
+      nameRow.appendChild(badge);
+    }
 
     const members = Array.isArray(det.members) ? det.members : [];
     if (members.length){
@@ -510,7 +1149,6 @@
     mapBtn.title = 'View path';
     mapBtn.dataset.teamId = tid;
     mapBtn.textContent = '🗺️';
-
     el.appendChild(infoWrap);
     el.appendChild(mapBtn);
     return el;
@@ -535,6 +1173,37 @@
       }
     });
     root.dataset.nameBound = '1';
+  }
+  function bindSyntheticTeamButtons(){
+    if (bindSyntheticTeamButtons._bound) return;
+    document.addEventListener('click', async (ev)=>{
+      const btn = ev.target.closest('.team-create-btn');
+      if (!btn) return;
+      ev.preventDefault();
+      const tid = btn.dataset.teamId;
+      if (!tid) return;
+      const evId = $('#matching-event-select') ? $('#matching-event-select').value : null;
+      if (!evId){
+        toast('Sélectionnez un événement.', { type: 'warning' });
+        return;
+      }
+      const proceed = await showDialogConfirm(`Créer une équipe persistante à partir de ${tid}?`, { title: 'Créer équipe', confirmLabel: 'Créer', tone: 'warning' });
+      if (!proceed) return;
+      const t = toastLoading('Création en cours...');
+      const res = await apiFetch(`/admin/teams/create-from-synthetic?event_id=${encodeURIComponent(evId)}&synthetic_id=${encodeURIComponent(tid)}`, { method: 'POST' });
+      t.close();
+      if (res.ok){
+        toast('Équipe créée.', { type: 'success' });
+        removeCreatedPairFromDrafts(tid);
+        updateSyntheticManagementPanel();
+        await loadMatchDetails(detailsVersion);
+        await loadProposals();
+      } else {
+        const txt = await res.text().catch(()=> 'Erreur');
+        await showDialogAlert(`Échec: ${txt}`, { title: 'Erreur', tone: 'danger' });
+      }
+    });
+    bindSyntheticTeamButtons._bound = true;
   }
 
   function bindWeightInfo(){
@@ -755,28 +1424,32 @@
   function renderMatchDetailsBoard(){
     const box = $('#match-details');
     const msg = $('#match-details-msg');
-    if (!detailsVersion){ 
-      box.innerHTML = ''; 
-      msg.textContent = 'No proposal loaded yet.'; 
-      // Hide/remove floating panels when no match loaded
-      ['appetizer', 'main', 'dessert'].forEach(phase => {
-        const panel = $(`#unplaced-${phase}-panel`);
-        if (panel) panel.remove();
+    if (!box || !msg) return;
+
+    if (!detailsVersion){
+      box.innerHTML = '';
+      msg.textContent = 'No proposal loaded yet.';
+      removeSyntheticManagementPanel();
+      ['appetizer','main','dessert'].forEach((phase)=>{
+        const panel = document.getElementById(`unplaced-${phase}-panel`);
+        if (panel){
+          panel.classList.add('hidden');
+          panel.classList.remove('visible');
+        }
       });
-      return; 
+      return;
     }
-    msg.textContent = unsaved ? 'You have unsaved changes. Metrics auto-updated from preview (not saved yet).' : '';
-    const by = groupsByPhase();
+
+    refreshSplitMemberStates();
+
     const phases = ['appetizer','main','dessert'];
-    
-    // Use local metrics for accurate real-time counts after drag & drop
-    const localMetrics = calculateLocalMetrics();
-    const phaseSummary = localMetrics.phase_summary || {};
-    
-    const totalAssigned = localMetrics.assigned_participant_count || 0;
-    const totalExpected = localMetrics.total_participant_count || 0;
-    const totalMissing = Math.max(0, totalExpected - totalAssigned);
+    const by = groupsByPhase();
+
     box.innerHTML = '';
+    msg.textContent = unsaved
+      ? 'You have unsaved changes. Metrics reflect the current preview and are not saved yet.'
+      : '';
+
     const normalizeList = (value)=>{
       const arr = Array.isArray(value) ? value : [];
       const out = [];
@@ -790,11 +1463,13 @@
       });
       return out;
     };
+
     const teamAllergies = (tid)=>{
       if (tid == null) return [];
       const det = teamDetails[String(tid)] || {};
       return normalizeList(det.allergies);
     };
+
     const hostFallbackAllergies = (tid)=>{
       if (tid == null) return [];
       const det = teamDetails[String(tid)] || {};
@@ -802,12 +1477,50 @@
       if (hostVals.length) return hostVals;
       return normalizeList(det.allergies);
     };
-    if (totalExpected){
-      const headline = document.createElement('div');
-      headline.className = 'mb-3 text-sm text-[#1f2937]';
-      headline.textContent = `Assigned participants: ${totalAssigned}/${totalExpected}${totalMissing ? ` (missing ${totalMissing})` : ''}`;
-      box.appendChild(headline);
+
+    const remoteMetrics = (detailsMetrics && typeof detailsMetrics === 'object') ? detailsMetrics : {};
+    const localMetrics = calculateLocalMetrics();
+
+    const totalParticipants = Number.isFinite(localMetrics.total_participant_count)
+      ? localMetrics.total_participant_count
+      : (Number.isFinite(remoteMetrics.total_participant_count) ? Number(remoteMetrics.total_participant_count) : null);
+    const assignedParticipants = Number.isFinite(localMetrics.assigned_participant_count)
+      ? localMetrics.assigned_participant_count
+      : (Number.isFinite(remoteMetrics.assigned_participant_count) ? Number(remoteMetrics.assigned_participant_count) : null);
+
+    const phaseSummaryRemote = remoteMetrics.phase_summary || {};
+    const phaseSummaryLocal = localMetrics.phase_summary || {};
+    const phaseSummary = phases.reduce((acc, phase)=>{
+      acc[phase] = Object.assign({}, phaseSummaryRemote[phase] || {}, phaseSummaryLocal[phase] || {});
+      return acc;
+    }, {});
+
+    const headline = document.createElement('div');
+    headline.className = 'mb-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[#1f2937]';
+
+    const totalsBlock = document.createElement('div');
+    totalsBlock.className = 'flex flex-wrap items-center gap-3';
+    const totalLabel = document.createElement('div');
+    totalLabel.className = 'flex items-baseline gap-2';
+    totalLabel.innerHTML = `
+      <span class="text-xs uppercase tracking-wide text-[#64748b]">Total participants</span>
+      <span class="text-base font-semibold text-[#111827]">${totalParticipants != null ? totalParticipants : '—'}</span>`;
+    totalsBlock.appendChild(totalLabel);
+    const assignedLabel = document.createElement('div');
+    assignedLabel.className = 'text-xs text-[#64748b]';
+    assignedLabel.textContent = `Assigned: ${assignedParticipants != null ? assignedParticipants : '—'}`;
+    totalsBlock.appendChild(assignedLabel);
+    headline.appendChild(totalsBlock);
+
+    if (unsaved){
+      const notice = document.createElement('div');
+      notice.className = 'text-xs text-[#b45309] font-medium';
+      notice.textContent = 'Preview metrics include unsaved adjustments.';
+      headline.appendChild(notice);
     }
+
+    box.appendChild(headline);
+
     const summaryKeys = phases.filter(phase=> Object.prototype.hasOwnProperty.call(phaseSummary, phase));
     if (summaryKeys.length){
       const summaryGrid = document.createElement('div');
@@ -828,21 +1541,25 @@
         const unitsAssigned = Number.isFinite(unitsAssignedVal) ? unitsAssignedVal : null;
         const expectedUnitsVal = Number(info.expected_units);
         const expectedUnits = Number.isFinite(expectedUnitsVal) ? expectedUnitsVal : null;
+
         const card = document.createElement('div');
         const hasGap = (missing != null && missing > 0) || (expected != null && assigned != null && assigned < expected);
         card.className = hasGap
           ? 'rounded-xl border border-[#fecaca] bg-[#fef2f2] p-3 text-sm text-[#7f1d1d]'
           : 'rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-3 text-sm text-[#1f2937]';
+
         const title = document.createElement('div');
         title.className = 'uppercase text-[11px] font-semibold text-[#475569] tracking-wide';
         title.textContent = phase;
         card.appendChild(title);
+
         const participantsLine = document.createElement('div');
         participantsLine.className = 'mt-1 text-lg font-semibold';
-        const assignedLabel = assigned != null ? assigned : '?';
-        const expectedLabel = expected != null ? expected : '?';
-        participantsLine.textContent = `${assignedLabel}/${expectedLabel} participants`;
+        const assignedLabelText = assigned != null ? assigned : '?';
+        const expectedLabelText = expected != null ? expected : '?';
+        participantsLine.textContent = `${assignedLabelText}/${expectedLabelText} participants`;
         card.appendChild(participantsLine);
+
         const unitLine = document.createElement('div');
         unitLine.className = 'text-xs text-[#4a5568]';
         const unitsAssignedLabel = unitsAssigned != null ? unitsAssigned : '?';
@@ -850,6 +1567,7 @@
         const groupLabel = groupsCount != null ? groupsCount : '?';
         unitLine.textContent = `Units: ${unitsAssignedLabel}/${expectedUnitsLabel} · Groups: ${groupLabel}`;
         card.appendChild(unitLine);
+
         if (hasGap){
           const gapLine = document.createElement('div');
           gapLine.className = 'mt-1 text-xs font-medium';
@@ -859,41 +1577,52 @@
             : 'Participant coverage incomplete';
           card.appendChild(gapLine);
         }
+
         summaryGrid.appendChild(card);
       });
       box.appendChild(summaryGrid);
     }
-    // Legend (payment coloring)
+
+    ensureSyntheticStyles();
+
     const legend = document.createElement('div');
     legend.className = 'flex flex-wrap gap-4 items-center text-[11px] bg-[#f8fafc] p-2 rounded-lg border border-[#e2e8f0]';
     legend.innerHTML = `
       <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#dc2626]"></span> unpaid</div>
       <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#16a34a]"></span> paid</div>
-      <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#9ca3af]"></span> n/a</div>`;
+      <div class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-[#9ca3af]"></span> n/a</div>
+      <div class="flex items-center gap-2"><span class="synthetic-indicator" style="width:16px;height:16px;font-size:10px;">✳</span> équipe synthétique (éditable)</div>`;
     box.appendChild(legend);
+
     phases.forEach(phase=>{
       const section = document.createElement('div');
       section.className = 'phase-section';
       section.id = `phase-section-${phase}`;
       section.innerHTML = `<div class="font-semibold mb-2 capitalize">${phase}</div>`;
       const wrap = document.createElement('div'); wrap.className = 'grid grid-cols-1 md:grid-cols-3 gap-3';
-      (by[phase]||[]).forEach((g, localIdx)=>{
+      (by[phase]||[]).forEach((g)=>{
         const card = document.createElement('div');
         card.className = 'p-3 rounded-xl border border-[#f0f4f7] bg-[#fcfcfd] group relative';
-        // host
+
         const hostZone = document.createElement('div'); hostZone.className = 'host-zone mb-2 p-2 rounded border border-dashed bg-white/40';
         hostZone.dataset.phase = phase; hostZone.dataset.groupIdx = String(g._idx); hostZone.dataset.role = 'host';
         hostZone.innerHTML = '<div class="text-xs text-[#4a5568] mb-1 flex items-center justify-between"><span>Host</span></div>';
         const hostTeamId = g.host_team_id != null ? String(g.host_team_id) : null;
         const hostAllergies = normalizeList(Array.isArray(g.host_allergies) && g.host_allergies.length ? g.host_allergies : hostFallbackAllergies(hostTeamId));
         const hostCard = g.host_team_id ? renderTeamCard(String(g.host_team_id)) : null;
-        if (hostCard){ hostCard.dataset.phase = phase; hostCard.dataset.groupIdx = String(g._idx); hostCard.dataset.role = 'host'; hostZone.appendChild(hostCard); }
-        // host address (public) if available
+        if (hostCard){
+          hostCard.dataset.phase = phase;
+          hostCard.dataset.groupIdx = String(g._idx);
+          hostCard.dataset.role = 'host';
+          hostZone.appendChild(hostCard);
+        }
+
         const addr = g.host_address_public || g.host_address;
         const addrEl = document.createElement('div');
         addrEl.className = 'text-[11px] text-[#4a5568] mt-1 truncate';
         addrEl.textContent = `Host address: ${addr ? addr : '—'}`;
         hostZone.appendChild(addrEl);
+
         if (hostAllergies.length){
           const allergyEl = document.createElement('div');
           allergyEl.className = 'text-[11px] text-[#334155] mt-1 truncate';
@@ -901,16 +1630,19 @@
           hostZone.appendChild(allergyEl);
         }
         card.appendChild(hostZone);
-        // guests
+
         const guestZone = document.createElement('div'); guestZone.className = 'guest-zone p-2 rounded border border-dashed min-h-10 bg-white/40';
         guestZone.dataset.phase = phase; guestZone.dataset.groupIdx = String(g._idx); guestZone.dataset.role = 'guest';
         guestZone.innerHTML = '<div class="text-xs text-[#4a5568] mb-1">Guests</div>';
         (g.guest_team_ids||[]).forEach(tid=>{
           const t = renderTeamCard(String(tid));
-          t.dataset.phase = phase; t.dataset.groupIdx = String(g._idx); t.dataset.role = 'guest';
+          t.dataset.phase = phase;
+          t.dataset.groupIdx = String(g._idx);
+          t.dataset.role = 'guest';
           guestZone.appendChild(t);
         });
         card.appendChild(guestZone);
+
         const guestUnionSet = new Set(normalizeList(g.guest_allergies_union));
         const guestMap = (g.guest_allergies && typeof g.guest_allergies === 'object') ? g.guest_allergies : {};
         Object.values(guestMap).forEach(list=>{
@@ -920,18 +1652,20 @@
           teamAllergies(tid).forEach(item=> guestUnionSet.add(item));
         });
         const guestUnion = Array.from(guestUnionSet);
+
         let uncovered = normalizeList(g.uncovered_allergies);
         if (!uncovered.length && guestUnion.length){
           const hostSet = new Set(hostAllergies);
           uncovered = guestUnion.filter(item=> !hostSet.has(item));
         }
-        // metrics line
+
         const metLine = document.createElement('div'); metLine.className = 'mt-2 text-xs text-[#4a5568]';
         const travel = (g.travel_seconds!=null) ? `${(g.travel_seconds||0).toFixed(0)}s` : '—';
         const score = (g.score!=null) ? `${(g.score||0).toFixed(1)}` : '—';
         const warns = (g.warnings && g.warnings.length) ? ` · warnings: ${g.warnings.join(', ')}` : '';
         metLine.textContent = `Travel: ${travel} · Score: ${score}${warns}`;
         card.appendChild(metLine);
+
         const allergySummary = document.createElement('div');
         allergySummary.className = 'mt-2 text-[11px] leading-snug text-[#4a5568]';
         if (guestUnion.length){
@@ -956,12 +1690,13 @@
         if (allergySummary.childNodes.length){
           card.appendChild(allergySummary);
         }
+
         wrap.appendChild(card);
       });
       section.appendChild(wrap);
       box.appendChild(section);
     });
-    // controls
+
     const ctrl = document.createElement('div'); ctrl.className = 'flex gap-2 items-center flex-wrap';
     ctrl.innerHTML = `
       <button id="btn-save-groups" class="bg-[#008080] text-white px-3 py-2 rounded-xl text-sm font-semibold hover:bg-[#00b3b3]">Save changes</button>
@@ -972,7 +1707,11 @@
     `;
     if (unsaved){
       const releaseBtn = ctrl.querySelector('#btn-release-groups');
-      if (releaseBtn){ releaseBtn.disabled = true; releaseBtn.classList.add('opacity-60'); releaseBtn.title = 'Save changes before releasing'; }
+      if (releaseBtn){
+        releaseBtn.disabled = true;
+        releaseBtn.classList.add('opacity-60');
+        releaseBtn.title = 'Save changes before releasing';
+      }
     }
     box.appendChild(ctrl);
 
@@ -980,10 +1719,10 @@
     bindDetailsControls();
     bindTeamMapButtons();
     bindTeamNameButtons();
-    // async fetch payment issues summary
+    bindSyntheticTeamButtons();
     fetchIssuesForDetails();
-    // update floating panels with unplaced teams
     updateUnplacedTeamsPanels();
+    updateSyntheticManagementPanel();
   }
 
   function calculateLocalMetrics() {
@@ -1020,10 +1759,19 @@
     
     // Count total participants and units from REAL teams only (not synthetic pair:/split:)
     // Synthetic teams are just temporary groupings of solo participants
+    // Also exclude original teams that have been split to avoid duplication
+    const hiddenSingles = new Set(Object.entries(syntheticDrafts.singles || {}).filter(([, info])=>{
+      if (!info || typeof info !== 'object') return false;
+      // Cacher les équipes qui sont: 
+      // 1. marquées comme non disponibles (status !== 'available')
+      // 2. OU marquées comme équipes originales séparées
+      return (info.status && info.status !== 'available') || info.originalTeamSplit === true;
+    }).map(([teamId])=> String(teamId)));
+
     const allTeamIds = Object.keys(teamDetails).filter(tid => {
       // Only count real teams (not pair: or split: synthetic teams)
       return !tid.startsWith('pair:') && !tid.startsWith('split:');
-    });
+    }).filter(tid => !hiddenSingles.has(String(tid)));
     
     let totalParticipants = 0;
     let totalUnits = 0;
@@ -1299,11 +2047,17 @@
         // A team is "unplaced" in this phase if:
         // 1. It's NOT in this phase's placed list
         // 2. It's NOT part of a synthetic pair/split that is placed
+        // 3. It's NOT an original team that has been split (to avoid duplicates)
         const isPlacedInThisPhase = placedByPhase[phase].has(tid);
         const isPartOfSyntheticTeam = solosInSyntheticTeams.has(tid);
         
+        // Vérifier si c'est une équipe originale qui a été séparée
+        const singleInfo = syntheticDrafts.singles[tid];
+        const isOriginalTeamSplit = singleInfo && singleInfo.originalTeamSplit === true;
+        
         // Always surface missing participants, regardless of original course preference.
-        if (!isPlacedInThisPhase && !isPartOfSyntheticTeam) {
+        // Mais exclure les équipes originales qui ont été séparées
+        if (!isPlacedInThisPhase && !isPartOfSyntheticTeam && !isOriginalTeamSplit) {
           unplacedByPhase[phase].push(tid);
         }
       });
@@ -1410,6 +2164,9 @@
     
     // Update panel positions based on scroll
     updateFloatingPanelPositions();
+
+    // Refresh synthetic management panel alongside unplaced data
+    updateSyntheticManagementPanel();
   }
 
   function updateFloatingPanelPositions() {
@@ -1471,6 +2228,243 @@
       if (scrollTimeout) clearTimeout(scrollTimeout);
       scrollTimeout = setTimeout(updateFloatingPanelPositions, 10);
     }, { passive: true });
+  }
+
+  function removeSyntheticManagementPanel(){
+    const panel = document.getElementById('synthetic-management-panel');
+    if (panel){
+      panel.remove();
+    }
+    syntheticDrafts.splits = {};
+    syntheticDrafts.splitMembers = {};
+    syntheticDrafts.createStage = [];
+    syntheticDrafts.createdPairs = [];
+    syntheticDrafts.singles = {};
+    cleanupTemporarySyntheticTeams();
+  }
+
+  function renderSyntheticMemberList(det){
+    const members = Array.isArray(det.members) ? det.members : [];
+    if (!members.length) return null;
+    const list = document.createElement('ul');
+    list.className = 'text-xs text-[#4a5568] list-disc pl-4 space-y-1';
+    members.forEach(member => {
+      const item = document.createElement('li');
+      item.textContent = formatMemberName(member) || (member.email || 'Participant');
+      list.appendChild(item);
+    });
+    return list;
+  }
+
+  function syntheticPanelZoneFromEvent(ev){
+    if (!ev || !ev.target || typeof ev.target.closest !== 'function') return null;
+    return ev.target.closest('.synthetic-drop-zone');
+  }
+
+  function handleSyntheticPanelDragOver(ev){
+    const zone = syntheticPanelZoneFromEvent(ev);
+    if (!zone) return;
+    ev.preventDefault();
+    zone.classList.add('drag-active');
+    try { ev.dataTransfer.dropEffect = 'move'; } catch (_) {}
+  }
+
+  function handleSyntheticPanelDragLeave(ev){
+    const zone = syntheticPanelZoneFromEvent(ev);
+    if (!zone) return;
+    zone.classList.remove('drag-active');
+  }
+
+  function handleSyntheticPanelDrop(ev){
+    const zone = syntheticPanelZoneFromEvent(ev);
+    if (!zone) return;
+    ev.preventDefault();
+    zone.classList.remove('drag-active');
+    const action = zone.dataset.action;
+    if (!action) return;
+    const raw = (ev.dataTransfer && ev.dataTransfer.getData) ? ev.dataTransfer.getData('text/plain') : '';
+    const tid = raw ? String(raw).trim() : '';
+    if (!tid) return;
+
+    if (action === 'split'){
+      const entry = ensureSyntheticSplitDraft(tid);
+      if (!entry){
+        toast("Impossible de préparer cette équipe (participants manquants).", { type: 'warning' });
+        return;
+      }
+      // IMPORTANT: Retire l'équipe originale de tous les groupes pour éviter les doublons
+      const removed = removeTeamFromGroups(tid);
+      if (removed){
+        unsaved = true;
+      }
+      
+      // Marque l'équipe originale comme "processed" pour ne plus l'afficher dans les panneaux unplaced
+      // On crée une entrée dans singles avec status 'paired' pour la cacher
+      syntheticDrafts.singles[tid] = { status: 'paired', originalTeamSplit: true };
+      
+      refreshSplitMemberStates();
+      renderMatchDetailsBoard();
+      updateSyntheticManagementPanel();
+      toast('Participants disponibles pour une nouvelle combinaison.', { type: 'success' });
+      return;
+    }
+
+    if (action === 'create'){
+      let stageId = tid;
+      if (isManagedSplitId(stageId)){
+        const status = getSplitMemberStatus(stageId);
+        if (status === 'paired'){
+          toast('Ce participant est déjà utilisé dans une nouvelle équipe.', { type: 'info' });
+          return;
+        }
+        if (syntheticDrafts.createStage.includes(stageId)){
+          toast('Participant déjà présent dans la zone de création.', { type: 'info' });
+          return;
+        }
+        if (status === 'placed'){
+          const removed = removeTeamFromGroups(stageId);
+          if (removed){
+            unsaved = true;
+            renderMatchDetailsBoard();
+            refreshSplitMemberStates();
+          }
+        }
+        syntheticDrafts.createStage.push(stageId);
+        setSplitMemberStatus(stageId, 'staged');
+      } else {
+        const source = teamDetails[stageId];
+        if (!source){
+          toast('Impossible de trouver ce participant.', { type: 'warning' });
+          return;
+        }
+        const memberCount = Array.isArray(source.members) ? source.members.length : (source.size || 0) || 0;
+        if (memberCount > 1){
+          toast('Séparez d’abord cette équipe pour récupérer des participants individuels.', { type: 'info' });
+          return;
+        }
+        const singleStatus = (syntheticDrafts.singles[stageId] && syntheticDrafts.singles[stageId].status) || 'available';
+        if (singleStatus === 'paired'){
+          toast('Ce participant est déjà utilisé dans une nouvelle équipe.', { type: 'info' });
+          return;
+        }
+        if (syntheticDrafts.createStage.includes(stageId)){
+          toast('Participant déjà présent dans la zone de création.', { type: 'info' });
+          return;
+        }
+        if (isTeamIdPlaced(stageId)){
+          const removed = removeTeamFromGroups(stageId);
+          if (removed){
+            unsaved = true;
+            renderMatchDetailsBoard();
+            refreshSplitMemberStates();
+          }
+        }
+        syntheticDrafts.singles[stageId] = { status: 'staged' };
+        syntheticDrafts.createStage.push(stageId);
+      }
+
+      updateSyntheticManagementPanel();
+      toast('Participant ajouté à la zone de création.', { type: 'success' });
+      if (syntheticDrafts.createStage.length >= 2){
+        createPairFromStage();
+      }
+      return;
+    }
+  }
+
+  function updateSyntheticManagementPanel(){
+    if (!detailsVersion){
+      removeSyntheticManagementPanel();
+      return;
+    }
+    ensureSyntheticStyles();
+    refreshSplitMemberStates();
+
+    const syntheticIds = Object.keys(teamDetails || {}).filter(id => id.startsWith('pair:') || id.startsWith('split:'));
+    const pairIds = syntheticIds.filter(id => id.startsWith('pair:')).sort();
+    const splitIds = syntheticIds.filter(id => id.startsWith('split:')).sort();
+    const singleDraftIds = Object.keys(syntheticDrafts.singles || {});
+
+    let panel = document.getElementById('synthetic-management-panel');
+    if (!panel){
+      panel = document.createElement('div');
+      panel.id = 'synthetic-management-panel';
+      panel.className = 'floating-panel synthetic-tools-panel';
+      document.body.appendChild(panel);
+    }
+    panel.classList.remove('hidden');
+    panel.classList.add('visible');
+    panel.style.top = '120px';
+    panel.style.left = '20px';
+    panel.style.right = 'auto';
+    panel.style.width = '300px';
+    panel.style.maxHeight = '75vh';
+    panel.style.overflowY = 'auto';
+
+    const header = document.createElement('div');
+    header.className = 'floating-panel-header';
+    header.innerHTML = '<span>Gestion des équipes synthétiques</span>';
+
+    const content = document.createElement('div');
+    content.className = 'floating-panel-content space-y-4';
+
+    const dropZones = document.createElement('div');
+    dropZones.className = 'space-y-3';
+
+    const splitZone = document.createElement('div');
+    splitZone.className = 'synthetic-drop-zone';
+    splitZone.dataset.action = 'split';
+    splitZone.innerHTML = `
+      <div class="synthetic-panel-section-title">Séparation</div>
+      <div class="synthetic-drop-hint">Glissez ici une équipe de plusieurs personnes pour préparer une séparation instantanée.</div>
+    `;
+    ['dragenter', 'dragover'].forEach(evt => splitZone.addEventListener(evt, handleSyntheticPanelDragOver));
+    splitZone.addEventListener('dragleave', handleSyntheticPanelDragLeave);
+    splitZone.addEventListener('drop', handleSyntheticPanelDrop);
+    dropZones.appendChild(splitZone);
+
+    const createZone = document.createElement('div');
+    createZone.className = 'synthetic-drop-zone';
+    createZone.dataset.action = 'create';
+    createZone.innerHTML = `
+      <div class="synthetic-panel-section-title">Création</div>
+      <div class="synthetic-drop-hint">Glissez ici un participant individuel (séparé ou déjà seul) pour former une nouvelle équipe.</div>
+      <div class="synthetic-create-stage"></div>
+    `;
+    ['dragenter', 'dragover'].forEach(evt => createZone.addEventListener(evt, handleSyntheticPanelDragOver));
+    createZone.addEventListener('dragleave', handleSyntheticPanelDragLeave);
+    createZone.addEventListener('drop', handleSyntheticPanelDrop);
+    const stageContainer = createZone.querySelector('.synthetic-create-stage');
+    renderSyntheticCreateStage(stageContainer);
+    dropZones.appendChild(createZone);
+
+    content.appendChild(dropZones);
+
+    const availableSection = document.createElement('div');
+    availableSection.className = 'space-y-2';
+    availableSection.innerHTML = `<div class="synthetic-panel-section-title">Participants disponibles</div>`;
+    const availableList = document.createElement('div');
+    availableList.className = 'synthetic-available-list';
+    renderSyntheticAvailableParticipants(availableList);
+    availableSection.appendChild(availableList);
+    content.appendChild(availableSection);
+
+    const availability = document.createElement('div');
+    availability.className = 'text-[11px] text-[#64748b] bg-[#f8fafc] rounded-lg border border-[#e2e8f0] p-3';
+    const availableParticipantCount = listAvailableSyntheticParticipants().length;
+    availability.innerHTML = `
+      <div class="synthetic-panel-section-title">Disponibles</div>
+      <div>Équipes synthétiques : ${pairIds.length}</div>
+      <div>Participants séparés : ${splitIds.length}</div>
+      <div>Participants solos suivis : ${singleDraftIds.length}</div>
+      <div>Participants disponibles : ${availableParticipantCount}</div>
+      <div>En préparation (zone de création) : ${syntheticDrafts.createStage.length}</div>
+    `;
+    content.appendChild(availability);
+
+    panel.innerHTML = '';
+    panel.appendChild(header);
+    panel.appendChild(content);
   }
 
   const participantsModule = (function(){
@@ -2075,7 +3069,7 @@
       // delegated drop on floating panels (to remove teams from matching)
       root.addEventListener('drop', async (ev)=>{
         const panelContent = ev.target && (ev.target.closest && ev.target.closest('.floating-panel-content'));
-        if (!panelContent || !root.contains(panelContent)) return;
+        if (!panelContent) return;
         ev.preventDefault(); ev.stopPropagation();
         
         if (!dragData.teamId) return;
@@ -2202,6 +3196,16 @@
     const t = toastLoading('Loading matching details...');
     // show spinner message
     $('#match-details').innerHTML = '<div class="flex items-center gap-2 text-sm"><span class="spinner"></span> Loading details...</div>';
+    
+    // Préserver les équipes synthétiques locales (split: et pair:) AVANT de faire la requête
+    // pour capturer l'état actuel (après les éventuelles suppressions)
+    const syntheticTeamsBeforeLoad = {};
+    Object.entries(teamDetails || {}).forEach(([tid, details]) => {
+      if (tid.startsWith('split:') || tid.startsWith('pair:')) {
+        syntheticTeamsBeforeLoad[tid] = details;
+      }
+    });
+    
     const res = await apiFetch(url);
   if (!res.ok){ detailsMetrics = {}; $('#match-details').innerHTML = ''; $('#match-details-msg').textContent = 'No details available.'; t.update('No details.'); t.close(); return; }
   const data = await res.json().catch(()=>null);
@@ -2209,7 +3213,15 @@
     detailsVersion = data.version;
     detailsGroups = data.groups || [];
   detailsMetrics = data.metrics || {};
+    
+    // Charger les nouvelles données du serveur
     teamDetails = data.team_details || {};
+    
+    // Restaurer UNIQUEMENT les équipes synthétiques qui existaient avant le chargement
+    Object.entries(syntheticTeamsBeforeLoad).forEach(([tid, details]) => {
+      teamDetails[tid] = details;
+    });
+    
     unsaved = false;
     updateTeamNameCache(detailsVersion, teamDetails);
     renderMatchDetailsBoard();
@@ -2266,7 +3278,7 @@
           await showDialogAlert(`Failed to set status: ${t}`, { tone: 'danger', title: 'Update status failed' });
         }
       } else if (action === 'edit'){
-        const r = await apiFetch(`/events/${id}`);
+  const r = await apiFetch(`/events/${id}?anonymise=false`);
         if (!r.ok) return;
         const ev = await r.json().catch(()=>null);
         if (!ev) return;
@@ -2743,9 +3755,12 @@
     const assignedParticipants = Number(metrics.assigned_participant_count || 0);
     const missingParticipants = Math.max(0, totalParticipants - assignedParticipants);
     const participantsLabel = totalParticipants ? `${assignedParticipants}/${totalParticipants}${missingParticipants ? ` (missing ${missingParticipants})` : ''}` : '—';
-      const releaseDisabled = isFinalized || (unsaved && detailsVersion === version);
-      let releaseClasses = isFinalized ? 'bg-[#9ca3af] cursor-not-allowed' : 'bg-[#1b5e20] hover:bg-[#166534]';
-      let releaseLabel = isFinalized ? 'Released' : 'Release';
+      // If there is an already finalized version, only that version's button should be actionable
+      const releaseAlreadyExists = finalizedVersion != null;
+      const releaseDisabled = (!isFinalized && releaseAlreadyExists && version !== finalizedVersion) || (unsaved && detailsVersion === version);
+      let releaseClasses = (isFinalized ? 'bg-[#e53e3e] hover:bg-[#c53030]' : 'bg-[#1b5e20] hover:bg-[#166534]');
+      // Label: finalized version shows 'Delete release' (actionable), otherwise show 'Release' or 'Save first'
+      let releaseLabel = isFinalized ? 'Delete release' : 'Release';
       if (!isFinalized && unsaved && detailsVersion === version){
         releaseClasses = 'bg-[#9ca3af] cursor-not-allowed';
         releaseLabel = 'Save first';
@@ -2758,7 +3773,7 @@
         ${metaParts.length ? `<div class="mt-1 text-xs text-[#475569]">${metaParts.join(' · ')}</div>` : ''}
         <div class="mt-2 flex flex-wrap gap-2">
           <button data-view="${version}" class="bg-[#4a5568] text-white rounded-xl px-3 py-1 text-sm">${isCurrent ? 'Viewing' : 'View'}</button>
-          <button data-release="${version}" class="${releaseClasses} text-white rounded-xl px-3 py-1 text-sm" ${releaseDisabled ? 'disabled' : ''}>${releaseLabel}</button>
+          <button data-release="${version}" data-finalized="${isFinalized ? '1' : '0'}" class="${releaseClasses} text-white rounded-xl px-3 py-1 text-sm" ${releaseDisabled ? 'disabled' : ''}>${releaseLabel}</button>
           <button data-issues="${version}" class="bg-[#008080] text-white rounded-xl px-3 py-1 text-sm">View issues</button>
           <button data-delete="${version}" class="bg-[#e53e3e] text-white rounded-xl px-3 py-1 text-sm">Delete</button>
         </div>`;
@@ -2783,11 +3798,41 @@
         clearBtnLoading(viewBtn);
       } else if (releaseBtn){
         const v = Number(releaseBtn.getAttribute('data-release'));
-        if (unsaved && detailsVersion === v){
-          toast('Save changes before releasing this proposal.', { type: 'warning' });
-          return;
+        const finalizedAttr = releaseBtn.getAttribute('data-finalized');
+        // If this is a finalized version, offer a less-destructive "unrelease" action
+        if (finalizedAttr === '1'){
+          const confirmed = await showDialogConfirm(`Unrelease proposal v${v}? This will remove generated plans but keep the proposal.`, {
+            title: `Unrelease proposal v${v}`,
+            confirmLabel: 'Unrelease',
+            tone: 'danger',
+            destructive: true,
+          });
+          if (!confirmed) return;
+          setBtnLoading(releaseBtn, 'Unreleasing...');
+          const t = toastLoading('Unreleasing...');
+          try {
+            const r = await apiFetch(`/matching/${evId}/unrelease?version=${v}`, { method: 'POST' });
+            if (r.ok){
+              t.update('Unreleased');
+              await loadProposals();
+              if (detailsVersion === v) await loadMatchDetails(v);
+            } else {
+              const tx = await r.text().catch(()=> 'Unrelease failed');
+              await showDialogAlert(`Failed to unrelease: ${tx}`, { tone: 'danger', title: 'Unrelease failed' });
+            }
+          } catch (err){
+            await showDialogAlert(`Failed to unrelease: ${err?.message || err}`, { tone: 'danger', title: 'Unrelease failed' });
+          } finally {
+            t.close();
+            clearBtnLoading(releaseBtn);
+          }
+        } else {
+          if (unsaved && detailsVersion === v){
+            toast('Save changes before releasing this proposal.', { type: 'warning' });
+            return;
+          }
+          await confirmAndRelease(evId, v, releaseBtn);
         }
-        await confirmAndRelease(evId, v, releaseBtn);
       } else if (issuesBtn){
         const v = Number(issuesBtn.getAttribute('data-issues'));
         
@@ -2929,7 +3974,15 @@
   }
   function clearLayers(layers){ layers.forEach(l=>{ try{ l.remove(); } catch(e){} }); layers.length = 0; }
 
-  function phaseColor(phase){ return phase==='appetizer' ? '#059669' : (phase==='main' ? '#f97316' : '#f59e0b'); }
+  function phaseColor(phase){
+    switch (phase){
+      case 'appetizer': return '#059669';
+      case 'main': return '#f97316';
+      case 'dessert': return '#f59e0b';
+      case 'after_party': return '#7c3aed';
+      default: return '#6b7280';
+    }
+  }
 
   function drawLegend(container){
     const el = container || $('#map-legend'); if (!el) return;

@@ -31,6 +31,16 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
     if not event:
         return {'team_paths': {}, 'bounds': None, 'after_party': None}
     teams = await build_teams(event['_id'])
+    after_party_point = _after_party_location(event)
+    phase_sequence = ['appetizer', 'main', 'dessert']
+    phase_rank = {phase: idx for idx, phase in enumerate(phase_sequence)}
+    has_after_party_coords = (
+        isinstance(after_party_point, dict)
+        and isinstance(after_party_point.get('lat'), (int, float))
+        and isinstance(after_party_point.get('lon'), (int, float))
+    )
+    if has_after_party_coords:
+        phase_rank['after_party'] = len(phase_rank)
     needed_ids = _collect_needed_ids(groups) if id_filter else None
     coord_map: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
     for team in teams:
@@ -61,9 +71,8 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
                 return (lat, lon)
         return (None, None)
 
-    phase_order = ['appetizer', 'main', 'dessert']
     path_points: Dict[str, List[Tuple[str, Optional[float], Optional[float]]]] = {}
-    for phase in phase_order:
+    for phase in phase_sequence:
         for group in groups:
             if group.get('phase') != phase:
                 continue
@@ -76,12 +85,15 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
                     continue
                 lat, lon = await resolve_coords(host)
                 path_points.setdefault(team_id, []).append((phase, lat, lon))
+    if has_after_party_coords:
+        for points in path_points.values():
+            points.append(('after_party', after_party_point['lat'], after_party_point['lon']))
     bounds = None
     min_lat = min_lon = float('inf')
     max_lat = max_lon = float('-inf')
     team_paths: Dict[str, dict] = {}
     for team_id, points in path_points.items():
-        sorted_points = sorted(points, key=lambda item: phase_order.index(item[0]) if item[0] in phase_order else 0)
+        sorted_points = sorted(points, key=lambda item: phase_rank.get(item[0], len(phase_rank)))
         for _, lat, lon in sorted_points:
             if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
                 min_lat = min(min_lat, float(lat))
@@ -114,8 +126,14 @@ async def compute_team_paths(event_id: str, version: Optional[int] = None, ids: 
         }
     if min_lat != float('inf'):
         bounds = {'min_lat': min_lat, 'min_lon': min_lon, 'max_lat': max_lat, 'max_lon': max_lon}
-    after_party = _after_party_location(event)
-    return {'team_paths': team_paths, 'bounds': bounds, 'after_party': after_party}
+    elif has_after_party_coords:
+        bounds = {
+            'min_lat': float(after_party_point['lat']),
+            'max_lat': float(after_party_point['lat']),
+            'min_lon': float(after_party_point['lon']),
+            'max_lon': float(after_party_point['lon']),
+        }
+    return {'team_paths': team_paths, 'bounds': bounds, 'after_party': after_party_point if has_after_party_coords else None}
 
 
 def _group_involves_requested(group: dict, id_filter: Set[str]) -> bool:
@@ -142,10 +160,40 @@ def _has_coordinates(point: Tuple[str, Optional[float], Optional[float]]) -> boo
 
 
 def _after_party_location(event: Optional[dict]) -> Optional[dict]:
-    try:
-        coords = (((event or {}).get('after_party_location') or {}).get('point') or {}).get('coordinates')
-        if isinstance(coords, list) and len(coords) == 2 and all(isinstance(value, (int, float)) for value in coords):
-            return {'lat': float(coords[1]), 'lon': float(coords[0])}
-    except Exception:
+    def _extract_coords(source: Optional[dict]) -> Optional[Tuple[float, float]]:
+        if not isinstance(source, dict):
+            return None
+        try:
+            for key in ('point', 'zip'):
+                candidate = source.get(key)
+                if isinstance(candidate, dict):
+                    coords = candidate.get('coordinates')
+                    if (
+                        isinstance(coords, list)
+                        and len(coords) == 2
+                        and all(isinstance(value, (int, float)) for value in coords)
+                    ):
+                        return (float(coords[1]), float(coords[0]))
+            direct = source.get('coordinates')
+            if (
+                isinstance(direct, list)
+                and len(direct) == 2
+                and all(isinstance(value, (int, float)) for value in direct)
+            ):
+                return (float(direct[1]), float(direct[0]))
+            lat = source.get('lat')
+            lon = source.get('lon')
+            if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+                return (float(lat), float(lon))
+        except Exception:
+            return None
         return None
+
+    event_dict = event or {}
+    primary = _extract_coords(event_dict.get('after_party_location'))
+    if primary:
+        return {'lat': primary[0], 'lon': primary[1]}
+    fallback = _extract_coords(event_dict.get('location'))
+    if fallback:
+        return {'lat': fallback[0], 'lon': fallback[1]}
     return None

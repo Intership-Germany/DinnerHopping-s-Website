@@ -17,7 +17,10 @@ from ..services.matching import (
     enqueue_matching_job,
     get_matching_job,
     list_matching_jobs,
+    optimize_match_result,
 )
+from ..services.matching import jobs as _matching_jobs_module
+from ..services.matching.config import geocode_missing_enabled
 from ..services.routing import route_polyline
 import datetime
 
@@ -25,6 +28,67 @@ import datetime
 
 # Main matching router (mounted under /matching in main.py)
 router = APIRouter()
+
+
+def _compose_address(address_struct: Optional[dict]) -> Optional[str]:
+    if not isinstance(address_struct, dict):
+        return None
+    street = str(address_struct.get('street') or '').strip()
+    street_no = str(address_struct.get('street_no') or '').strip()
+    city = str(address_struct.get('city') or '').strip()
+    postal = str(address_struct.get('postal_code') or '').strip()
+    parts = []
+    street_part = " ".join([street, street_no]).strip()
+    if street_part:
+        parts.append(street_part)
+    city_part = " ".join([postal, city]).strip()
+    if city_part:
+        parts.append(city_part)
+    if not parts:
+        return None
+    return ", ".join(parts)
+
+
+async def _fetch_user_with_geocode(email: str, cache: Dict[str, Optional[dict]]) -> Optional[dict]:
+    key = (email or '').strip().lower()
+    if not key:
+        return None
+    if key in cache:
+        return cache[key]
+    user = await db_mod.db.users.find_one({'email': email})
+    if not user and key != email:
+        user = await db_mod.db.users.find_one({'email': key})
+    if not user:
+        cache[key] = None  # type: ignore[assignment]
+        return None
+    lat = user.get('lat')
+    lon = user.get('lon')
+    if geocode_missing_enabled() and (lat is None or lon is None):
+        address = _compose_address(user.get('address_struct'))
+        if not address:
+            raw_addr = user.get('address')
+            if isinstance(raw_addr, str) and raw_addr.strip():
+                address = raw_addr.strip()
+        if address:
+            try:
+                from ..services.geocoding import geocode_address  # local import to avoid cycles at module load
+
+                coords = await geocode_address(address)
+            except Exception:
+                coords = None
+            if coords:
+                lat, lon = coords
+                user['lat'] = float(lat)
+                user['lon'] = float(lon)
+                try:
+                    await db_mod.db.users.update_one(
+                        {'_id': user['_id']},
+                        {'$set': {'lat': float(lat), 'lon': float(lon), 'geocoded_at': datetime.datetime.now(datetime.timezone.utc)}},
+                    )
+                except Exception:
+                    pass
+    cache[key] = user
+    return user
 
 
 def _pair_key(a: str, b: str) -> Tuple[str, str]:
@@ -188,6 +252,7 @@ async def move_team(event_id: str, payload: dict, _=Depends(require_admin)):
     if not m:
         raise HTTPException(status_code=404, detail='Match version not found')
     groups = m.get('groups') or []
+    await _build_synthetic_entries(tmap, teams, groups, m.get('unmatched_units'))
     phase_groups_idx = [i for i,g in enumerate(groups) if g.get('phase') == phase]
     if from_idx >= len(phase_groups_idx) or to_idx >= len(phase_groups_idx):
         raise HTTPException(status_code=400, detail='Invalid group indices')
@@ -511,6 +576,7 @@ async def recompute_metrics(event_id: str, version: int, _=Depends(require_admin
     # Build team mapping with coordinates and attributes
     teams = await _build_teams(ev['_id'])
     tmap = _build_team_map_with_emails(teams)
+    await _build_synthetic_entries(tmap, teams, groups_in)
     groups = m.get('groups') or []
     new_groups: List[dict] = []
     # helper for host address
@@ -523,6 +589,8 @@ async def recompute_metrics(event_id: str, version: int, _=Depends(require_admin
         guests = [tmap.get(tid, {}) for tid in guest_ids]
         base_score, warns, allergy_details = _score_group_phase(host, guests, phase, {})
         travel = await _travel_time_for_phase(host, guests)
+        if (not travel) and isinstance(g.get('travel_seconds'), (int, float)):
+            travel = float(g.get('travel_seconds'))
         host_email = _get_host_email(host)
         addr_full = addr_pub = None
         if host_email:
@@ -556,7 +624,6 @@ async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin))
     Payload: { groups: [ { phase, host_team_id, guest_team_ids }... ] }
     Returns: { groups: [ with score, travel_seconds, warnings ], metrics: {..} }
     """
-    await require_event_published(event_id)
     groups_in = payload.get('groups') or []
     # Load event and build team map (lat/lon, capabilities)
     ev = await db_mod.db.events.find_one({'_id': ObjectId(event_id)})
@@ -575,6 +642,8 @@ async def preview_groups(event_id: str, payload: dict, _=Depends(require_admin))
         guests = [tmap.get(tid, {}) for tid in guest_ids]
         base_score, warns, allergy_details = _score_group_phase(host, guests, phase, {})
         travel = await _travel_time_for_phase(host, guests)
+        if (not travel) and isinstance(g.get('travel_seconds'), (int, float)):
+            travel = float(g.get('travel_seconds'))
         host_email = _get_host_email(host)
         addr_full = addr_pub = None
         if host_email:
@@ -632,6 +701,170 @@ def _get_host_email(host: dict) -> Optional[str]:
     except Exception:
         host_email = None
     return host_email
+
+
+async def _build_synthetic_entries(
+    team_map: Dict[str, dict],
+    teams: List[dict],
+    groups: List[dict],
+    unmatched_units: Optional[List[dict]] = None,
+) -> None:
+    """Ensure synthetic (pair:, split:) units used in groups have basic team entries.
+
+    Provides enough data (lat/lon, dietary info, emails) so travel/score calculations
+    remain stable during preview/recompute flows.
+    """
+    if not groups:
+        return
+    needed_ids: Set[str] = set()
+    for g in groups:
+        if not isinstance(g, dict):
+            continue
+        ids = []
+        host_id = g.get('host_team_id')
+        if host_id is not None:
+            ids.append(str(host_id))
+        ids.extend([str(tid) for tid in (g.get('guest_team_ids') or []) if tid is not None])
+        for tid in ids:
+            if not isinstance(tid, str):
+                continue
+            if tid in team_map:
+                continue
+            if tid.startswith('pair:') or tid.startswith('split:'):
+                needed_ids.add(tid)
+    if unmatched_units:
+        for entry in unmatched_units:
+            tid = entry.get('team_id')
+            if isinstance(tid, str) and tid not in team_map and (tid.startswith('pair:') or tid.startswith('split:')):
+                needed_ids.add(tid)
+    if not needed_ids:
+        return
+
+    solo_by_email: Dict[str, dict] = {}
+    for entry in teams:
+        tid = str(entry.get('team_id'))
+        if not tid.startswith('solo:'):
+            continue
+        raw_emails: List[str] = []
+        for reg in entry.get('member_regs') or []:
+            em = reg.get('user_email_snapshot')
+            if em:
+                raw_emails.append(str(em).strip().lower())
+        if not raw_emails:
+            team_doc = entry.get('team_doc') or {}
+            for member in team_doc.get('members') or []:
+                em = member.get('email')
+                if em:
+                    raw_emails.append(str(em).strip().lower())
+        for em in raw_emails:
+            if not em:
+                continue
+            solo_by_email.setdefault(em, entry)
+
+    unmatched_lookup: Dict[str, dict] = {}
+    if unmatched_units:
+        unmatched_lookup = {
+            str(entry.get('team_id')): entry
+            for entry in unmatched_units
+            if isinstance(entry.get('team_id'), str)
+        }
+
+    user_cache: Dict[str, Optional[dict]] = {}
+
+    for sid in needed_ids:
+        if sid in team_map:
+            continue
+        if sid.startswith('pair:'):
+            payload = sid.split(':', 1)[1] if ':' in sid else ''
+            emails_raw = [p for p in payload.split('+') if p]
+        elif sid.startswith('split:'):
+            segment = sid.split(':', 1)[1] if ':' in sid else ''
+            emails_raw = [segment] if segment else []
+        else:
+            emails_raw = []
+        normalized_emails = [e.strip().lower() for e in emails_raw if e]
+
+        lat_values: List[float] = []
+        lon_values: List[float] = []
+        diet_candidates: List[str] = []
+        course_candidates: List[str] = []
+        host_allergies: Set[str] = set()
+        allergies: Set[str] = set()
+        can_host_main = False
+        can_host_any = False
+        for em in normalized_emails:
+            solo_entry = solo_by_email.get(em)
+            if solo_entry:
+                if solo_entry.get('team_diet'):
+                    diet_candidates.append(str(solo_entry.get('team_diet')))
+                if solo_entry.get('course_preference'):
+                    course_candidates.append(str(solo_entry.get('course_preference')))
+                if solo_entry.get('can_host_main'):
+                    can_host_main = True
+                if solo_entry.get('can_host_any'):
+                    can_host_any = True
+                for item in solo_entry.get('host_allergies') or []:
+                    if item is not None:
+                        host_allergies.add(str(item))
+                for item in solo_entry.get('allergies') or []:
+                    if item is not None:
+                        allergies.add(str(item))
+        for em in normalized_emails:
+            user = await _fetch_user_with_geocode(em, user_cache)
+            if not user:
+                continue
+            lat = user.get('lat')
+            lon = user.get('lon')
+            if isinstance(lat, (int, float)):
+                lat_values.append(float(lat))
+            if isinstance(lon, (int, float)):
+                lon_values.append(float(lon))
+            prefs = user.get('preferences') or {}
+            if prefs.get('main_course_possible') is True:
+                can_host_main = True
+            if prefs.get('kitchen_available') is True:
+                can_host_any = True
+            for key in ('allergies', 'host_allergies'):
+                values = user.get(key)
+                if not isinstance(values, list):
+                    continue
+                target = host_allergies if key == 'host_allergies' else allergies
+                for item in values:
+                    if item is not None:
+                        target.add(str(item))
+
+        if 'vegan' in [d.lower() for d in diet_candidates]:
+            team_diet = 'vegan'
+        elif 'vegetarian' in [d.lower() for d in diet_candidates]:
+            team_diet = 'vegetarian'
+        elif diet_candidates:
+            team_diet = diet_candidates[0]
+        else:
+            team_diet = 'omnivore'
+
+        course_preference = course_candidates[0] if course_candidates else None
+        lat = sum(lat_values) / len(lat_values) if lat_values else None
+        lon = sum(lon_values) / len(lon_values) if lon_values else None
+        emails_original = [e for e in emails_raw if e]
+        unmatched_meta = unmatched_lookup.get(sid) or {}
+        size = unmatched_meta.get('size') if isinstance(unmatched_meta.get('size'), int) and unmatched_meta.get('size') > 0 else (len(emails_original) or 1)
+
+        team_map[sid] = {
+            'team_id': sid,
+            'size': size,
+            'team_diet': team_diet,
+            'course_preference': course_preference,
+            'can_host_main': can_host_main,
+            'can_host_any': can_host_any,
+            'lat': lat,
+            'lon': lon,
+            'allergies': sorted(allergies),
+            'host_allergies': sorted(host_allergies),
+            'emails': [e.lower() for e in emails_original],
+            'member_regs': [],
+            'team_doc': {'members': [{'email': e} for e in emails_original]},
+            'cooking_location': 'creator',
+        }
 
 
 def _build_team_map_with_emails(teams: List[dict]) -> Dict[str, dict]:
@@ -822,18 +1055,125 @@ async def delete_matches(event_id: str, version: Optional[int] = None, _=Depends
     Updates the event.matching_status to 'not_started' if all are deleted.
     """
     await require_event_published(event_id)
+    now = datetime.datetime.utcnow()
     if version is not None:
         m = await db_mod.db.matches.find_one({'event_id': event_id, 'version': int(version)})
         if not m:
             raise HTTPException(status_code=404, detail='Match version not found')
+        # Delete the match document
         res = await db_mod.db.matches.delete_one({'_id': m['_id']})
-        return {'deleted_count': res.deleted_count, 'version': int(version)}
+
+        # Delete any plans generated from this version (plans are tagged with match_version)
+        try:
+            plans_res = await db_mod.db.plans.delete_many({'event_id': ObjectId(event_id), 'match_version': int(version)})
+            plans_deleted = plans_res.deleted_count
+        except Exception:
+            plans_deleted = 0
+
+        # Find matching_jobs that reference this version in their proposals and remove them.
+        job_ids = []
+        async for jd in db_mod.db.matching_jobs.find({'event_id': event_id, 'proposals.version': int(version)}):
+            job_ids.append(jd.get('_id'))
+
+        # Cancel any in-memory active tasks for those job ids
+        try:
+            for jid in list(job_ids):
+                task = _matching_jobs_module._ACTIVE_JOBS.get(jid)
+                if task is not None and not task.done():
+                    try:
+                        task.cancel()
+                    except Exception:
+                        pass
+            if job_ids:
+                await db_mod.db.matching_jobs.delete_many({'_id': {'$in': job_ids}})
+            jobs_deleted = len(job_ids)
+        except Exception:
+            jobs_deleted = 0
+
+        return {'deleted_matches': res.deleted_count, 'deleted_jobs': jobs_deleted, 'deleted_plans': plans_deleted, 'version': int(version)}
     # delete all
+    # delete all match docs for event
     res = await db_mod.db.matches.delete_many({'event_id': event_id})
+    # delete all plans for event
+    try:
+        plans_res = await db_mod.db.plans.delete_many({'event_id': ObjectId(event_id)})
+        plans_deleted = plans_res.deleted_count
+    except Exception:
+        plans_deleted = 0
+
+    # find all job ids for this event, cancel in-memory, and remove job docs
+    job_ids = []
+    async for jd in db_mod.db.matching_jobs.find({'event_id': event_id}):
+        job_ids.append(jd.get('_id'))
+    try:
+        for jid in list(job_ids):
+            task = _matching_jobs_module._ACTIVE_JOBS.get(jid)
+            if task is not None and not task.done():
+                try:
+                    task.cancel()
+                except Exception:
+                    pass
+        if job_ids:
+            jobs_del_res = await db_mod.db.matching_jobs.delete_many({'_id': {'$in': job_ids}})
+            jobs_deleted = jobs_del_res.deleted_count
+        else:
+            jobs_deleted = 0
+    except Exception:
+        jobs_deleted = 0
+
     # set event.matching_status back to not_started
-    now = datetime.datetime.utcnow()
     await db_mod.db.events.update_one({'_id': ObjectId(event_id)}, {'$set': {'matching_status': 'not_started', 'updated_at': now}})
-    return {'deleted_count': res.deleted_count}
+    return {'deleted_matches': res.deleted_count, 'deleted_jobs': jobs_deleted, 'deleted_plans': plans_deleted}
+
+
+@router.post('/{event_id}/unrelease')
+async def unrelease_match(event_id: str, version: int, current_admin=Depends(require_admin)):
+    """Less-destructive undo of a release: remove generated plans for the given match version
+    and revert the match document's finalized metadata while keeping the proposal itself.
+
+    - Deletes plans tagged with match_version == version for this event.
+    - Sets match.status back to 'proposed' and unsets finalized_by/finalized_at.
+    - Updates event.matching_status based on remaining matches.
+    """
+    await require_event_published(event_id)
+    try:
+        event_oid = ObjectId(event_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail='Event not found')
+    m = await db_mod.db.matches.find_one({'event_id': event_id, 'version': int(version)})
+    if not m:
+        raise HTTPException(status_code=404, detail='Match version not found')
+    # Only operate if currently finalized (safety)
+    if (m.get('status') or '').lower() != 'finalized':
+        raise HTTPException(status_code=400, detail='Match version is not finalized')
+
+    # Delete associated plans for this version (plans have match_version)
+    try:
+        plans_res = await db_mod.db.plans.delete_many({'event_id': event_oid, 'match_version': int(version)})
+        plans_deleted = plans_res.deleted_count
+    except Exception:
+        plans_deleted = 0
+
+    # Revert match metadata: set status to proposed and remove finalized fields
+    now = datetime.datetime.utcnow()
+    try:
+        await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'status': 'proposed', 'updated_at': now}, '$unset': {'finalized_by': '', 'finalized_at': ''}})
+    except Exception:
+        pass
+
+    # Recompute event.matching_status: if any finalized remain -> finalized, elif any proposals -> proposed, else not_started
+    any_finalized = await db_mod.db.matches.find_one({'event_id': event_id, 'status': 'finalized'})
+    if any_finalized:
+        new_status = 'finalized'
+    else:
+        any_match = await db_mod.db.matches.find_one({'event_id': event_id})
+        new_status = 'proposed' if any_match else 'not_started'
+    try:
+        await db_mod.db.events.update_one({'_id': event_oid}, {'$set': {'matching_status': new_status, 'updated_at': now}})
+    except Exception:
+        pass
+
+    return {'status': 'unreleased', 'plans_deleted': plans_deleted, 'version': int(version)}
 
 
 @router.post('/{event_id}/validate')
@@ -945,3 +1285,93 @@ async def set_groups(event_id: str, payload: dict, _=Depends(require_admin)):
     metrics = _compute_metrics(new_groups, {}, team_details=tmap)
     await db_mod.db.matches.update_one({'_id': m['_id']}, {'$set': {'groups': new_groups, 'metrics': metrics, 'updated_at': datetime.datetime.utcnow()}})
     return { 'status': 'saved', 'version': version, 'metrics': metrics }
+
+
+@router.post('/{event_id}/optimize')
+async def optimize_existing_match(
+    event_id: str,
+    payload: Optional[dict] = None,
+    _=Depends(require_admin)
+):
+    """
+    Manually trigger optimization for an existing match version.
+    Attempts to improve the match by recreating auto-paired teams.
+    
+    Payload: {
+        version?: int,  # Match version to optimize (default: latest)
+        weights?: dict, # Custom scoring weights
+        max_attempts?: int,  # Maximum optimization attempts (default: 3)
+        parallel?: bool  # Run attempts in parallel for speed (default: true)
+    }
+    """
+    await require_event_published(event_id)
+    payload = payload or {}
+    
+    # Find the match to optimize
+    version = payload.get('version')
+    query: Dict[str, Any] = {'event_id': event_id}
+    if version is not None:
+        query['version'] = int(version)
+    
+    match_doc = await db_mod.db.matches.find_one(query, sort=[('version', -1)])
+    if not match_doc:
+        raise HTTPException(status_code=404, detail='No match found to optimize')
+    
+    # Extract event ObjectId
+    try:
+        event_oid = ObjectId(event_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail='Invalid event ID')
+    
+    # Prepare the result dict for optimization
+    initial_result = {
+        'algorithm': match_doc.get('algorithm', 'unknown'),
+        'groups': match_doc.get('groups', []),
+        'metrics': match_doc.get('metrics', {}),
+        'unmatched_units': match_doc.get('unmatched_units', []),
+    }
+    
+    # Get weights from payload or use defaults
+    weights = payload.get('weights') or {}
+    max_attempts = int(payload.get('max_attempts', 3))
+    max_attempts = max(1, min(10, max_attempts))  # Clamp between 1 and 10
+    
+    # Get parallel mode (default: true for speed)
+    parallel = payload.get('parallel', True)
+    
+    # Run optimization
+    optimized_result = await optimize_match_result(
+        event_oid,
+        initial_result,
+        weights,
+        max_attempts=max_attempts,
+        parallel=parallel,
+    )
+    
+    # Check if optimization improved the result
+    improved = optimized_result != initial_result
+    
+    if improved:
+        # Save optimized result as a new version
+        from ..services.matching import persist_match_proposal
+        new_match = await persist_match_proposal(event_id, optimized_result)
+        
+        return {
+            'status': 'optimized',
+            'improved': True,
+            'mode': 'parallel' if parallel else 'sequential',
+            'original_version': match_doc.get('version'),
+            'new_version': new_match.get('version'),
+            'new_match_id': new_match.get('id'),
+            'original_metrics': initial_result.get('metrics', {}),
+            'optimized_metrics': optimized_result.get('metrics', {}),
+        }
+    else:
+        return {
+            'status': 'no_improvement',
+            'improved': False,
+            'mode': 'parallel' if parallel else 'sequential',
+            'version': match_doc.get('version'),
+            'metrics': initial_result.get('metrics', {}),
+        }
+

@@ -867,7 +867,23 @@ async def register_team(payload: TeamRegistrationIn, current_user=Depends(get_cu
             except Exception:
                 # Fallback: send a simple notification email if invitation creation fails
                 try:
-                    event_date = ev.get('date') or (ev.get('start_at').strftime('%Y-%m-%d') if ev.get('start_at') else 'TBD')
+                    event_date = ev.get('date')
+                    if not event_date:
+                        sa = ev.get('start_at')
+                        if isinstance(sa, datetime.datetime):
+                            event_date = sa.strftime('%Y-%m-%d')
+                        elif isinstance(sa, str):
+                            try:
+                                # try to parse ISO datetime or date
+                                if 'T' in sa or (sa.count('-') == 2 and len(sa) >= 10):
+                                    event_date = datetime.datetime.fromisoformat(sa).date().isoformat()
+                                else:
+                                    # time-only or unknown format
+                                    event_date = 'TBD'
+                            except Exception:
+                                event_date = 'TBD'
+                        else:
+                            event_date = 'TBD'
                     from app import notifications
                     email_sent = await notifications.send_team_invitation(
                         partner_email=partner_user.get('email'),
@@ -1174,7 +1190,21 @@ async def get_team_details(team_id: str, current_user=Depends(get_current_user))
     # Get creator info
     creator = await db_mod.db.users.find_one({'_id': team.get('created_by_user_id')})
     
-    event_date = ev.get('date') or (ev.get('start_at').strftime('%Y-%m-%d') if ev.get('start_at') else 'TBD')
+    event_date = ev.get('date')
+    if not event_date:
+        sa = ev.get('start_at')
+        if isinstance(sa, datetime.datetime):
+            event_date = sa.strftime('%Y-%m-%d')
+        elif isinstance(sa, str):
+            try:
+                if 'T' in sa or (sa.count('-') == 2 and len(sa) >= 10):
+                    event_date = datetime.datetime.fromisoformat(sa).date().isoformat()
+                else:
+                    event_date = 'TBD'
+            except Exception:
+                event_date = 'TBD'
+        else:
+            event_date = 'TBD'
     
     # serialize members for frontend consumption
     members_out = []

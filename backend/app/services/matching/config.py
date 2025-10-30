@@ -82,6 +82,24 @@ def allow_team_splits() -> bool:
 
 
 @lru_cache(maxsize=1)
+def enable_result_optimization() -> bool:
+    """Return whether to enable post-matching optimization to fix issues (default: enabled)."""
+    return _bool_env("MATCH_ENABLE_OPTIMIZATION", True)
+
+
+@lru_cache(maxsize=1)
+def optimization_max_attempts() -> int:
+    """Maximum number of optimization attempts when issues are found (default: 3)."""
+    return max(1, min(10, _int_env("MATCH_OPTIMIZATION_MAX_ATTEMPTS", "3")))
+
+
+@lru_cache(maxsize=1)
+def optimization_parallel_mode() -> bool:
+    """Whether to run optimization attempts in parallel for speed (default: enabled)."""
+    return _bool_env("MATCH_OPTIMIZATION_PARALLEL", True)
+
+
+@lru_cache(maxsize=1)
 def routing_parallelism() -> int:
     return max(1, _int_env("MATCH_ROUTING_PARALLELISM", "6"))
 

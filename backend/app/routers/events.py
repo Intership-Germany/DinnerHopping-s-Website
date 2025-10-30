@@ -99,6 +99,36 @@ def _sanitize_event_doc(doc: dict) -> dict:
     for f in date_fields:
         if f in doc:
             parsed = _parse_incoming_date(f, doc.get(f))
+            # If start_at was provided as a time-only string like '23:30', and we
+            # have an event 'date' available in the same payload, combine them
+            # into a full datetime for storage. Otherwise keep the time string as-is.
+            if f == 'start_at' and isinstance(parsed, str):
+                txt = parsed.strip()
+                # simple HH:MM or HH:MM:SS format
+                parts = txt.split(':')
+                if 2 <= len(parts) <= 3:
+                    try:
+                        h = int(parts[0])
+                        m = int(parts[1])
+                        s = int(parts[2]) if len(parts) == 3 else 0
+                        if 0 <= h < 24 and 0 <= m < 60 and 0 <= s < 60:
+                            # resolve event date if present in doc
+                            dval = doc.get('date')
+                            date_obj = None
+                            if isinstance(dval, str) and len(dval) == 10 and dval.count('-') == 2:
+                                try:
+                                    date_obj = datetime.date.fromisoformat(dval)
+                                except Exception:
+                                    date_obj = None
+                            elif isinstance(dval, datetime.date):
+                                date_obj = dval
+                            elif isinstance(dval, datetime.datetime):
+                                date_obj = dval.date()
+                            if date_obj is not None:
+                                parsed = datetime.datetime.combine(date_obj, datetime.time(h, m, s))
+                    except Exception:
+                        # fall back to leaving parsed as original string
+                        pass
             # Promote stray datetime.date (non 'date') to datetime
             if isinstance(parsed, datetime.date) and not isinstance(parsed, datetime.datetime):
                 if f == 'date':
@@ -166,6 +196,9 @@ class LocationIn(BaseModel):
     address: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    # Optional reveal/start time for after-party. Frontend may send only a time
+    # string like '21:30' (no date). We accept and store it as a string.
+    reveal_at: Optional[str] = None
 
 class EventCreate(BaseModel):
     """Admin event creation/update payload (simplified pricing).
@@ -177,7 +210,8 @@ class EventCreate(BaseModel):
     description: Optional[str] = None
     extra_info: Optional[str] = None
     date: Optional[datetime.date] = None
-    start_at: Optional[datetime.datetime] = None
+    # Accept either a full ISO datetime or a time-only string like '23:30'
+    start_at: Optional[str] = None
     capacity: Optional[int] = None
     fee_cents: Optional[int] = 0
     city: Optional[str] = None
@@ -189,10 +223,16 @@ class EventCreate(BaseModel):
     status: Optional[Literal['draft','coming_soon','open','closed','matched','released','cancelled']] = 'draft'
     refund_on_cancellation: Optional[bool] = None
     chat_enabled: Optional[bool] = None
+    # Optional per-meal times (HH:MM or ISO time). These allow event-level
+    # defaults for appetizer/main/dessert instead of using environment defaults.
+    appetizer_time: Optional[str] = None
+    main_time: Optional[str] = None
+    dessert_time: Optional[str] = None
 
 class LocationOut(BaseModel):
     address_public: Optional[str] = None
     point: Optional[dict] = None
+    reveal_at: Optional[str] = None
 
 class EventOut(BaseModel):
     id: str
@@ -200,7 +240,8 @@ class EventOut(BaseModel):
     description: Optional[str] = None
     extra_info: Optional[str] = None
     date: Optional[datetime.date] = None
-    start_at: Optional[datetime.datetime] = None
+    # We return start_at as string (ISO datetime or time-only) so frontend can handle it consistently
+    start_at: Optional[str] = None
     capacity: Optional[int] = None
     fee_cents: Optional[int] = 0
     city: Optional[str] = None
@@ -218,6 +259,10 @@ class EventOut(BaseModel):
     refund_on_cancellation: Optional[bool] = None
     chat_enabled: Optional[bool] = None
     event_plan: Optional[str] = None  # New field to include event plan details
+    # Per-meal times as stored on the event (if provided)
+    appetizer_time: Optional[str] = None
+    main_time: Optional[str] = None
+    dessert_time: Optional[str] = None
 
 def _safe_location(loc: Optional[dict]) -> Optional[dict]:
     """Coerce location-like dict to API-friendly shape.
@@ -235,6 +280,10 @@ def _safe_location(loc: Optional[dict]) -> Optional[dict]:
     if not isinstance(pt, dict):
         pt = loc.get('zip') if isinstance(loc.get('zip'), dict) else None
     out['point'] = pt if isinstance(pt, dict) else None
+    # pass through optional reveal/start time (may be time-only string)
+    ra = loc.get('reveal_at') if isinstance(loc.get('reveal_at'), (str, type(None))) else None
+    if ra:
+        out['reveal_at'] = str(ra)
     return out
 
 @router.get("/", response_model=list[EventOut])
@@ -361,12 +410,22 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
                 'address_public': anonymize_public_address(address),
                 'zip': {'type': 'Point', 'coordinates': [lon, lat]} if lat is not None and lon is not None else None
             }
+        # copy optional reveal_at into the stored after_party_location
+        if isinstance(loc_in.get('reveal_at'), str):
+            if after_party_location is None:
+                after_party_location = {}
+            after_party_location['reveal_at'] = loc_in.get('reveal_at')
+        # accept optional reveal/start time (time-only string like '21:30')
+        if isinstance(loc_in.get('reveal_at'), str) and after_party_location is not None:
+            after_party_location['reveal_at'] = loc_in.get('reveal_at')
         elif lat is not None and lon is not None:
             after_party_location = {
                 'address_encrypted': None,
                 'address_public': None,
                 'zip': {'type': 'Point', 'coordinates': [lon, lat]}
             }
+        if isinstance(loc_in.get('reveal_at'), str) and after_party_location is not None:
+            after_party_location['reveal_at'] = loc_in.get('reveal_at')
     if after_party_location is not None:
         doc['after_party_location'] = after_party_location
 
@@ -384,6 +443,11 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
     doc['fee_cents'] = int(doc.get('fee_cents', 0)) if doc.get('fee_cents') is not None else 0
     doc['registration_deadline'] = doc.get('registration_deadline')
     doc['payment_deadline'] = doc.get('payment_deadline')
+    # persist optional meal times if provided
+    for k in ('appetizer_time', 'main_time', 'dessert_time'):
+        if k in doc and doc.get(k) is not None:
+            # store as string as-is; frontend expects 'HH:MM' or similar
+            doc[k] = str(doc.get(k))
     doc['matching_status'] = doc.get('matching_status', 'not_started')
     doc['created_at'] = now
     doc['updated_at'] = now
@@ -424,6 +488,9 @@ async def create_event(payload: EventCreate, current_user=Depends(require_admin)
         refund_on_cancellation=doc.get('refund_on_cancellation'),
         chat_enabled=doc.get('chat_enabled'),
         valid_zip_codes=doc.get('valid_zip_codes', []),
+        appetizer_time=doc.get('appetizer_time'),
+        main_time=doc.get('main_time'),
+        dessert_time=doc.get('dessert_time'),
     )
 
 # Alias without trailing slash for clients/tests calling '/events' exactly when redirect_slashes=False
@@ -466,7 +533,11 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
         # if address_public present keep only that
         pub = loc.get('address_public')
         if pub:
-            serialized['after_party_location'] = {'address_public': pub}
+            # preserve reveal_at (time-only) even when anonymising address
+            out_loc = {'address_public': pub}
+            if isinstance(loc.get('reveal_at'), str):
+                out_loc['reveal_at'] = loc.get('reveal_at')
+            serialized['after_party_location'] = out_loc
         else:
             # derive anonymised from point/zip coordinates if present
             pt_raw = loc.get('point') if isinstance(loc.get('point'), dict) else None
@@ -475,7 +546,11 @@ async def get_event(event_id: str, anonymise: bool = True, current_user=Depends(
             if pt_raw and isinstance(pt_raw.get('coordinates'), list) and len(pt_raw['coordinates']) == 2:
                 lon, lat = pt_raw['coordinates']
                 if lat is not None and lon is not None:
-                    serialized['after_party_location'] = anonymize_address(lat, lon)
+                    anon = anonymize_address(lat, lon)
+                    # include reveal_at even when anonymised
+                    if isinstance(loc.get('reveal_at'), str):
+                        anon['reveal_at'] = loc.get('reveal_at')
+                    serialized['after_party_location'] = anon
     else:
         serialized['after_party_location'] = loc
     # include organizer_id/created_by as strings
@@ -534,6 +609,11 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
                 'address_public': None,
                 'zip': {'type': 'Point', 'coordinates': [lon, lat]}
             }
+        # copy optional reveal_at into the stored after_party_location for updates
+        if isinstance(loc_in.get('reveal_at'), str):
+            if after_party_location is None:
+                after_party_location = {}
+            after_party_location['reveal_at'] = loc_in.get('reveal_at')
     if after_party_location is not None:
         update['after_party_location'] = after_party_location
 
@@ -602,6 +682,9 @@ async def update_event(event_id: str, payload: EventCreate, _=Depends(require_ad
         refund_on_cancellation=e.get('refund_on_cancellation'),
         chat_enabled=e.get('chat_enabled'),
         valid_zip_codes=e.get('valid_zip_codes', []),
+        appetizer_time=e.get('appetizer_time'),
+        main_time=e.get('main_time'),
+        dessert_time=e.get('dessert_time'),
     )
 
 
@@ -878,8 +961,13 @@ async def get_my_plan(event_id: str, current_user=Depends(get_current_user)):
         if host_email and host_email in users:
             sec['host_first_name'] = users[host_email].get('first_name')
 
-        # 8. Parse section time
+        # 8. Parse section time. If section doesn't have a time, fall back to
+        # event-level defaults (appetizer_time/main_time/dessert_time) when available.
         section_time = section.get('time')
+        if not section_time:
+            meal = (section.get('meal') or '').lower()
+            if meal in ('appetizer', 'main', 'dessert'):
+                section_time = event.get(f"{meal}_time") if event else None
         unlock_time = None
         if section_time and event_date:
             try:

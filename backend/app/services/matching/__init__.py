@@ -39,6 +39,7 @@ from .jobs import (
     get_matching_job,
     list_matching_jobs,
 )
+from .optimizer import optimize_match_result
 
 __all__ = [
     'ALGORITHMS',
@@ -65,4 +66,5 @@ __all__ = [
     'enqueue_matching_job',
     'get_matching_job',
     'list_matching_jobs',
+    'optimize_match_result',
 ]

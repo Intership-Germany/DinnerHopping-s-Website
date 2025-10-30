@@ -769,14 +769,22 @@ async function logEventPlan() {
       }
     }
 
-    if (eventData && eventData.after_party_location) {
-      const afterPartySection = document.getElementById('afterPartySection');
+    const afterPartySection = document.getElementById('afterPartySection');
+    if (afterPartySection) {
       const afterPartyAddressSpan = document.getElementById('afterPartyAddress');
-      if (afterPartySection && afterPartyAddressSpan) {
-        afterPartySection.classList.remove('hidden');
-        afterPartyAddressSpan.textContent =
-          eventData.after_party_location.address_public || 'Location not yet published';
+      const afterPartyTimeSpan = document.getElementById('afterPartyTime');
+      const afterPartyLocation = eventData && eventData.after_party_location ? eventData.after_party_location : null;
+      const afterPartyAddress = afterPartyLocation &&
+        (afterPartyLocation.address_public || afterPartyLocation.address || '');
+
+      if (afterPartyAddressSpan) {
+        afterPartyAddressSpan.textContent = afterPartyAddress || 'Address not provided yet';
       }
+      if (afterPartyTimeSpan) {
+        afterPartyTimeSpan.textContent = formatFinalPartyTime(eventData ? eventData.start_at : null);
+      }
+
+      afterPartySection.classList.remove('hidden');
     }
 
     if ((eventData?.fee_cents || 0) > 0) {
@@ -990,6 +998,38 @@ function formatTime(timeString) {
   } catch (e) {
     return timeString;
   }
+}
+
+function formatFinalPartyTime(rawValue) {
+  if (!rawValue && rawValue !== 0) return 'Time not specified';
+
+  if (typeof rawValue === 'object' && rawValue !== null) {
+    if (rawValue.$date) {
+      return formatFinalPartyTime(rawValue.$date);
+    }
+    if (typeof rawValue.toString === 'function') {
+      return formatFinalPartyTime(rawValue.toString());
+    }
+  }
+
+  if (typeof rawValue === 'string') {
+    const trimmed = rawValue.trim();
+    if (!trimmed) return 'Time not specified';
+
+    const timeOnly = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (timeOnly) {
+      const hh = timeOnly[1].padStart(2, '0');
+      const mm = timeOnly[2].padStart(2, '0');
+      return formatTime(`${hh}:${mm}`);
+    }
+
+    const parsedDate = new Date(trimmed);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return parsedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+  }
+
+  return 'Time not specified';
 }
 
 /**

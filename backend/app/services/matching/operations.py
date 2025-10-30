@@ -456,8 +456,26 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
 
     now = datetime.now(timezone.utc)
 
+    # Prepare per-meal times: prefer event-level settings, then config defaults
+    cfg_defaults = meal_time_defaults() or {}
+    event_times: Dict[str, str] = {}
+    try:
+        if isinstance(event, dict):
+            # allow both 'appetizer_time' and 'appetizer' style keys if present
+            event_times['appetizer'] = event.get('appetizer_time') or event.get('appetizer') or ''
+            event_times['main'] = event.get('main_time') or event.get('main') or ''
+            event_times['dessert'] = event.get('dessert_time') or event.get('dessert') or ''
+    except Exception:
+        event_times = {}
+
     def _meal_time(meal: str) -> str:
-        return '20:00' if meal=='main' else ('18:00' if meal=='appetizer' else '22:00')
+        m = str(meal or '').lower()
+        # prefer event-level time if present and non-empty
+        val = (event_times.get(m) or '').strip()
+        if val:
+            return val
+        # fallback to config defaults
+        return cfg_defaults.get(m) or ('20:00' if m == 'main' else ('18:00' if m == 'appetizer' else '22:00'))
 
     sections_by_email: Dict[str, List[dict]] = {}
     for g in groups:
@@ -531,6 +549,7 @@ async def generate_plans_from_matches(event_id: str, version: int) -> int:
         doc = {
             'event_id': ObjectId(event_id),
             'user_email': em,
+                'match_version': int(version),
             'sections': secs,
                 'created_at': datetime.now(timezone.utc),
         }

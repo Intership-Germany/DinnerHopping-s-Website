@@ -12,7 +12,10 @@ from ... import db as db_mod
 from .config import (
     allow_team_splits,
     algorithm_seed,
+    enable_result_optimization,
     guest_candidate_limit,
+    optimization_max_attempts,
+    optimization_parallel_mode,
     phases,
     routing_parallelism,
     travel_fast_mode,
@@ -451,6 +454,7 @@ async def run_algorithms(
     algorithms: List[str],
     weights: Optional[Dict[str, float]] = None,
     progress_cb: Optional[ProgressCallback] = None,
+    enable_optimization: Optional[bool] = None,
 ) -> List[dict]:
     event = await get_event(event_id)
     if not event:
@@ -459,6 +463,11 @@ async def run_algorithms(
     weights = weights or {}
     results: List[dict] = []
     total = max(1, len(algorithms))
+    
+    # Check if optimization should be enabled
+    should_optimize = enable_optimization if enable_optimization is not None else enable_result_optimization()
+    max_attempts = optimization_max_attempts() if should_optimize else 0
+    
     for index, name in enumerate(algorithms, start=1):
         fn = ALGORITHMS.get(name)
         if not fn:
@@ -494,6 +503,70 @@ async def run_algorithms(
 
         res = await fn(oid, weights, progress_cb=algorithm_step_cb)
         res['event_id'] = str(event['_id'])
+        
+        # Apply optimization if enabled and issues are detected
+        if should_optimize and max_attempts > 0:
+            # Check if there are issues that need optimization
+            metrics = res.get('metrics') or {}
+            unmatched_count = int(metrics.get('unmatched_participant_count', 0))
+            
+            # Look for warnings in groups
+            groups = res.get('groups') or []
+            has_warnings = any(group.get('warnings') for group in groups)
+            
+            if unmatched_count > 0 or has_warnings:
+                if progress_cb:
+                    await progress_cb({
+                        'stage': 'optimization_start',
+                        'algorithm': name,
+                        'index': index,
+                        'total': total,
+                    })
+                
+                # Import optimizer here to avoid circular dependency
+                from .optimizer import optimize_match_result
+                
+                # Set up optimization progress callback
+                async def optimization_progress_cb(update: Dict[str, Any]) -> None:
+                    if progress_cb:
+                        await progress_cb({
+                            'stage': 'optimization',
+                            'algorithm': name,
+                            'index': index,
+                            'total': total,
+                            'optimization_update': update,
+                        })
+                
+                # Determine if we should use parallel mode
+                parallel_mode = optimization_parallel_mode()
+                
+                # Try to optimize
+                optimized_res = await optimize_match_result(
+                    oid,
+                    res,
+                    weights,
+                    max_attempts=max_attempts,
+                    progress_cb=optimization_progress_cb,
+                    parallel=parallel_mode,
+                )
+                
+                # Use optimized result if it's better
+                if optimized_res != res:
+                    res = optimized_res
+                    res['optimized'] = True
+                    res['optimization_mode'] = 'parallel' if parallel_mode else 'sequential'
+                    res['event_id'] = str(event['_id'])
+                
+                if progress_cb:
+                    await progress_cb({
+                        'stage': 'optimization_done',
+                        'algorithm': name,
+                        'index': index,
+                        'total': total,
+                        'improved': res.get('optimized', False),
+                        'mode': res.get('optimization_mode', 'none'),
+                    })
+        
         results.append(res)
 
         if progress_cb:
